@@ -1,6 +1,37 @@
-node_modules/
-dist/
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Environment variables — NEVER commit these
 .env
 .env.local
-*.log
+.env.production
+.env.staging
+
+# Apple Wallet certificates — NEVER commit these
+wallet-assets/apple-pass/*.pem
+wallet-assets/apple-pass/*.key
+wallet-assets/apple-pass/*.p12
+wallet-assets/apple-pass/*.cer
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
 .DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.superpowers/

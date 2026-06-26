@@ -1,0 +1,14 @@
+# nixpacks.toml — Configuración de build para Railway
+# Railway detecta automáticamente Node.js; esto lo hace explícito.
+
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm start"

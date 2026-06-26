@@ -1,0 +1,31 @@
+{
+  "formatVersion": 1,
+  "organizationName": "Xolobitos Grooming",
+  "description": "Tarjeta de Lealtad Xolobitos",
+  "logoText": "XOLOBITOS",
+  "foregroundColor": "rgb(255, 255, 255)",
+  "backgroundColor": "rgb(30, 58, 138)",
+  "labelColor": "rgb(148, 163, 184)",
+  "storeCard": {
+    "headerFields": [],
+    "primaryFields": [],
+    "secondaryFields": [],
+    "auxiliaryFields": [],
+    "backFields": []
+  },
+  "barcodes": [
+    {
+      "message": "PLACEHOLDER",
+      "format": "PKBarcodeFormatQR",
+      "messageEncoding": "iso-8859-1"
+    }
+  ],
+  "locations": [
+    {
+      "latitude": 20.387784,
+      "longitude": -99.9541369,
+      "relevantText": "¡Estás cerca de Xolobitos! Muestra tu tarjeta de lealtad"
+    }
+  ],
+  "maxDistance": 100
+}

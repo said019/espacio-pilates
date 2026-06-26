@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(psql -h autorack.proxy.rlwy.net -p 42978 -U postgres -d railway -c ':*)",
+      "Bash(ls *.env .env* server/.env*)",
+      "Bash(npx railway:*)",
+      "Bash(railway link:*)",
+      "Read(//Users/saidromero/.railway/**)",
+      "Bash(railway projects:*)",
+      "Bash(railway project:*)"
+    ]
+  }
+}

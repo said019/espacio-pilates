@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/png" href="/icon-192.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="manifest" href="/site.webmanifest" />
+  <meta name="theme-color" content="#FAE5E7" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Valiance Pilates" />
+  <link rel="apple-touch-startup-image" href="/icon-512.png" />
+  <title>Valiance Pilates</title>
+  <meta name="description" content="Valiance Pilates — Estudio boutique de Pilates Reformer y Barre. Movimiento con propósito y elegancia." />
+  <meta name="author" content="Valiance Pilates" />
+
+  <meta property="og:title" content="Valiance Pilates" />
+  <meta property="og:description" content="Estudio boutique de Pilates Reformer y Barre." />
+  <meta property="og:type" content="website" />
+  <meta property="og:image" content="/valiance-logo.png" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:site" content="@ValiancePilates" />
+  <meta name="twitter:image" content="/valiance-logo.png" />
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(() => {});
+      });
+    }
+  </script>
+</body>
+
+</html>

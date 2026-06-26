@@ -1,0 +1,442 @@
+/* ──────────────────────────────────────────────────────────────
+   VALIANCE PILATES — TIPOGRAFÍAS OFICIALES
+   Cormorant Garamond  →  display / headings  (font-display)
+   Inter               →  body / text         (font-body)
+   ────────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ──────────────────────────────────────────────────────────────
+   PALETA OFICIAL VALIANCE PILATES
+   Background : #FDF7F8  (nude rosado claro)
+   Hero/Brand : #FAE5E7  (Pantone 705 C — del logo)
+   Texto      : #1A1A1A  (charcoal)
+   Acento     : #C9A96E  (gold del mármol)
+   ────────────────────────────────────────────────────────────── */
+
+@layer base {
+  :root {
+    /* Fondo principal Valiance — nude rosado */
+    --background: 350 60% 98%;           /* #FDF7F8 */
+    --foreground: 0 0% 10%;              /* #1A1A1A charcoal */
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+
+    /* Primario: Blush del logo #FAE5E7 */
+    --primary: 352 67% 94%;
+    --primary-foreground: 0 0% 10%;
+
+    /* Secundario: Mauve #8C6B6F */
+    --secondary: 352 12% 49%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 350 30% 94%;
+    --muted-foreground: 352 8% 41%;
+
+    /* Acento: Gold premium #C9A96E (mármol) */
+    --accent: 38 47% 61%;
+    --accent-foreground: 0 0% 10%;
+
+    --destructive: 0 50% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 350 40% 90%;
+    --input: 350 40% 90%;
+    --ring: 38 47% 61%;
+
+    --radius: 0.75rem;
+
+    /* Tokens Valiance (disponibles como var() en cualquier componente) */
+    --valiance-blush:    352 67% 94%;    /* #FAE5E7 */
+    --valiance-nude:     350 60% 98%;    /* #FDF7F8 */
+    --valiance-mauve:    352 12% 49%;    /* #8C6B6F */
+    --valiance-gold:     38 47% 61%;     /* #C9A96E */
+    --valiance-charcoal: 0 0% 10%;       /* #1A1A1A */
+
+    /* Backwards-compat aliases */
+    --punto-cream:       350 60% 98%;
+    --punto-green:       352 67% 94%;
+    --punto-taupe:       352 12% 49%;
+    --pink-glow:         352 67% 94%;
+
+    /* ── Motion tokens (Emil) ──────────────────────────────────────────────
+       Las curvas built-in de CSS son débiles. Estas tienen el "punch" que
+       hace que las animaciones se sientan intencionales. */
+    --ease-out-strong:    cubic-bezier(0.23, 1, 0.32, 1);    /* enter / pop-in */
+    --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);   /* on-screen movement */
+    --ease-drawer:        cubic-bezier(0.32, 0.72, 0, 1);    /* iOS-style drawer */
+
+    /* Duraciones canónicas — UI quédate bajo 300ms */
+    --dur-fast:   100ms;  /* button press feedback */
+    --dur-quick:  160ms;  /* tooltip, hover */
+    --dur-snap:   200ms;  /* dropdowns, popovers */
+    --dur-modal:  240ms;  /* dialogs, drawers */
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-feature-settings: "ss01", "cv11", "tnum";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Cormorant Garamond', 'Playfair Display', serif;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  .font-display,
+  .font-gulfs,
+  .font-bebas {
+    font-family: 'Cormorant Garamond', 'Playfair Display', serif;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  .font-body,
+  .font-alilato,
+  .font-syne,
+  .font-dm {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  /* Premium focus ring — gold tinted */
+  *:focus-visible {
+    outline: 2px solid hsl(var(--ring) / 0.6);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Better text selection */
+  ::selection {
+    background: #FAE5E7;
+    color: #1A1A1A;
+  }
+}
+
+/* Subtle grain overlay — breaks digital flatness, premium editorial feel */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary));
+}
+
+/* Animations */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes jump {
+  0%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-90px) scaleX(0.9); }
+  50% { transform: translateY(-100px) scaleX(1.05); }
+  70% { transform: translateY(-20px); }
+}
+
+@keyframes ring-pulse {
+  0% { opacity: 0.5; transform: scale(0.9); }
+  100% { opacity: 0; transform: scale(1.2); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
+@keyframes float1 {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-30px) scale(1.05); }
+}
+
+@keyframes scroll-left {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.8s ease both;
+}
+
+.animate-jump {
+  animation: jump 1.8s ease-in-out infinite;
+}
+
+.animate-ring-pulse {
+  animation: ring-pulse 3s ease-out infinite;
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s infinite;
+}
+
+.animate-float {
+  animation: float1 8s ease-in-out infinite;
+}
+
+.animate-float-reverse {
+  animation: float1 10s ease-in-out infinite reverse;
+}
+
+.animate-scroll-left {
+  animation: scroll-left 30s linear infinite;
+}
+
+.animate-scroll-left:hover {
+  animation-play-state: paused;
+}
+
+/* Delay utilities */
+.delay-100 { animation-delay: 0.1s; }
+.delay-200 { animation-delay: 0.2s; }
+.delay-300 { animation-delay: 0.3s; }
+.delay-400 { animation-delay: 0.4s; }
+.delay-500 { animation-delay: 0.5s; }
+.delay-600 { animation-delay: 0.6s; }
+.delay-800 { animation-delay: 0.8s; }
+.delay-1000 { animation-delay: 1s; }
+
+/* ── Date/time inputs: clickable on entire field, not just the icon ── */
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+  cursor: pointer;
+  position: relative;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+@layer utilities {
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+
+  .admin-page {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 1rem;
+  }
+
+  .admin-card-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
+  .admin-title {
+    font-size: clamp(1.25rem, 2.6vw, 1.85rem);
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+}
+
+@media (min-width: 640px) {
+  .admin-page {
+    padding: 1.25rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .admin-page {
+    padding: 1.5rem;
+  }
+
+  .admin-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1023px) {
+  .admin-mobile-main {
+    overflow-x: hidden;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   Motion utilities (Emil)
+   - .press        → scale-on-press feedback for any pressable element
+   - .stagger-in   → fade + slide entry; children get cascading delays
+   - .reveal       → fade-up on scroll (requires data-reveal attribute set
+                     by the IntersectionObserver helper, or inline style)
+   El soporte para prefers-reduced-motion remueve el desplazamiento pero
+   conserva la opacidad para no perder la pista de comprehension.
+   ────────────────────────────────────────────────────────────────────── */
+
+.press {
+  transition: transform var(--dur-fast) var(--ease-out-strong);
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+/* ── Override de tailwindcss-animate: easing y duraciones Emil ──────────
+   Aplica a cualquier componente Radix (Dialog, Popover, Dropdown, Sheet,
+   Tooltip, Select, Tabs) que use animate-in/animate-out vía data-state. */
+[data-state="open"].animate-in,
+[data-state="closed"].animate-out,
+[data-state="delayed-open"].animate-in,
+[data-state="instant-open"].animate-in {
+  animation-timing-function: var(--ease-out-strong);
+}
+
+/* Por categoría: overlays/modales suelen ser ~240ms; popover/dropdown 200ms. */
+[role="dialog"][data-state="open"],
+[role="alertdialog"][data-state="open"] {
+  animation-duration: var(--dur-modal);
+}
+[role="dialog"][data-state="closed"],
+[role="alertdialog"][data-state="closed"] {
+  animation-duration: var(--dur-snap);
+}
+
+[role="menu"][data-state],
+[role="listbox"][data-state],
+[data-radix-popper-content-wrapper] > [data-state] {
+  animation-duration: var(--dur-snap);
+}
+
+/* Origin-aware popovers/dropdowns: scale desde el trigger en vez del centro.
+   Radix expone --radix-*-content-transform-origin en cada primitivo de popper. */
+[data-radix-popper-content-wrapper] > [data-state] {
+  transform-origin: var(--radix-popover-content-transform-origin,
+                    var(--radix-dropdown-menu-content-transform-origin,
+                    var(--radix-tooltip-content-transform-origin,
+                    var(--radix-select-content-transform-origin, center))));
+}
+
+/* Sheets/drawers laterales: curva tipo iOS y duración un poco mayor que un
+   dialog (sustancia, no flash). Detecta Sheet por la clase slide-in-from-*. */
+[data-state="open"][class*="slide-in-from-right"],
+[data-state="open"][class*="slide-in-from-left"],
+[data-state="open"][class*="slide-in-from-bottom"],
+[data-state="open"][class*="slide-in-from-top"] {
+  animation-duration: 360ms;
+  animation-timing-function: var(--ease-drawer);
+}
+[data-state="closed"][class*="slide-out-to-right"],
+[data-state="closed"][class*="slide-out-to-left"],
+[data-state="closed"][class*="slide-out-to-bottom"],
+[data-state="closed"][class*="slide-out-to-top"] {
+  animation-duration: 240ms;
+  animation-timing-function: var(--ease-drawer);
+}
+
+/* Tabs content cross-fade más limpio. */
+[data-state="active"][role="tabpanel"] {
+  animation: stagger-fade-up 180ms var(--ease-out-strong);
+}
+
+@keyframes stagger-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.stagger-in > * {
+  opacity: 0;
+  animation: stagger-fade-up 320ms var(--ease-out-strong) forwards;
+}
+.stagger-in > *:nth-child(1)  { animation-delay: 0ms; }
+.stagger-in > *:nth-child(2)  { animation-delay: 30ms; }
+.stagger-in > *:nth-child(3)  { animation-delay: 60ms; }
+.stagger-in > *:nth-child(4)  { animation-delay: 90ms; }
+.stagger-in > *:nth-child(5)  { animation-delay: 120ms; }
+.stagger-in > *:nth-child(6)  { animation-delay: 150ms; }
+.stagger-in > *:nth-child(7)  { animation-delay: 180ms; }
+.stagger-in > *:nth-child(8)  { animation-delay: 210ms; }
+.stagger-in > *:nth-child(9)  { animation-delay: 240ms; }
+.stagger-in > *:nth-child(10) { animation-delay: 270ms; }
+.stagger-in > *:nth-child(n+11) { animation-delay: 300ms; }
+
+/* ── Reveal on scroll: upgrade Emil ──
+   Index.tsx ya usa .reveal + IntersectionObserver con clases Tailwind
+   (opacity-0 + translate-y-6 + transition-all duration-700). Aquí solo
+   sobre-escribimos la curva default (que es débil) por la fuerte. */
+.reveal {
+  transition-timing-function: var(--ease-out-strong) !important;
+  will-change: opacity, transform;
+}
+
+/* Variante clip-path para imágenes hero/promo: reveal vertical desde abajo.
+   Aplicar manualmente con className="reveal-clip" donde valga la pena. */
+.reveal-clip {
+  clip-path: inset(0 0 100% 0);
+  transition: clip-path 900ms var(--ease-in-out-strong);
+}
+.reveal-clip.opacity-100,
+.reveal-clip[data-shown="true"] {
+  clip-path: inset(0 0 0 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .press,
+  .press:active {
+    transform: none;
+    transition: none;
+  }
+  .stagger-in > * {
+    opacity: 1;
+    animation: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
