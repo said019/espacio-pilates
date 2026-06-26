@@ -1,5 +1,5 @@
 /* ──────────────────────────────────────────────────────────────
-   VALIANCE PILATES — TIPOGRAFÍAS OFICIALES
+   TU ESPACIO PILATES VM — TIPOGRAFÍAS OFICIALES
    Cormorant Garamond  →  display / headings  (font-display)
    Inter               →  body / text         (font-body)
    ────────────────────────────────────────────────────────────── */
@@ -10,18 +10,20 @@
 @tailwind utilities;
 
 /* ──────────────────────────────────────────────────────────────
-   PALETA OFICIAL VALIANCE PILATES
-   Background : #FDF7F8  (nude rosado claro)
-   Hero/Brand : #FAE5E7  (Pantone 705 C — del logo)
-   Texto      : #1A1A1A  (charcoal)
-   Acento     : #C9A96E  (gold del mármol)
+   PALETA OFICIAL TU ESPACIO PILATES VM
+   Background : #FBF6F4  (nude — tinte suave)
+   Primario   : #C9ADA3  (blush — rosa empolvado)
+   Secundario : #C0AAD6  (lavender — lila)
+   Texto      : #1A1A1A  (ink)
+   Acento     : #B8915A  (gold premium)
+   Neutro frío: #E3E7E9  (gray — bordes / muted)
    ────────────────────────────────────────────────────────────── */
 
 @layer base {
   :root {
-    /* Fondo principal Valiance — nude rosado */
-    --background: 350 60% 98%;           /* #FDF7F8 */
-    --foreground: 0 0% 10%;              /* #1A1A1A charcoal */
+    /* Fondo principal VM — nude #FBF6F4 */
+    --background: 17 47% 97%;            /* #FBF6F4 nude */
+    --foreground: 0 0% 10%;             /* #1A1A1A ink */
 
     --card: 0 0% 100%;
     --card-foreground: 0 0% 10%;
@@ -29,42 +31,54 @@
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 10%;
 
-    /* Primario: Blush del logo #FAE5E7 */
-    --primary: 352 67% 94%;
-    --primary-foreground: 0 0% 10%;
+    /* Primario: Blush #C9ADA3 — mid-light, texto INK (blanco falla contraste) */
+    --primary: 16 26% 71%;              /* #C9ADA3 blush */
+    --primary-foreground: 0 0% 10%;     /* #1A1A1A ink */
 
-    /* Secundario: Mauve #8C6B6F */
-    --secondary: 352 12% 49%;
-    --secondary-foreground: 0 0% 100%;
+    /* Secundario: Lavender/lila #C0AAD6 — texto INK */
+    --secondary: 270 35% 75%;           /* #C0AAD6 lavender */
+    --secondary-foreground: 0 0% 10%;   /* #1A1A1A ink */
 
-    --muted: 350 30% 94%;
-    --muted-foreground: 352 8% 41%;
+    /* Muted: neutro frío #E3E7E9 */
+    --muted: 200 12% 90%;               /* #E3E7E9 gray frío */
+    --muted-foreground: 0 0% 35%;
 
-    /* Acento: Gold premium #C9A96E (mármol) */
-    --accent: 38 47% 61%;
-    --accent-foreground: 0 0% 10%;
+    /* Acento: Gold premium #B8915A — texto blanco OK */
+    --accent: 35 40% 54%;               /* #B8915A gold */
+    --accent-foreground: 0 0% 100%;     /* blanco sobre gold OK */
 
     --destructive: 0 50% 52%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 350 40% 90%;
-    --input: 350 40% 90%;
-    --ring: 38 47% 61%;
+    /* Border / input: neutro frío para coherencia con la familia nude/gray */
+    --border: 200 12% 90%;              /* #E3E7E9 gray frío */
+    --input: 200 12% 90%;               /* #E3E7E9 gray frío */
+    --ring: 35 40% 54%;                 /* #B8915A gold */
 
     --radius: 0.75rem;
 
-    /* Tokens Valiance (disponibles como var() en cualquier componente) */
-    --valiance-blush:    352 67% 94%;    /* #FAE5E7 */
-    --valiance-nude:     350 60% 98%;    /* #FDF7F8 */
-    --valiance-mauve:    352 12% 49%;    /* #8C6B6F */
-    --valiance-gold:     38 47% 61%;     /* #C9A96E */
-    --valiance-charcoal: 0 0% 10%;       /* #1A1A1A */
+    /* Tokens de marca VM (disponibles como var() en cualquier componente) */
+    --tep-blush:      16 26% 71%;        /* #C9ADA3 */
+    --tep-nude:       17 47% 97%;        /* #FBF6F4 */
+    --tep-rose:       12 36% 86%;        /* #E8D3CE */
+    --tep-lavender:   270 35% 75%;       /* #C0AAD6 */
+    --tep-lilac-soft: 268 40% 91%;       /* #E7DEF1 */
+    --tep-gray:       200 12% 90%;       /* #E3E7E9 */
+    --tep-ink:        0 0% 10%;          /* #1A1A1A */
+    --tep-gold:       35 40% 54%;        /* #B8915A */
+
+    /* Alias backwards-compat `--valiance-*` → mapeado a la paleta VM */
+    --valiance-blush:    16 26% 71%;     /* → tep blush  #C9ADA3 */
+    --valiance-nude:     17 47% 97%;     /* → tep nude   #FBF6F4 */
+    --valiance-mauve:    270 35% 75%;    /* → tep lavender #C0AAD6 */
+    --valiance-gold:     35 40% 54%;     /* → tep gold   #B8915A */
+    --valiance-charcoal: 0 0% 10%;       /* → tep ink    #1A1A1A */
 
     /* Backwards-compat aliases */
-    --punto-cream:       350 60% 98%;
-    --punto-green:       352 67% 94%;
-    --punto-taupe:       352 12% 49%;
-    --pink-glow:         352 67% 94%;
+    --punto-cream:       17 47% 97%;
+    --punto-green:       16 26% 71%;
+    --punto-taupe:       270 35% 75%;
+    --pink-glow:         16 26% 71%;
 
     /* ── Motion tokens (Emil) ──────────────────────────────────────────────
        Las curvas built-in de CSS son débiles. Estas tienen el "punch" que
@@ -135,7 +149,7 @@
 
   /* Better text selection */
   ::selection {
-    background: #FAE5E7;
+    background: #C9ADA3;
     color: #1A1A1A;
   }
 }

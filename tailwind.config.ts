@@ -47,24 +47,37 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        /* ── Valiance Pilates brand palette ── */
+        /* ── Tu Espacio Pilates VM — paleta de marca (hex = fuente de verdad) ── */
+        tep: {
+          blush:     "#C9ADA3",  /* primario — rosa empolvado */
+          nude:      "#FBF6F4",  /* fondo principal — tinte suave */
+          rose:      "#E8D3CE",  /* hover / tinte rosado */
+          lavender:  "#C0AAD6",  /* acento lila — secundario */
+          lilacSoft: "#E7DEF1",  /* tinte lila suave */
+          gray:      "#E3E7E9",  /* neutro frío — bordes / muted */
+          ink:       "#1A1A1A",  /* tinta — texto principal */
+          gold:      "#B8915A",  /* acento dorado premium */
+        },
+        /* ── Alias backwards-compat `valiance-*` → mapeado a la paleta VM.
+             Mantiene TODAS las claves heredadas (charcoal/mauve/plum/dusty/
+             cream/wood) para no romper ~500 referencias en componentes. ── */
         valiance: {
-          blush:    "#FAE5E7",  /* Pantone 705 C — del logo */
-          nude:     "#FDF7F8",  /* fondo principal */
-          rose:     "#F0D0D5",  /* hover suave */
-          dusty:    "#D9B5BA",  /* acento medio */
-          mauve:    "#8C6B6F",  /* texto secundario */
-          plum:     "#6B4F53",  /* headers tipo COSTOS */
-          charcoal: "#1A1A1A",  /* texto principal */
-          cream:    "#FBF7F4",  /* fondo cálido */
-          gold:     "#C9A96E",  /* acento premium (mármol) */
-          wood:     "#A87749",  /* acento cálido */
+          blush:    "#C9ADA3",  /* → tep.blush (primario) */
+          nude:     "#FBF6F4",  /* → tep.nude (fondo) */
+          rose:     "#E8D3CE",  /* → tep.rose (hover suave) */
+          dusty:    "#C0AAD6",  /* → tep.lavender (acento medio) */
+          mauve:    "#8B7785",  /* texto secundario — lila desaturado */
+          plum:     "#5A4A57",  /* headers — lila profundo */
+          charcoal: "#1A1A1A",  /* → tep.ink (texto principal) */
+          cream:    "#FBF6F4",  /* → tep.nude (fondo cálido) */
+          gold:     "#B8915A",  /* → tep.gold (acento premium) */
+          wood:     "#A8794F",  /* acento cálido — dorado profundo */
         },
         /* ── Backwards-compat alias para no romper código heredado ── */
         punto: {
-          cream:       "#FDF7F8",
-          green:       "#FAE5E7",
-          taupe:       "#8C6B6F",
+          cream:       "#FBF6F4",  /* → tep.nude */
+          green:       "#C9ADA3",  /* → tep.blush */
+          taupe:       "#8B7785",  /* lila desaturado (mauve) */
         },
       },
       borderRadius: {
@@ -84,11 +97,11 @@ export default {
         dm:       ['"Inter"', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        /* tinted shadows — Valiance */
-        "valiance-soft": "0 12px 40px -16px rgba(140,107,111,0.18)",
-        "valiance-card": "0 20px 50px -25px rgba(140,107,111,0.22)",
+        /* tinted shadows — Tu Espacio Pilates VM (lavender / ink / gold) */
+        "valiance-soft": "0 12px 40px -16px rgba(192,170,214,0.20)",
+        "valiance-card": "0 20px 50px -25px rgba(201,173,163,0.24)",
         "valiance-deep": "0 30px 60px -25px rgba(26,26,26,0.45)",
-        "valiance-gold": "0 15px 40px -20px rgba(201,169,110,0.45)",
+        "valiance-gold": "0 15px 40px -20px rgba(184,145,90,0.45)",
       },
       keyframes: {
         "accordion-down": {
