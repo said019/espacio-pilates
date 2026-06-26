@@ -4,7 +4,7 @@ import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import Schedule from "@/components/Schedule";
 import {
-  Waves, Flame, Activity, Sparkles, Clock, MapPin, Phone, Mail,
+  Waves, Flame, Activity, Sparkles, Clock, MapPin, Phone, Instagram,
   ArrowUpRight, Menu, X, Heart, Users, Star,
 } from "lucide-react";
 
@@ -14,7 +14,7 @@ import muroLateral from "@/assets/valiance-pilates-images/1000452109.jpg";      
 import salaArcos1 from "@/assets/valiance-pilates-images/1000452084.jpg";         // sala arcos
 import salaArcos2 from "@/assets/valiance-pilates-images/1000452086.jpg";
 import salaArcos3 from "@/assets/valiance-pilates-images/1000452106.jpg";
-import salaMatBarre from "@/assets/valiance-pilates-images/1000452105.jpg";       // sala barre
+import salaMatBarre from "@/assets/valiance-pilates-images/1000452105.jpg";       // sala mat / tower
 import detalleVela from "@/assets/valiance-pilates-images/1000452104.jpg";        // ambiente
 import detalleBalones from "@/assets/valiance-pilates-images/1000431479.jpg";     // balones
 import claseAcostadas from "@/assets/valiance-pilates-images/1000439853.jpg";
@@ -35,106 +35,102 @@ type PackageRow = {
   is_active: boolean; sort_order: number;
 };
 
-/* ───── Datos reales Valiance (extraídos de las imágenes oficiales) ───── */
+/* ───── Datos reales Tu Espacio Pilates VM ───── */
 const FALLBACK_CLASS_TYPES: ClassTypeRow[] = [
   {
-    id: "c1", name: "Pilates Reformer", subtitle: "Resistencia controlada",
-    description: "Tu sesión central. Bajo impacto, alta exigencia. Trabajamos core, postura y fuerza con la máquina reformer en grupos de 5 — atención uno a uno en cada clase.",
-    category: "reformer", intensity: "media", color: "#FAE5E7",
-    emoji: "waves", level: "Todos los niveles", duration_min: 55, capacity: 5,
+    id: "c1", name: "Pilates", subtitle: "Disciplina única",
+    description: "Una sola práctica, cuatro aparatos. Trabajamos sobre reformer, tower, mat y silla en grupos de 8 — bajo impacto, alta exigencia y atención personalizada en cada clase. La diferencia está en el conocimiento de nuestras coach y en nuestros aparatos.",
+    category: "pilates", intensity: "media", color: "#C9ADA3",
+    emoji: "waves", level: "Todos los niveles · madres y embarazadas", duration_min: 55, capacity: 8,
     is_active: true, sort_order: 1,
   },
   {
-    id: "c2", name: "Barre", subtitle: "Inspirado en ballet",
-    description: "Coreografía + pilates + funcional. Tonifica piernas, glúteos y core con micro-movimientos de alta repetición. Sale con piernas temblando y con una sonrisa.",
-    category: "barre", intensity: "media", color: "#D9B5BA",
-    emoji: "sparkles", level: "Todos los niveles", duration_min: 55, capacity: 5,
+    id: "c2", name: "Reformer", subtitle: "El aparato estrella",
+    description: "Resistencia controlada con poleas y resortes. Construye fuerza, postura y control de core sin castigar las articulaciones. Cada movimiento se adapta a ti.",
+    category: "reformer", intensity: "media", color: "#C9ADA3",
+    emoji: "sparkles", level: "Todos los niveles", duration_min: 55, capacity: 8,
     is_active: true, sort_order: 2,
   },
   {
-    id: "c3", name: "HIIT Barre", subtitle: "Cardio + barra",
-    description: "Versión high-intensity de Barre: intervalos de cardio sin perder técnica. La clase para los días que tu energía pide más.",
-    category: "hiit", intensity: "alta", color: "#C9A96E",
-    emoji: "flame", level: "Intermedio", duration_min: 55, capacity: 5,
+    id: "c3", name: "Tower & Silla", subtitle: "Fuerza y estabilidad",
+    description: "El tower y la silla suman planos de movimiento distintos: más rango, más reto de equilibrio y un trabajo profundo de tren superior y core.",
+    category: "tower", intensity: "media", color: "#C0AAD6",
+    emoji: "flame", level: "Todos los niveles", duration_min: 55, capacity: 8,
     is_active: true, sort_order: 3,
   },
   {
     id: "c4", name: "Mat", subtitle: "Pilates clásico en colchoneta",
     description: "Conexión profunda con el core, respiración consciente y control postural. Sin máquina, todo eres tú y tu cuerpo.",
-    category: "mat", intensity: "media", color: "#8C6B6F",
-    emoji: "activity", level: "Todos los niveles", duration_min: 55, capacity: 5,
+    category: "mat", intensity: "media", color: "#8B7785",
+    emoji: "activity", level: "Todos los niveles", duration_min: 55, capacity: 8,
     is_active: true, sort_order: 4,
   },
 ];
 
-const PACKAGES_REFORMER = [
-  { id: "r1", name: "Primera vez", classes: 1, price: 150, hint: "Vigencia 30 días" },
-  { id: "r2", name: "Clase suelta", classes: 1, price: 200, hint: "Vigencia 30 días" },
-  { id: "r3", name: "2 clases", classes: 2, price: 380, hint: "Probando ritmo" },
-  { id: "r4", name: "4 clases", classes: 4, price: 720, hint: "1 vez a la semana" },
-  { id: "r5", name: "8 clases", classes: 8, price: 1400, hint: "2 veces a la semana", popular: true },
-  { id: "r6", name: "12 clases", classes: 12, price: 2040, hint: "3 veces a la semana" },
-  { id: "r7", name: "20 clases", classes: 20, price: 3300, hint: "Compromiso total", best: true },
+/* Temas musculares por día — cupo 8 por clase */
+const TEMAS_SEMANA = [
+  { dia: "Lunes", tema: "Pierna & glúteo" },
+  { dia: "Martes", tema: "Full body" },
+  { dia: "Miércoles", tema: "Tren superior" },
+  { dia: "Jueves", tema: "Pierna & glúteo" },
+  { dia: "Viernes", tema: "Full body" },
+  { dia: "Sábado", tema: "Core" },
 ] as const;
 
-const PACKAGES_BARRE = [
-  { id: "b1", name: "Primera vez", classes: 1, price: 85 },
-  { id: "b2", name: "Clase suelta", classes: 1, price: 145 },
-  { id: "b3", name: "4 clases", classes: 4, price: 540 },
-  { id: "b4", name: "8 clases", classes: 8, price: 1040 },
-  { id: "b5", name: "12 clases", classes: 12, price: 1500 },
+/* Horarios por bloque — cupo 8 */
+const HORARIOS = [
+  { dias: "Lun · Mié · Vie", horas: ["7:00", "8:00", "9:00 am", "5:30", "6:30", "7:30", "8:30 pm"] },
+  { dias: "Mar · Jue", horas: ["5:30", "6:30", "7:30 pm"] },
+  { dias: "Sábado", horas: ["9:00 am"] },
 ] as const;
 
-const PROMOS = [
-  {
-    id: "promo1",
-    title: "Membresía Ilimitada",
-    price: 2900,
-    period: "30 días",
-    desc: "Reformer y Barre sin límite. Lunes a domingo. La opción para quien hace del estudio parte de su rutina.",
-    badge: "Más libertad",
-  },
-  {
-    id: "promo2",
-    title: "Morning Pass",
-    price: 1250,
-    period: "8 clases · 30 días",
-    desc: "Reformer en turnos 7, 8 y 9 AM, lunes a viernes. Empieza el día con tu hora de fuerza.",
-    badge: "Para madrugadoras",
-  },
+/* Paquetes mensuales — no acumulables, vencen al fin del mes de compra */
+const PAQUETES = [
+  { id: "p1", name: "7 clases", classes: 7, price: 880, hint: "1–2 por semana" },
+  { id: "p2", name: "9 clases", classes: 9, price: 1050, hint: "2 por semana", popular: true },
+  { id: "p3", name: "14 clases", classes: 14, price: 1400, hint: "3+ por semana", best: true },
 ] as const;
 
-const COMBOS = [
-  { id: "co1", name: "4 Reformer + 4 Barre", price: 1140 },
-  { id: "co2", name: "8 Reformer + 4 Barre", price: 1680 },
-  { id: "co3", name: "8 Reformer + 8 Barre", price: 2000 },
+/* Cargos puntuales */
+const CARGOS = [
+  { id: "x1", name: "Inscripción", price: 500, hint: "Pago único" },
+  { id: "x2", name: "Clase extra", price: 130, hint: "Para ya inscritas" },
+  { id: "x3", name: "Clase suelta / visita", price: 250, hint: "Sin inscripción" },
 ] as const;
+
+/* Eventos — sección informativa, no reservable */
+const EVENTO_BASE = [
+  { personas: "3 personas", price: 900 },
+  { personas: "4 personas", price: 1200 },
+  { personas: "5 personas", price: 1490 },
+  { personas: "8 personas", price: 2000 },
+] as const;
+
+const EVENTO_BRUNCH = [
+  { personas: "3 personas", price: 1350 },
+  { personas: "4 personas", price: 1800 },
+  { personas: "5 personas", price: 2250 },
+  { personas: "8 personas", price: 2600 },
+] as const;
+
+const HORARIOS_EVENTOS = "Sábado 11 am · 4, 5, 6, 7 pm · Domingo 10, 11, 12 pm";
 
 const VALORES = [
-  { icon: Heart, label: "Bienestar", text: "Tu cuerpo decide el ritmo. Lo escuchamos antes de exigirle." },
-  { icon: Star, label: "Disciplina", text: "Constancia sobre intensidad. Pequeños pasos, todos los días." },
-  { icon: Sparkles, label: "Amor propio", text: "Cada clase es un acto de cuidarte. Aquí no hay culpa, hay celebración." },
-  { icon: Users, label: "Comunidad", text: "Grupos reducidos para que nadie pase desapercibida." },
-];
-
-const INSTRUCTORAS_FALLBACK = [
-  { id: "maca",  name: "Maca",  specialty: "Pilates Reformer · Coach principal" },
-  { id: "jean",  name: "Jean",  specialty: "Pilates Reformer · Barre · Mat" },
-  { id: "idaid", name: "Idaid", specialty: "Pilates Reformer" },
-  { id: "tania", name: "Tania", specialty: "Pilates Reformer" },
-  { id: "vane",  name: "Vane",  specialty: "Pilates Reformer · Domingos" },
-  { id: "andy",  name: "Andy",  specialty: "Barre · HIIT Barre" },
+  { icon: Star, label: "Disciplina", text: "Bajo impacto, alta exigencia. Constancia que se siente clase con clase." },
+  { icon: Heart, label: "Respeto", text: "Cuidamos el espacio, el silencio y el ritmo de cada compañera." },
+  { icon: Users, label: "Comunidad", text: "Grupos de 8 para que nadie pase desapercibida. Aquí te conocen por tu nombre." },
+  { icon: Sparkles, label: "Higiene", text: "Equipo limpio antes y después de cada uso. Un espacio impecable para todas." },
 ];
 
 const POLITICAS = [
-  { num: "01", title: "Llega 5 minutos antes", text: "Tienes 5 min de tolerancia. Después de eso, entrar interrumpe a tus compañeras." },
-  { num: "02", title: "Cancela con tiempo", text: "Mínimo 8 horas antes para liberar tu lugar. Sin previo aviso, la clase cuenta como tomada." },
-  { num: "03", title: "Calcetas antiderrapantes", text: "Obligatorias en reformer y mat. Ropa deportiva cómoda con la que puedas moverte sin pensar en ella." },
-  { num: "04", title: "Cuida el equipo", text: "Limpia el reformer y los accesorios después de usarlos. Es un detalle que cuida a la siguiente." },
-  { num: "05", title: "Cuéntale a tu coach", text: "Lesiones, embarazos, condiciones médicas — antes de empezar. Adaptamos cada movimiento contigo." },
-  { num: "06", title: "Solo transferencias", text: "Por logística reservamos clase muestra y sueltas con depósito previo. Más fácil para todas." },
-  { num: "07", title: "Vigencia 30 días", text: "Tus paquetes son personales y arrancan el día de tu primera clase. Aprovéchalos." },
-  { num: "08", title: "Sin celulares", text: "Es tu hora. Despeja la mente, deja el teléfono en silencio y guárdalo. Te lo vas a agradecer." },
+  { num: "01", title: "Calcetín antiderrapante", text: "Siempre, en todos los aparatos. Es por seguridad y por higiene del equipo." },
+  { num: "02", title: "Ingresa en silencio", text: "Por respeto a las compañeras que ya están en su clase. Llega, respira y conéctate." },
+  { num: "03", title: "Deja tus cosas en el rack", text: "Zapatos y objetos personales van en su lugar. Salón despejado, mente despejada." },
+  { num: "04", title: "Limpia tu equipo", text: "Cama, straps, caja, pelota, tapete y barra: todo lo que uses queda limpio para la siguiente." },
+  { num: "05", title: "No azotes las camas", text: "Acompaña el movimiento del carro. Cuidar el reformer es cuidar a todas." },
+  { num: "06", title: "Celular en silencio", text: "Llamadas urgentes, fuera del salón. Esta hora es solo para ti." },
+  { num: "07", title: "Entra y sal por la derecha", text: "Siempre por el lado derecho de la cama y espera a que tu compañera se retire primero." },
+  { num: "08", title: "Puntualidad", text: "Tolerancia de 5 minutos. Llegar a tiempo cuida tu clase y la de todas." },
 ];
 
 /* ─────────────────────────────────────────────────────────── */
@@ -198,7 +194,8 @@ const Index = () => {
     { label: "Horario", id: "horario" },
     { label: "Precios", id: "precios" },
     { label: "Estudio", id: "estudio" },
-    { label: "Equipo", id: "equipo" },
+    { label: "Coach", id: "equipo" },
+    { label: "Eventos", id: "eventos" },
     { label: "Visítanos", id: "contacto" },
   ];
 
@@ -207,15 +204,15 @@ const Index = () => {
         id: i.id,
         name: i.displayName,
         specialty: Array.isArray(i.specialties) ? i.specialties.join(" · ")
-          : (typeof i.specialties === "string" ? i.specialties : "Instructora Valiance"),
+          : (typeof i.specialties === "string" ? i.specialties : "Coach certificada"),
         photoUrl: i.photoUrl,
         focusX: typeof i.photoFocusX === "number" ? i.photoFocusX : 50,
         focusY: typeof i.photoFocusY === "number" ? i.photoFocusY : 30,
       }))
-    : INSTRUCTORAS_FALLBACK.map((i) => ({ ...i, photoUrl: undefined, focusX: 50, focusY: 30 }));
+    : [];
 
   return (
-    <div className="min-h-screen bg-[#FBF0F2] text-valiance-charcoal selection:bg-valiance-blush selection:text-valiance-charcoal">
+    <div className="min-h-screen bg-valiance-nude text-valiance-charcoal selection:bg-valiance-blush selection:text-valiance-charcoal">
       {/* ────────── NAV ────────── */}
       <nav
         className={`fixed top-0 inset-x-0 z-[100] transition-all duration-500 ${
@@ -228,7 +225,7 @@ const Index = () => {
           <a
             href="#"
             className="flex items-baseline gap-2 group"
-            aria-label="Valiance Pilates — Inicio"
+            aria-label="Tu Espacio Pilates — Inicio"
             onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }}
           >
             <img
@@ -301,8 +298,8 @@ const Index = () => {
             aria-label="Cerrar menú"
           />
           <div
-            className="absolute right-0 top-0 bottom-0 w-[88%] max-w-[360px] shadow-2xl flex flex-col animate-in slide-in-from-right duration-200 bg-[#FBF0F2]"
-            style={{ backgroundColor: "#FBF0F2", backdropFilter: "none" }}
+            className="absolute right-0 top-0 bottom-0 w-[88%] max-w-[360px] shadow-2xl flex flex-col animate-in slide-in-from-right duration-200 bg-valiance-nude"
+            style={{ backgroundColor: "#FBF6F4", backdropFilter: "none" }}
           >
             <div className="flex items-center justify-between px-6 py-5 border-b border-valiance-blush">
               <img src={valianceLogo} alt="" className="h-16 w-auto object-contain" />
@@ -350,7 +347,7 @@ const Index = () => {
         <div className="absolute inset-0">
           <img
             src={heroReformer}
-            alt="Clase de Pilates Reformer en Valiance"
+            alt="Clase de Pilates en reformer en Tu Espacio Pilates Villa Magna"
             className="w-full h-full object-cover"
             style={{ objectPosition: "center 40%" }}
             loading="eager"
@@ -365,20 +362,20 @@ const Index = () => {
           <div className="max-w-[640px]">
             <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-valiance-nude/15 backdrop-blur-md border border-valiance-nude/20 text-valiance-nude/95 text-[0.7rem] tracking-[0.18em] uppercase font-medium mb-8 reveal opacity-0 translate-y-6 transition-all duration-700">
               <span className="w-1.5 h-1.5 rounded-full bg-valiance-gold animate-pulse-dot" />
-              Estudio boutique de Pilates Reformer y Barre
+              Estudio de Pilates · Villa Magna, SLP
             </div>
 
             <h1
               className="font-display text-[clamp(3rem,8.5vw,6.5rem)] leading-[0.96] tracking-[-0.02em] text-valiance-nude mb-6 reveal opacity-0 translate-y-6 transition-all duration-700 delay-100"
               style={{ textWrap: "balance" } as React.CSSProperties}
             >
-              Tu hora.<br />
-              Tu fuerza.<br />
-              <em className="not-italic text-valiance-blush">Tu valiance.</em>
+              Explora el<br />
+              método pilates,<br />
+              <em className="not-italic text-valiance-blush">con resultados.</em>
             </h1>
 
             <p className="font-body text-[clamp(1rem,1.3vw,1.15rem)] text-valiance-nude/85 leading-[1.7] max-w-[480px] mb-10 reveal opacity-0 translate-y-6 transition-all duration-700 delay-200">
-              Un espacio para regresar a ti. Clases retadoras en grupos reducidos, donde cada detalle está pensado para que salgas más fuerte — por dentro y por fuera.
+              Tu Espacio Pilates en Villa Magna. Una disciplina, cuatro aparatos —reformer, tower, mat y silla—. Bajo impacto, alta exigencia, en grupos de 8 con atención personalizada. Un espacio hecho para ti.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 reveal opacity-0 translate-y-6 transition-all duration-700 delay-300">
@@ -408,10 +405,10 @@ const Index = () => {
         <div className="max-w-[1200px] mx-auto px-6 sm:px-10">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-valiance-blush rounded-3xl overflow-hidden shadow-[0_30px_60px_-20px_rgba(140,107,111,0.25)]">
             {[
-              { name: "Reformer", icon: Waves, hint: "Tu sesión central" },
-              { name: "Barre", icon: Sparkles, hint: "Tono y gracia" },
-              { name: "HIIT Barre", icon: Flame, hint: "Para subir el ritmo" },
+              { name: "Reformer", icon: Waves, hint: "Resistencia controlada" },
+              { name: "Tower", icon: Sparkles, hint: "Rango y estabilidad" },
               { name: "Mat", icon: Activity, hint: "Pilates clásico" },
+              { name: "Silla", icon: Flame, hint: "Fuerza y equilibrio" },
             ].map((d) => (
               <button
                 key={d.name}
@@ -432,17 +429,17 @@ const Index = () => {
         <div className="max-w-[1200px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20 items-center">
           <div className="lg:col-span-5 reveal opacity-0 translate-y-6 transition-all duration-700">
             <div className="text-[0.7rem] tracking-[0.22em] uppercase text-valiance-mauve font-medium mb-5">
-              Tu me time
+              Tu espacio
             </div>
             <h2
               className="font-display text-[clamp(2.4rem,4.5vw,3.8rem)] leading-[1.04] tracking-[-0.015em] text-valiance-charcoal mb-6"
               style={{ textWrap: "balance" } as React.CSSProperties}
             >
-              Te regalas <em className="not-italic text-valiance-mauve">una hora</em>.
-              Te llevas el resto del día <em className="not-italic text-valiance-gold">distinto</em>.
+              Una <em className="not-italic text-valiance-mauve">disciplina</em>.
+              Una <em className="not-italic text-valiance-gold">comunidad</em> que te acompaña.
             </h2>
             <p className="font-body text-[1.02rem] text-valiance-charcoal/75 leading-[1.85] max-w-[480px]">
-              No vendemos clases, vendemos pausas con propósito. Llegas con la cabeza llena, te encuentras en cada movimiento y sales con el cuerpo despierto y la mente más liviana.
+              Aquí el pilates es para ti: madres, embarazadas y mujeres que quieren moverse con propósito. Lo que nos distingue es el conocimiento de nuestras coach y nuestros aparatos. Llegas, te conocen por tu nombre y sales más fuerte cada clase.
             </p>
           </div>
 
@@ -466,24 +463,24 @@ const Index = () => {
         <div className="max-w-[1200px] mx-auto">
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700 mb-14 max-w-[720px]">
             <div className="text-[0.7rem] tracking-[0.22em] uppercase text-valiance-mauve font-medium mb-4">
-              Lo que ofrecemos
+              La disciplina
             </div>
             <h2
               className="font-display text-[clamp(2.4rem,5vw,4rem)] leading-[1.02] tracking-[-0.015em] text-valiance-charcoal mb-5"
               style={{ textWrap: "balance" } as React.CSSProperties}
             >
-              Cuatro formas de moverte.
+              Pilates, en cuatro aparatos.
               <span className="text-valiance-mauve"> Una sola intención.</span>
             </h2>
             <p className="font-body text-[1rem] text-valiance-charcoal/70 leading-[1.75]">
-              Máximo 5 personas por clase, atención uno a uno y sesiones que te retan sin dejar la técnica de lado.
+              Reformer, tower, mat y silla. Grupos de 8, atención personalizada y sesiones que te retan sin dejar la técnica de lado.
             </p>
           </div>
 
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
             {classTypes.slice(0, 4).map((c, idx) => {
-              const isHero = idx === 0; // Reformer destacado
-              const accent = c.color || "#D9B5BA";
+              const isHero = idx === 0; // Pilates destacado
+              const accent = c.color || "#C9ADA3";
               return (
                 <article
                   key={c.id}
@@ -524,8 +521,8 @@ const Index = () => {
                     <span
                       className="inline-flex items-center justify-center w-8 h-8 rounded-full"
                       style={{
-                        background: isHero ? "rgba(250,229,231,0.12)" : `${accent}30`,
-                        color: isHero ? "#FAE5E7" : "#6B4F53",
+                        background: isHero ? "rgba(201,173,163,0.18)" : `${accent}30`,
+                        color: isHero ? "#E8D3CE" : "#5A4A57",
                       }}
                     >
                       <Clock size={14} strokeWidth={1.6} />
@@ -538,7 +535,7 @@ const Index = () => {
                       onClick={() => navigate("/auth/register")}
                       className="mt-8 self-start px-6 py-3 rounded-full bg-valiance-nude text-valiance-charcoal text-[0.78rem] font-medium tracking-[0.06em] uppercase hover:bg-valiance-blush transition-all active:scale-[0.98] inline-flex items-center gap-2"
                     >
-                      Reservar Reformer
+                      Reservar mi clase
                       <ArrowUpRight size={14} strokeWidth={2} />
                     </button>
                   )}
@@ -549,7 +546,61 @@ const Index = () => {
         </div>
       </section>
 
-      {/* ────────── HORARIO ────────── */}
+      {/* ────────── TEMA MUSCULAR POR DÍA + HORARIOS ────────── */}
+      <section className="py-20 lg:py-28 px-6 sm:px-10">
+        <div className="max-w-[1200px] mx-auto">
+          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 max-w-[720px] mb-12">
+            <div className="text-[0.7rem] tracking-[0.22em] uppercase text-valiance-mauve font-medium mb-4">
+              Tu semana
+            </div>
+            <h2
+              className="font-display text-[clamp(2.4rem,5vw,4rem)] leading-[1.02] tracking-[-0.015em] text-valiance-charcoal mb-5"
+              style={{ textWrap: "balance" } as React.CSSProperties}
+            >
+              Cada día, un enfoque distinto.
+            </h2>
+            <p className="font-body text-[1rem] text-valiance-charcoal/70 leading-[1.75]">
+              Trabajamos el cuerpo completo a lo largo de la semana. Tú eliges cuándo, nosotras marcamos el tema. Cupo de 8 por clase.
+            </p>
+          </div>
+
+          {/* Strip semanal de temas */}
+          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-valiance-blush rounded-3xl overflow-hidden mb-14">
+            {TEMAS_SEMANA.map((d) => (
+              <div key={d.dia} className="bg-valiance-nude p-6 flex flex-col gap-2">
+                <div className="text-[0.62rem] tracking-[0.18em] uppercase text-valiance-mauve font-medium">{d.dia}</div>
+                <div className="font-display text-[1.35rem] leading-[1.1] text-valiance-charcoal">{d.tema}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Bloques de horarios */}
+          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {HORARIOS.map((b) => (
+              <div key={b.dias} className="rounded-3xl bg-valiance-blush/35 p-7 flex flex-col gap-4">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-9 h-9 rounded-full bg-valiance-nude flex items-center justify-center text-valiance-mauve flex-shrink-0">
+                    <Clock size={16} strokeWidth={1.6} />
+                  </span>
+                  <span className="font-display text-[1.3rem] text-valiance-charcoal leading-tight">{b.dias}</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {b.horas.map((h) => (
+                    <span key={h} className="px-3 py-1.5 rounded-full bg-valiance-nude text-[0.8rem] text-valiance-charcoal/80 font-body">
+                      {h}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[0.78rem] text-valiance-charcoal/55 mt-6 font-body">
+            Cupo de 8 personas por clase. Reserva tu lugar con anticipación.
+          </p>
+        </div>
+      </section>
+
+      {/* ────────── HORARIO / RESERVA EN VIVO ────────── */}
       <Schedule />
 
       {/* ────────── PRECIOS ────────── */}
@@ -566,19 +617,19 @@ const Index = () => {
               Encuentra el ritmo que va con el tuyo.
             </h2>
             <p className="font-body text-[1rem] text-valiance-charcoal/70 leading-[1.75]">
-              Paquetes mensuales personales con vigencia de 30 días. Solo aceptamos transferencia para reservar tu primera clase y clases sueltas.
+              Paquetes mensuales, no acumulables: vencen al fin del mes de compra. Elige el que mejor acompañe tu semana.
             </p>
           </div>
 
-          {/* PILATES REFORMER */}
+          {/* PAQUETES MENSUALES */}
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700 mb-14">
             <div className="flex items-baseline justify-between mb-6 flex-wrap gap-3">
-              <h3 className="font-display text-[1.8rem] text-valiance-charcoal">Pilates Reformer</h3>
-              <span className="text-[0.78rem] text-valiance-mauve font-body">grupos de 5 · 55 minutos</span>
+              <h3 className="font-display text-[1.8rem] text-valiance-charcoal">Paquetes mensuales</h3>
+              <span className="text-[0.78rem] text-valiance-mauve font-body">grupos de 8 · 55 minutos</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              {PACKAGES_REFORMER.map((p) => {
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              {PAQUETES.map((p) => {
                 const featured = p.popular || p.best;
                 return (
                   <div
@@ -587,8 +638,8 @@ const Index = () => {
                       p.best
                         ? "bg-valiance-charcoal text-valiance-nude shadow-[0_30px_60px_-25px_rgba(26,26,26,0.45)]"
                         : p.popular
-                          ? "bg-valiance-nude border-2 border-valiance-gold shadow-[0_15px_40px_-20px_rgba(201,169,110,0.45)]"
-                          : "bg-valiance-nude hover:shadow-[0_15px_40px_-25px_rgba(140,107,111,0.3)]"
+                          ? "bg-valiance-nude border-2 border-valiance-gold shadow-[0_15px_40px_-20px_rgba(184,145,90,0.45)]"
+                          : "bg-valiance-nude hover:shadow-[0_15px_40px_-25px_rgba(192,170,214,0.3)]"
                     }`}
                   >
                     {featured && (
@@ -601,7 +652,7 @@ const Index = () => {
                       </span>
                     )}
                     <div className={`text-[0.66rem] tracking-[0.18em] uppercase font-medium ${p.best ? "text-valiance-blush/70" : "text-valiance-mauve"}`}>
-                      {p.name}
+                      {p.name} / mes
                     </div>
                     <div className="flex items-baseline gap-1 mt-1">
                       <span className={`font-display text-[2.6rem] leading-none ${p.best ? "text-valiance-nude" : "text-valiance-charcoal"}`}>
@@ -610,13 +661,11 @@ const Index = () => {
                       <span className={`text-[0.72rem] ${p.best ? "text-valiance-nude/50" : "text-valiance-charcoal/50"}`}>MXN</span>
                     </div>
                     <div className={`text-[0.78rem] ${p.best ? "text-valiance-nude/60" : "text-valiance-charcoal/60"} font-body`}>
-                      {p.classes > 1 ? `${p.classes} clases · ${p.hint}` : p.hint}
+                      {p.classes} clases · {p.hint}
                     </div>
-                    {p.classes > 1 && (
-                      <div className={`text-[0.74rem] ${p.best ? "text-valiance-blush/50" : "text-valiance-mauve"} font-body`}>
-                        ${(p.price / p.classes).toFixed(0)} por clase
-                      </div>
-                    )}
+                    <div className={`text-[0.74rem] ${p.best ? "text-valiance-blush/50" : "text-valiance-mauve"} font-body`}>
+                      ${(p.price / p.classes).toFixed(0)} por clase
+                    </div>
                     <button
                       onClick={() => navigate(ctaPath)}
                       className={`mt-4 w-full py-3 rounded-full text-[0.76rem] font-medium tracking-[0.06em] uppercase transition-all active:scale-[0.98] ${
@@ -635,73 +684,23 @@ const Index = () => {
             </div>
           </div>
 
-          {/* BARRE */}
-          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 mb-14">
-            <div className="flex items-baseline justify-between mb-6 flex-wrap gap-3">
-              <h3 className="font-display text-[1.8rem] text-valiance-charcoal">Barre</h3>
-              <span className="text-[0.78rem] text-valiance-mauve font-body">Grupos de 5 · 55 minutos</span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
-              {PACKAGES_BARRE.map((p) => (
-                <div key={p.id} className="rounded-2xl p-5 bg-valiance-nude flex flex-col gap-1.5 hover:bg-valiance-blush/75 transition-colors">
-                  <div className="text-[0.66rem] tracking-[0.18em] uppercase text-valiance-mauve font-medium">{p.name}</div>
-                  <div className="flex items-baseline gap-1 mt-auto pt-2">
-                    <span className="font-display text-[1.8rem] text-valiance-charcoal leading-none">${p.price}</span>
-                    <span className="text-[0.7rem] text-valiance-charcoal/50">MXN</span>
-                  </div>
-                  <div className="text-[0.72rem] text-valiance-charcoal/55 font-body">{p.classes} {p.classes === 1 ? "clase" : "clases"}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* COMBOS */}
-          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 mb-14">
-            <div className="flex items-baseline justify-between mb-6 flex-wrap gap-3">
-              <h3 className="font-display text-[1.8rem] text-valiance-charcoal">Combos Reformer + Barre</h3>
-              <span className="text-[0.78rem] text-valiance-mauve font-body">Lo mejor de los dos mundos</span>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-              {COMBOS.map((c) => (
-                <div key={c.id} className="rounded-2xl p-6 bg-valiance-nude flex items-center justify-between gap-4 hover:bg-valiance-blush/75 transition-colors">
-                  <div>
-                    <div className="font-display text-[1.15rem] text-valiance-charcoal leading-tight">{c.name}</div>
-                    <div className="text-[0.72rem] text-valiance-mauve font-body mt-1">Vigencia 30 días</div>
-                  </div>
-                  <div className="font-display text-[1.8rem] text-valiance-charcoal leading-none">
-                    ${c.price.toLocaleString()}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* PROMOS */}
+          {/* CARGOS PUNTUALES */}
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {PROMOS.map((promo) => (
-                <div
-                  key={promo.id}
-                  className="relative rounded-3xl p-8 sm:p-10 bg-gradient-to-br from-valiance-charcoal to-valiance-plum text-valiance-nude overflow-hidden"
-                >
-                  <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-valiance-gold/15 blur-3xl pointer-events-none" />
-                  <div className="relative z-10">
-                    <span className="inline-block text-[0.62rem] tracking-[0.2em] uppercase text-valiance-gold font-medium mb-3">
-                      {promo.badge}
-                    </span>
-                    <h4 className="font-display text-[2rem] sm:text-[2.4rem] leading-[1.05] mb-3">{promo.title}</h4>
-                    <div className="flex items-baseline gap-2 mb-4">
-                      <span className="font-display text-[2.8rem] leading-none">${promo.price.toLocaleString()}</span>
-                      <span className="text-[0.78rem] text-valiance-nude/60">{promo.period}</span>
-                    </div>
-                    <p className="font-body text-[0.95rem] text-valiance-nude/75 leading-[1.7] max-w-[420px] mb-6">{promo.desc}</p>
-                    <button
-                      onClick={() => navigate(ctaPath)}
-                      className="px-6 py-3 rounded-full bg-valiance-nude text-valiance-charcoal text-[0.76rem] font-medium tracking-[0.06em] uppercase hover:bg-valiance-blush transition-all active:scale-[0.98]"
-                    >
-                      La quiero
-                    </button>
+            <div className="flex items-baseline justify-between mb-6 flex-wrap gap-3">
+              <h3 className="font-display text-[1.8rem] text-valiance-charcoal">Inscripción y clases individuales</h3>
+              <span className="text-[0.78rem] text-valiance-mauve font-body">pagos únicos</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+              {CARGOS.map((c) => (
+                <div key={c.id} className="rounded-2xl p-6 bg-valiance-nude flex items-center justify-between gap-4 hover:bg-valiance-blush/40 transition-colors">
+                  <div>
+                    <div className="font-display text-[1.2rem] text-valiance-charcoal leading-tight">{c.name}</div>
+                    <div className="text-[0.72rem] text-valiance-mauve font-body mt-1">{c.hint}</div>
+                  </div>
+                  <div className="font-display text-[1.8rem] text-valiance-charcoal leading-none flex items-baseline gap-1">
+                    ${c.price.toLocaleString()}
+                    <span className="text-[0.66rem] text-valiance-charcoal/50">MXN</span>
                   </div>
                 </div>
               ))}
@@ -709,7 +708,7 @@ const Index = () => {
           </div>
 
           <p className="text-[0.74rem] text-valiance-charcoal/50 mt-10 text-center font-body max-w-[640px] mx-auto">
-            Más IVA en caso de requerir factura. Paquetes personales e intransferibles. La adquisición implica aceptación del reglamento interno.
+            Paquetes mensuales no acumulables: vencen al fin del mes de compra. La inscripción es un pago único. La adquisición implica aceptación del reglamento interno.
           </p>
         </div>
       </section>
@@ -740,7 +739,7 @@ const Index = () => {
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-12 gap-3 sm:gap-4">
             {/* Hero — muro mármol */}
             <figure className="col-span-12 lg:col-span-8 relative rounded-3xl overflow-hidden aspect-[16/10] group">
-              <img src={muroFrontal} alt="Muro de mármol con el wordmark Valiance" loading="lazy" className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <img src={muroFrontal} alt="Muro de mármol del estudio Tu Espacio Pilates" loading="lazy" className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
               <div className="absolute inset-0 bg-gradient-to-t from-valiance-charcoal/65 via-transparent to-transparent" />
               <figcaption className="absolute bottom-6 left-6 right-6">
                 <span className="inline-block text-[0.6rem] tracking-[0.22em] uppercase text-valiance-gold mb-2 font-medium">Lobby principal</span>
@@ -762,12 +761,12 @@ const Index = () => {
               <img src={detalleVela} alt="Detalle ambient — vela y accesorios" loading="lazy" className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
             </figure>
 
-            {/* Sala mat barre */}
+            {/* Sala mat */}
             <figure className="col-span-6 lg:col-span-5 relative rounded-3xl overflow-hidden aspect-[16/10] group">
-              <img src={salaMatBarre} alt="Sala de Barre y Mat" loading="lazy" className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <img src={salaMatBarre} alt="Sala de Mat y tower" loading="lazy" className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
               <div className="absolute inset-0 bg-gradient-to-t from-valiance-charcoal/50 to-transparent" />
               <figcaption className="absolute bottom-5 left-5">
-                <span className="text-valiance-nude/95 text-[0.66rem] tracking-[0.18em] uppercase font-medium">Sala Barre & Mat</span>
+                <span className="text-valiance-nude/95 text-[0.66rem] tracking-[0.18em] uppercase font-medium">Sala Mat & Tower</span>
               </figcaption>
             </figure>
 
@@ -801,42 +800,60 @@ const Index = () => {
         <div className="max-w-[1200px] mx-auto">
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700 max-w-[720px] mb-14">
             <div className="text-[0.7rem] tracking-[0.22em] uppercase text-valiance-mauve font-medium mb-4">
-              El equipo
+              Nuestras coach
             </div>
             <h2
               className="font-display text-[clamp(2.4rem,5vw,4rem)] leading-[1.02] tracking-[-0.015em] text-valiance-charcoal mb-5"
               style={{ textWrap: "balance" } as React.CSSProperties}
             >
-              Exclusividad en cada clase, transformación en cada cuerpo.
+              Lo que nos distingue: el conocimiento de nuestras coach.
             </h2>
             <p className="font-body text-[1rem] text-valiance-charcoal/70 leading-[1.75]">
-              Grupos reducidos significan que sabemos cómo trabajaste la semana pasada y qué necesitas hoy.
+              Coach certificadas que conocen el método a profundidad y cada uno de nuestros aparatos. En grupos de 8 saben cómo trabajaste la semana pasada y qué necesitas hoy: cada movimiento se adapta a tu cuerpo, tu nivel y tu momento —incluido el embarazo o el posparto—.
             </p>
           </div>
 
-          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-5">
-            {displayedInstructors.slice(0, 6).map((inst) => (
-              <article key={inst.id} className="group">
-                <div className="relative rounded-2xl overflow-hidden aspect-[3/4] mb-3 bg-valiance-mauve/10">
-                  {inst.photoUrl ? (
-                    <img
-                      src={inst.photoUrl}
-                      alt={inst.name}
-                      loading="lazy"
-                      className="absolute inset-0 w-full h-full object-cover grayscale-[20%] group-hover:grayscale-0 group-hover:scale-[1.04] transition-all duration-[900ms]"
-                      style={{ objectPosition: `${inst.focusX}% ${inst.focusY}%` }}
-                    />
-                  ) : (
-                    <div className="absolute inset-0 flex items-center justify-center bg-valiance-blush/75">
-                      <span className="font-display text-[3rem] text-valiance-mauve/60">{inst.name[0]}</span>
-                    </div>
-                  )}
+          {displayedInstructors.length > 0 ? (
+            <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-5">
+              {displayedInstructors.slice(0, 6).map((inst) => (
+                <article key={inst.id} className="group">
+                  <div className="relative rounded-2xl overflow-hidden aspect-[3/4] mb-3 bg-valiance-mauve/10">
+                    {inst.photoUrl ? (
+                      <img
+                        src={inst.photoUrl}
+                        alt={inst.name}
+                        loading="lazy"
+                        className="absolute inset-0 w-full h-full object-cover grayscale-[20%] group-hover:grayscale-0 group-hover:scale-[1.04] transition-all duration-[900ms]"
+                        style={{ objectPosition: `${inst.focusX}% ${inst.focusY}%` }}
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex items-center justify-center bg-valiance-blush/75">
+                        <span className="font-display text-[3rem] text-valiance-mauve/60">{inst.name[0]}</span>
+                      </div>
+                    )}
+                  </div>
+                  <h3 className="font-display text-[1.3rem] text-valiance-charcoal leading-tight">{inst.name}</h3>
+                  <p className="font-body text-[0.78rem] text-valiance-mauve mt-0.5 leading-snug">{inst.specialty}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5">
+              {[
+                { icon: Star, title: "Certificadas en el método", text: "Formación en pilates y en cada aparato: reformer, tower, mat y silla." },
+                { icon: Heart, title: "Atención personalizada", text: "Grupos de 8 para corregir, acompañar y ajustar cada clase a ti." },
+                { icon: Users, title: "Cerca de ti", text: "Acompañamos a madres, embarazadas y mujeres de 25+ en cada etapa." },
+              ].map((card) => (
+                <div key={card.title} className="rounded-3xl bg-valiance-nude p-8 flex flex-col gap-3">
+                  <span className="w-11 h-11 rounded-full bg-valiance-blush/40 flex items-center justify-center text-valiance-mauve">
+                    <card.icon size={20} strokeWidth={1.5} />
+                  </span>
+                  <h3 className="font-display text-[1.4rem] text-valiance-charcoal leading-tight">{card.title}</h3>
+                  <p className="font-body text-[0.9rem] text-valiance-charcoal/70 leading-[1.7]">{card.text}</p>
                 </div>
-                <h3 className="font-display text-[1.3rem] text-valiance-charcoal leading-tight">{inst.name}</h3>
-                <p className="font-body text-[0.78rem] text-valiance-mauve mt-0.5 leading-snug">{inst.specialty}</p>
-              </article>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -870,6 +887,80 @@ const Index = () => {
         </div>
       </section>
 
+      {/* ────────── EVENTOS — informativo, no reservable ────────── */}
+      <section id="eventos" className="py-20 lg:py-28 px-6 sm:px-10 bg-valiance-blush/35">
+        <div className="max-w-[1200px] mx-auto">
+          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 max-w-[760px] mb-14">
+            <div className="text-[0.7rem] tracking-[0.22em] uppercase text-valiance-mauve font-medium mb-4">
+              Eventos
+            </div>
+            <h2
+              className="font-display text-[clamp(2.4rem,5vw,4rem)] leading-[1.02] tracking-[-0.015em] text-valiance-charcoal mb-5"
+              style={{ textWrap: "balance" } as React.CSSProperties}
+            >
+              Celebra tu cumple en Tu Espacio Pilates.
+            </h2>
+            <p className="font-body text-[1rem] text-valiance-charcoal/70 leading-[1.75]">
+              Una clase de 55 minutos full body + 30 minutos para fotos + kit. Una forma distinta y bonita de festejar con tus personas favoritas.
+            </p>
+          </div>
+
+          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-1 lg:grid-cols-2 gap-5 mb-8">
+            {/* Cumple */}
+            <div className="rounded-3xl bg-valiance-nude p-8 sm:p-10 flex flex-col gap-5">
+              <div>
+                <span className="inline-block text-[0.62rem] tracking-[0.2em] uppercase text-valiance-mauve font-medium mb-2">El clásico</span>
+                <h3 className="font-display text-[1.9rem] text-valiance-charcoal leading-tight">Cumple</h3>
+                <p className="font-body text-[0.86rem] text-valiance-charcoal/65 mt-1">Clase full body + 30 min de fotos + kit.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {EVENTO_BASE.map((e) => (
+                  <div key={e.personas} className="rounded-2xl bg-valiance-blush/30 px-5 py-4 flex items-baseline justify-between gap-2">
+                    <span className="font-body text-[0.86rem] text-valiance-charcoal/75">{e.personas}</span>
+                    <span className="font-display text-[1.5rem] text-valiance-charcoal leading-none">${e.price.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Cumple & Brunch */}
+            <div className="rounded-3xl bg-valiance-charcoal text-valiance-nude p-8 sm:p-10 flex flex-col gap-5">
+              <div>
+                <span className="inline-block text-[0.62rem] tracking-[0.2em] uppercase text-valiance-gold font-medium mb-2">Más completo</span>
+                <h3 className="font-display text-[1.9rem] leading-tight">Cumple &amp; Brunch</h3>
+                <p className="font-body text-[0.86rem] text-valiance-nude/65 mt-1">Todo lo del clásico + box lunch + bolsa de snack.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {EVENTO_BRUNCH.map((e) => (
+                  <div key={e.personas} className="rounded-2xl bg-valiance-nude/10 px-5 py-4 flex items-baseline justify-between gap-2">
+                    <span className="font-body text-[0.86rem] text-valiance-nude/75">{e.personas}</span>
+                    <span className="font-display text-[1.5rem] text-valiance-nude leading-none">${e.price.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 flex flex-col sm:flex-row sm:items-center gap-5 rounded-3xl bg-valiance-nude p-7 sm:p-8">
+            <div className="flex-1">
+              <p className="font-body text-[0.92rem] text-valiance-charcoal/80 leading-[1.7]">
+                Decoración con globos <strong className="text-valiance-charcoal">+$700</strong>. Horarios de eventos: {HORARIOS_EVENTOS}.
+              </p>
+              <p className="font-body text-[0.82rem] text-valiance-mauve mt-1">Consulta disponibilidad por WhatsApp.</p>
+            </div>
+            <a
+              href="https://wa.me/524445480352?text=Hola%2C%20me%20interesa%20celebrar%20un%20cumple%20en%20Tu%20Espacio%20Pilates"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2.5 px-7 py-3.5 rounded-full bg-valiance-charcoal text-valiance-nude text-[0.78rem] font-medium tracking-[0.06em] uppercase hover:bg-valiance-plum transition-colors no-underline whitespace-nowrap"
+            >
+              Consultar por WhatsApp
+              <ArrowUpRight size={15} strokeWidth={2} />
+            </a>
+          </div>
+        </div>
+      </section>
+
       {/* ────────── CTA + CONTACTO ────────── */}
       <section id="contacto" className="py-20 lg:py-28 px-6 sm:px-10 bg-valiance-blush/75">
         <div className="max-w-[1200px] mx-auto">
@@ -896,7 +987,7 @@ const Index = () => {
                 <ArrowUpRight size={16} strokeWidth={2} />
               </button>
               <a
-                href="https://wa.me/525523173402?text=Hola%20Valiance%2C%20me%20interesa%20reservar%20mi%20primera%20clase"
+                href="https://wa.me/524445480352?text=Hola%2C%20me%20interesa%20reservar%20mi%20primera%20clase%20en%20Tu%20Espacio%20Pilates"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="border border-valiance-charcoal/20 text-valiance-charcoal text-[0.82rem] font-medium tracking-[0.06em] uppercase flex items-center gap-2.5 px-8 py-4 rounded-full hover:border-valiance-charcoal hover:bg-valiance-charcoal hover:text-valiance-nude transition-all no-underline"
@@ -922,40 +1013,42 @@ const Index = () => {
                     icon: <MapPin size={18} />, label: "Ubicación",
                     value: (
                       <a
-                        href="https://maps.app.goo.gl/dUdZQcjGMMzWQsGC8"
+                        href="https://g.co/kgs/AyHBK5d"
                         target="_blank" rel="noopener noreferrer"
                         className="text-valiance-charcoal hover:text-valiance-mauve transition-colors no-underline"
                       >
-                        Av. Luis Hidalgo Monroy 369<br />
-                        San Miguel, Iztapalapa<br />
-                        09360 CDMX
+                        Av. Villa Magna Nte. 600 A<br />
+                        Villa Magna, 78183<br />
+                        San Luis Potosí, S.L.P.<br />
+                        <span className="text-valiance-charcoal/60">(justo arriba de las pizzas)</span>
                       </a>
                     ),
                   },
                   {
-                    icon: <Phone size={18} />, label: "WhatsApp",
+                    icon: <Phone size={18} />, label: "WhatsApp / Tel",
                     value: (
                       <a
-                        href="https://wa.me/525523173402"
+                        href="https://wa.me/524445480352"
                         target="_blank" rel="noopener noreferrer"
                         className="text-valiance-charcoal hover:text-valiance-mauve transition-colors no-underline"
                       >
-                        +52 55 2317 3402
+                        444 548 0352
                       </a>
                     ),
                   },
                   {
-                    icon: <Mail size={18} />, label: "Email",
+                    icon: <Instagram size={18} />, label: "Instagram",
                     value: (
                       <a
-                        href="mailto:hola@valiancepilates.com.mx"
+                        href="https://www.instagram.com/_espaciopilatesvm/"
+                        target="_blank" rel="noopener noreferrer"
                         className="text-valiance-charcoal hover:text-valiance-mauve transition-colors no-underline"
                       >
-                        hola@valiancepilates.com.mx
+                        @_espaciopilatesvm
                       </a>
                     ),
                   },
-                  { icon: <Clock size={18} />, label: "Horarios", value: "Lun–Vie 7:00–21:00 · Sáb 8:00–12:00 · Dom 9:00–12:00" },
+                  { icon: <Clock size={18} />, label: "Horarios", value: "Lun · Mié · Vie 7–9 am y 5:30–8:30 pm · Mar · Jue 5:30–7:30 pm · Sáb 9 am" },
                 ].map((item) => (
                   <div key={item.label} className="flex items-start gap-4">
                     <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-valiance-blush/50 text-valiance-mauve">
@@ -971,21 +1064,14 @@ const Index = () => {
 
               <div className="flex gap-2.5 pt-2">
                 <a
-                  href="https://www.instagram.com/valiance.pilates"
-                  target="_blank" rel="noopener noreferrer" aria-label="Instagram Valiance Pilates"
+                  href="https://www.instagram.com/_espaciopilatesvm/"
+                  target="_blank" rel="noopener noreferrer" aria-label="Instagram Tu Espacio Pilates"
                   className="w-10 h-10 rounded-full border border-valiance-charcoal/15 flex items-center justify-center text-valiance-charcoal/60 hover:bg-valiance-charcoal hover:text-valiance-nude hover:border-valiance-charcoal transition-all no-underline"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect width="20" height="20" x="2" y="2" rx="5" ry="5" /><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" /><line x1="17.5" x2="17.51" y1="6.5" y2="6.5" /></svg>
                 </a>
                 <a
-                  href="https://www.facebook.com/share/1DcFEqokCv/"
-                  target="_blank" rel="noopener noreferrer" aria-label="Facebook Valiance Pilates"
-                  className="w-10 h-10 rounded-full border border-valiance-charcoal/15 flex items-center justify-center text-valiance-charcoal/60 hover:bg-valiance-charcoal hover:text-valiance-nude hover:border-valiance-charcoal transition-all no-underline"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z" /></svg>
-                </a>
-                <a
-                  href="https://maps.app.goo.gl/dUdZQcjGMMzWQsGC8"
+                  href="https://g.co/kgs/AyHBK5d"
                   target="_blank" rel="noopener noreferrer" aria-label="Cómo llegar"
                   className="ml-auto inline-flex items-center gap-2 px-4 h-10 rounded-full bg-valiance-charcoal text-valiance-nude text-[0.74rem] font-medium tracking-[0.06em] uppercase hover:bg-valiance-plum transition-colors no-underline"
                 >
@@ -997,14 +1083,14 @@ const Index = () => {
 
             <div className="lg:col-span-7 rounded-3xl overflow-hidden bg-valiance-nude min-h-[440px]">
               <iframe
-                src="https://www.google.com/maps?q=Av.%20Luis%20Hidalgo%20Monroy%20369%2C%20San%20Miguel%2C%20Iztapalapa%2C%2009360%20Ciudad%20de%20M%C3%A9xico%2C%20CDMX&output=embed"
+                src="https://www.google.com/maps?q=Av.%20Villa%20Magna%20Nte.%20600%20A%2C%20Villa%20Magna%2C%2078183%20San%20Luis%20Potos%C3%AD%2C%20S.L.P.&output=embed"
                 width="100%"
                 height="100%"
                 style={{ border: 0, display: "block", minHeight: "440px" }}
                 allowFullScreen
                 loading="lazy"
                 referrerPolicy="no-referrer-when-downgrade"
-                title="Ubicación de Valiance Pilates en Google Maps"
+                title="Ubicación de Tu Espacio Pilates en Google Maps"
               />
             </div>
           </div>
@@ -1016,9 +1102,9 @@ const Index = () => {
         <div className="max-w-[1200px] mx-auto">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 pb-12 border-b border-valiance-nude/10">
             <div className="lg:col-span-2 max-w-[360px]">
-              <img src={valianceLogo} alt="Valiance Pilates" className="h-24 w-auto object-contain mb-5 brightness-[10] contrast-[1.2]" />
+              <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-24 w-auto object-contain mb-5 brightness-[10] contrast-[1.2]" />
               <p className="font-body text-[0.92rem] text-valiance-nude/55 leading-[1.75]">
-                Estudio boutique de Pilates Reformer y Barre. Movimiento, fuerza y comunidad — un me time semanal que se convierte en estilo de vida.
+                Tu Espacio Pilates · Villa Magna, San Luis Potosí. Una disciplina, cuatro aparatos. Disciplina, respeto y comunidad — un espacio hecho para ti.
               </p>
             </div>
 
@@ -1061,10 +1147,10 @@ const Index = () => {
 
           <div className="pt-7 flex flex-col sm:flex-row justify-between items-center gap-3">
             <p className="font-body text-[0.72rem] text-valiance-nude/30">
-              &copy; {new Date().getFullYear()} Valiance Pilates. Todos los derechos reservados.
+              &copy; {new Date().getFullYear()} Tu Espacio Pilates · Villa Magna. Todos los derechos reservados.
             </p>
             <p className="font-body text-[0.72rem] text-valiance-nude/30 italic">
-              Movimiento con propósito · Hecho con cariño
+              Explora el método pilates, con resultados · Hecho con cariño
             </p>
           </div>
         </div>
