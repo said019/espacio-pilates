@@ -1,13 +1,14 @@
 {
-  "name": "Valiance Pilates",
-  "short_name": "Valiance",
-  "description": "Estudio boutique de Pilates Reformer y Barre",
+  "name": "Tu Espacio Pilates VM",
+  "short_name": "Tu Espacio",
+  "description": "Studio de Pilates en Villa Magna, San Luis Potosí. Reformer, tower, mat y silla. Cupo de 8 por clase.",
+  "lang": "es",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#FDF7F8",
-  "theme_color": "#FAE5E7",
+  "background_color": "#FBF6F4",
+  "theme_color": "#C9ADA3",
   "categories": ["health", "fitness"],
   "icons": [
     {
