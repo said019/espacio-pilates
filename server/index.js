@@ -41,10 +41,10 @@ const evolutionApi = axios.create({
 });
 
 const DEFAULT_GENERAL_SETTINGS = {
-  studio_name: "Valiance Pilates",
-  address: "",
-  phone: "",
-  instagram: "",
+  studio_name: "Tu Espacio Pilates VM",
+  address: "Av. Villa Magna Nte. 600 A, Villa Magna, 78183 San Luis Potosí, S.L.P.",
+  phone: "4445480352",
+  instagram: "https://www.instagram.com/_espaciopilatesvm/",
   facebook: "",
   timezone: "America/Mexico_City",
   currency: "MXN",
@@ -214,7 +214,8 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
 
 const DEFAULT_CANCELLATION_SETTINGS = {
   enabled: true,
-  min_hours: 8,
+  min_hours: 12,
+  reschedule_hours: 3,
   refund_credit_on_cancel: true,
   cancellations_limit: 2,
   late_cancel_message: "Las cancelaciones requieren al menos {hours}h de anticipación. La clase se tomará como impartida y no será devuelta a tu paquete.",
@@ -629,45 +630,39 @@ async function ensureSchema() {
     if (parseInt(pkgCount.rows[0].count) === 0) {
       await pool.query(`
         INSERT INTO packages (name, num_classes, price, category, validity_days, is_active, sort_order) VALUES
-          ('Clase Suelta',  '1',  120,  'pilates', 7,  true, 0),
-          ('4 Clases',      '4',  400,  'pilates', 30, true, 1),
-          ('8 Clases',      '8',  680,  'pilates', 30, true, 2),
-          ('12 Clases',     '12', 900,  'pilates', 30, true, 3),
-          ('16 Clases',     '16', 1100, 'pilates', 30, true, 4)
+          ('7 Clases',               '7', 880,  'pilates', 30, true, 1),
+          ('9 Clases',               '9', 1050, 'pilates', 30, true, 2),
+          ('14 Clases',              '14', 1400, 'pilates', 30, true, 3),
+          ('Clase Extra',            '1', 130,  'pilates', 30, true, 4),
+          ('Clase Suelta / Visita',  '1', 250,  'pilates', 7,  true, 5)
         ON CONFLICT DO NOTHING;
       `);
-      console.log("✅ Seeded Valiance packages");
+      console.log("✅ Seeded Tu Espacio Pilates VM packages");
     }
-    // ── Seed class_types – ensure Valiance types exist ──────────────
-    const hasPNTypes = await pool.query("SELECT 1 FROM class_types WHERE name = 'Pilates Matt Clásico' LIMIT 1");
+    // ── Seed class_types – ensure Tu Espacio Pilates VM type exists ──────────────
+    const hasPNTypes = await pool.query("SELECT 1 FROM class_types WHERE name = 'Pilates' LIMIT 1");
     if (hasPNTypes.rows.length === 0) {
       await pool.query(`
         INSERT INTO class_types (name, subtitle, description, category, intensity, level, duration_min, capacity, color, emoji, sort_order, is_active) VALUES
-          ('Pilates Matt Clásico', 'Método Clásico',        'Fortalece la musculatura que le da sostén a tu cuerpo respetando las bases del método clásico. Es una clase que te exige presencia, control, fluidez y una respiración consiente. ¡Utiliza el movimiento como forma de autoconocimiento!',        'pilates',   'media',   'all',          55, 10, '#b5bf9c', '🌊', 1, true),
-          ('Pilates Terapéutico',  'Fines terapéuticos',    'Una clase con efectos terapéuticos en el cuerpo como la disminución de dolor, mejora en movilidad y fortalecimiento general. Ideal para quienes buscan ejercitarse por alguna condición médica, lesión o bien están buscando regresar a ejercitarse. ¡Recupera la confianza en tu movimiento!', 'pilates',   'ligera',  'all',          55, 10, '#ebede5', '💚', 2, true),
-          ('Flex & Flow',          'Movimiento libre',      'Una clase que te invita a conectar mente y cuerpo por medio de movimientos naturales, fluidos y consientes ayudando a sentirte más libre, ágil, flexible y sin limitación. ¡Recupera el placer de un movimiento libre!',                           'pilates',   'media',   'all',          55, 10, '#b5bf9c', '�', 3, true),
-          ('Body Strong',          'Dinámica y retadora',   'Una clase de intensidad moderada, dinámica y retadora, que busca lograr un funcionamiento integral y funcional del cuerpo sin dejar ejecución y cuidado de los movimientos. ¡Conoce y desafía tus propios límites!',                              'pilates',   'pesada',  'intermediate', 50, 10, '#94867a', '🔥', 4, true)
+          ('Pilates', 'Reformer · Tower · Mat · Silla', 'Clase de Pilates de bajo impacto y alta exigencia en reformer, tower, mat y silla. Grupos de 8 con atención personalizada y enfoque muscular distinto cada día.', 'pilates', 'media', 'all', 60, 8, '#C9ADA3', '🤍', 1, true)
         ON CONFLICT DO NOTHING;
       `);
-      console.log("✅ Seeded 4 Valiance class types");
+      console.log("✅ Seeded Tu Espacio Pilates VM class type");
     }
     // ── Seed schedule_slots si la tabla está vacía ─────────────────────────
     const ssCount = await pool.query("SELECT COUNT(*) FROM schedule_slots");
     if (parseInt(ssCount.rows[0].count) === 0) {
       await pool.query(`
         INSERT INTO schedule_slots (time_slot, day_of_week, class_type_name) VALUES
-          ('7:15 am', 1, 'Body Strong'),          ('8:20 am', 1, 'Pilates Matt Clásico'),
-          ('6:15 pm', 1, 'Body Strong'),          ('7:20 pm', 1, 'Pilates Matt Clásico'),
-          ('7:15 am', 2, 'Body Strong'),          ('8:20 am', 2, 'Pilates Matt Clásico'),
-          ('9:25 am', 2, 'Pilates Terapéutico'),  ('6:15 pm', 2, 'Body Strong'),
-          ('7:20 pm', 2, 'Pilates Matt Clásico'),
-          ('7:15 am', 3, 'Body Strong'),          ('8:20 am', 3, 'Flex & Flow'),
-          ('6:15 pm', 3, 'Body Strong'),          ('7:20 pm', 3, 'Flex & Flow'),
-          ('7:15 am', 4, 'Body Strong'),          ('8:20 am', 4, 'Pilates Matt Clásico'),
-          ('9:25 am', 4, 'Pilates Terapéutico'),  ('6:15 pm', 4, 'Body Strong'),
-          ('7:20 pm', 4, 'Pilates Matt Clásico'),
-          ('7:15 am', 5, 'Body Strong'),          ('8:20 am', 5, 'Pilates Matt Clásico'),
-          ('8:00 am', 6, 'Pilates Matt Clásico'), ('9:05 am', 6, 'Flex & Flow')
+          ('7:00 am', 1, 'Pilates'), ('8:00 am', 1, 'Pilates'), ('9:00 am', 1, 'Pilates'),
+          ('5:30 pm', 1, 'Pilates'), ('6:30 pm', 1, 'Pilates'), ('7:30 pm', 1, 'Pilates'), ('8:30 pm', 1, 'Pilates'),
+          ('5:30 pm', 2, 'Pilates'), ('6:30 pm', 2, 'Pilates'), ('7:30 pm', 2, 'Pilates'),
+          ('7:00 am', 3, 'Pilates'), ('8:00 am', 3, 'Pilates'), ('9:00 am', 3, 'Pilates'),
+          ('5:30 pm', 3, 'Pilates'), ('6:30 pm', 3, 'Pilates'), ('7:30 pm', 3, 'Pilates'), ('8:30 pm', 3, 'Pilates'),
+          ('5:30 pm', 4, 'Pilates'), ('6:30 pm', 4, 'Pilates'), ('7:30 pm', 4, 'Pilates'),
+          ('7:00 am', 5, 'Pilates'), ('8:00 am', 5, 'Pilates'), ('9:00 am', 5, 'Pilates'),
+          ('5:30 pm', 5, 'Pilates'), ('6:30 pm', 5, 'Pilates'), ('7:30 pm', 5, 'Pilates'), ('8:30 pm', 5, 'Pilates'),
+          ('9:00 am', 6, 'Pilates')
         ON CONFLICT DO NOTHING;
       `);
     }
@@ -739,6 +734,10 @@ async function ensureSchema() {
     await pool.query(`
       UPDATE plans SET is_active = false WHERE name ILIKE '%+%Nutri%' OR name ILIKE '%+%Descarga%' OR name ILIKE '%+%Hormonal%' OR name ILIKE 'Paquete +%' OR name ILIKE '%Clases +%';
     `).catch(() => { });
+    // Deactivate leftover Valiance plans (Reformer/Barre/Combo/promos) on non-empty DBs
+    await pool.query(`
+      UPDATE plans SET is_active = false WHERE class_category IN ('reformer','barre','mixto') OR name ILIKE 'Reformer —%' OR name ILIKE 'Barre —%' OR name ILIKE 'Combo%' OR name IN ('Membresía Ilimitada','Morning Pass');
+    `).catch(() => { });
     // Remove legacy plan "Sesión Extra (Socias o Inscritas)" and all related data.
     // This keeps admin clean and avoids accidental reuse of an obsolete plan.
     try {
@@ -778,31 +777,15 @@ async function ensureSchema() {
     if (parseInt(plCount.rows[0].count) === 0) {
       await pool.query(`
         INSERT INTO plans (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order) VALUES
-          -- Reformer (clase_category = 'reformer' restringe a Pilates Reformer únicamente)
-          ('Reformer — Primera Vez',  'Clase de prueba para nuevas alumnas en Pilates Reformer.',  150,  'MXN', 30, 1,  'reformer', '["1 clase de prueba","Solo aceptamos transferencias","No reembolsable"]'::jsonb,  true, 0),
-          ('Reformer — Clase Suelta', 'Acceso a una clase individual de Pilates Reformer.',         200,  'MXN', 30, 1,  'reformer', '["1 clase Reformer","Vigencia 30 días"]'::jsonb,                                  true, 1),
-          ('Reformer — 2 Clases',     'Paquete inicial de 2 clases de Pilates Reformer.',           380,  'MXN', 30, 2,  'reformer', '["2 clases Reformer","Vigencia 30 días","Personal e intransferible"]'::jsonb,    true, 2),
-          ('Reformer — 3 Clases',     'Paquete de 3 clases de Pilates Reformer.',                   550,  'MXN', 30, 3,  'reformer', '["3 clases Reformer","Vigencia 30 días","Personal e intransferible"]'::jsonb,    true, 3),
-          ('Reformer — 4 Clases',     'Paquete de 4 clases de Pilates Reformer.',                   720,  'MXN', 30, 4,  'reformer', '["4 clases Reformer","Vigencia 30 días","Personal e intransferible"]'::jsonb,    true, 4),
-          ('Reformer — 8 Clases',     'Paquete de 8 clases de Pilates Reformer.',                   1400, 'MXN', 30, 8,  'reformer', '["8 clases Reformer","Vigencia 30 días","Personal e intransferible"]'::jsonb,    true, 5),
-          ('Reformer — 12 Clases',    'Paquete de 12 clases de Pilates Reformer.',                  2040, 'MXN', 30, 12, 'reformer', '["12 clases Reformer","Vigencia 30 días","Personal e intransferible"]'::jsonb,   true, 6),
-          ('Reformer — 20 Clases',    'Paquete grande de 20 clases de Pilates Reformer.',           3300, 'MXN', 30, 20, 'reformer', '["20 clases Reformer","Vigencia 30 días","Personal e intransferible"]'::jsonb,   true, 7),
-          -- Barre (class_category = 'barre' restringe a clases de Barre únicamente)
-          ('Barre — Primera Vez',     'Clase de prueba para nuevas alumnas en Barre.',              85,   'MXN', 30, 1,  'barre', '["1 clase de prueba","Solo aceptamos transferencias"]'::jsonb,                  true, 10),
-          ('Barre — Clase Suelta',    'Acceso a una clase individual de Barre.',                    145,  'MXN', 30, 1,  'barre', '["1 clase Barre","Vigencia 30 días"]'::jsonb,                                    true, 11),
-          ('Barre — 4 Clases',        'Paquete de 4 clases de Barre.',                              540,  'MXN', 30, 4,  'barre', '["4 clases Barre","Vigencia 30 días","Personal e intransferible"]'::jsonb,       true, 12),
-          ('Barre — 8 Clases',        'Paquete de 8 clases de Barre.',                              1040, 'MXN', 30, 8,  'barre', '["8 clases Barre","Vigencia 30 días","Personal e intransferible"]'::jsonb,       true, 13),
-          ('Barre — 12 Clases',       'Paquete de 12 clases de Barre.',                             1500, 'MXN', 30, 12, 'barre', '["12 clases Barre","Vigencia 30 días","Personal e intransferible"]'::jsonb,      true, 14),
-          -- Combos (mixto: aceptan Reformer y Barre con cuota compartida)
-          ('Combo 1 — 4 Reformer + 4 Barre', 'Paquete combinado: 4 clases de Pilates Reformer + 4 clases de Barre.', 1140, 'MXN', 30, 8,  'mixto', '["4 Reformer + 4 Barre","Vigencia 30 días","Personal e intransferible"]'::jsonb,  true, 20),
-          ('Combo 2 — 8 Reformer + 4 Barre', 'Paquete combinado: 8 clases de Pilates Reformer + 4 clases de Barre.', 1680, 'MXN', 30, 12, 'mixto', '["8 Reformer + 4 Barre","Vigencia 30 días","Personal e intransferible"]'::jsonb,  true, 21),
-          ('Combo 3 — 8 Reformer + 8 Barre', 'Paquete combinado: 8 clases de Pilates Reformer + 8 clases de Barre.', 2000, 'MXN', 30, 16, 'mixto', '["8 Reformer + 8 Barre","Vigencia 30 días","Personal e intransferible"]'::jsonb,  true, 22),
-          -- Promos
-          ('Membresía Ilimitada', 'Acceso ilimitado a clases de lunes a domingo durante 30 días.', 2900, 'MXN', 30, 999, 'all', '["Clases ilimitadas Reformer y Barre","Lunes a domingo","Vigencia 30 días","Personal e intransferible"]'::jsonb, true, 30),
-          ('Morning Pass',        'Pase mañanero: 8 clases en horarios de 7, 8 y 9 AM, lunes a viernes.', 1250, 'MXN', 30, 8, 'reformer', '["8 clases Reformer","Lunes a viernes","Solo turnos 7, 8 y 9 AM","Vigencia 30 días"]'::jsonb, true, 31)
+          ('Paquete 7 Clases',      '7 clases al mes. Vence al fin del mes de compra.',  880,  'MXN', 30, 7,  'all', '["7 clases","Vigencia: mes de compra","Personal e intransferible","Solo transferencia"]'::jsonb,  true, 1),
+          ('Paquete 9 Clases',      '9 clases al mes. Vence al fin del mes de compra.',  1050, 'MXN', 30, 9,  'all', '["9 clases","Vigencia: mes de compra","Personal e intransferible","Solo transferencia"]'::jsonb,  true, 2),
+          ('Paquete 14 Clases',     '14 clases al mes. Vence al fin del mes de compra.', 1400, 'MXN', 30, 14, 'all', '["14 clases","Vigencia: mes de compra","Personal e intransferible","Solo transferencia"]'::jsonb, true, 3),
+          ('Clase Extra',           'Clase adicional para alumnas ya inscritas.',        130,  'MXN', 30, 1,  'all', '["1 clase extra","Solo para inscritas"]'::jsonb,                                                  true, 4),
+          ('Clase Suelta / Visita', 'Clase individual sin inscripción.',                 250,  'MXN', 7,  1,  'all', '["1 clase","Sin inscripción","Si te inscribes se toma a cuenta"]'::jsonb,                         true, 5),
+          ('Inscripción',           'Pago único de inscripción. Se re-paga tras ausencia mayor a 3 meses.', 500, 'MXN', 3650, 0, 'all', '["Pago único","Requerida para paquetes"]'::jsonb,                                  true, 6)
         ON CONFLICT DO NOTHING;
       `);
-      console.log("[schema] Seeded Valiance canonical 18 plans");
+      console.log("[schema] Seeded Tu Espacio Pilates VM plans");
     }
     // ── Backfill class_category on existing plans ──
     await pool.query(`UPDATE plans SET class_category = 'all' WHERE class_category IS NULL`).catch(() => { });
@@ -1715,22 +1698,25 @@ async function ensureSchema() {
 
 
   try {
-    const adminHash = await bcrypt.hash("Valiance2026!", 12);
+    const adminEmail = process.env.ADMIN_EMAIL || "espaciopilatesvm@gmail.com";
+    const adminPass = process.env.ADMIN_PASSWORD || "EspacioVM2026!";
+    const adminHash = await bcrypt.hash(adminPass, 12);
     // Migración idempotente: si existe el admin viejo y el nuevo email
     // todavía no se usa, renombramos. Si el nuevo ya existe, no hacemos
     // nada (lo siguiente lo upsertea). Evita la colisión con UNIQUE(email).
     await pool.query(
-      `UPDATE users SET email = 'valiancepilates@gmail.com'
+      `UPDATE users SET email = $1
         WHERE email = 'admin@valiancepilates.com.mx'
-          AND NOT EXISTS (SELECT 1 FROM users WHERE email = 'valiancepilates@gmail.com')`
+          AND NOT EXISTS (SELECT 1 FROM users WHERE email = $1)`,
+      [adminEmail]
     ).catch(() => { });
     await pool.query(
       `INSERT INTO users (display_name, email, phone, password_hash, role, accepts_terms, accepts_communications)
-       VALUES ('Admin Valiance', 'valiancepilates@gmail.com', '0000000000', $1, 'admin', true, false)
-       ON CONFLICT (email) DO UPDATE SET role = 'admin', password_hash = $1`,
-      [adminHash]
+       VALUES ('Admin Tu Espacio', $1, '0000000000', $2, 'admin', true, false)
+       ON CONFLICT (email) DO UPDATE SET role = 'admin', password_hash = $2`,
+      [adminEmail, adminHash]
     );
-    console.log("✅ Admin user ready: valiancepilates@gmail.com / Valiance2026!");
+    console.log(`✅ Admin user ready: ${adminEmail}`);
   } catch (err) {
     console.error("Admin seed warning:", err.message);
   }
