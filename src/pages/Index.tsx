@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
@@ -87,16 +87,16 @@ const HORARIOS = [
 
 /* Paquetes mensuales — no acumulables, vencen al fin del mes de compra */
 const PAQUETES = [
-  { id: "p1", name: "7 clases", classes: 7, price: 880, hint: "1 a 2 por semana" },
-  { id: "p2", name: "9 clases", classes: 9, price: 1050, hint: "2 por semana", popular: true },
-  { id: "p3", name: "14 clases", classes: 14, price: 1400, hint: "3+ por semana", best: true },
+  { id: "p1", name: "7 clases", plan: "Paquete 7 Clases", classes: 7, price: 880, hint: "1 a 2 por semana" },
+  { id: "p2", name: "9 clases", plan: "Paquete 9 Clases", classes: 9, price: 1050, hint: "2 por semana", popular: true },
+  { id: "p3", name: "14 clases", plan: "Paquete 14 Clases", classes: 14, price: 1400, hint: "3+ por semana", best: true },
 ] as const;
 
 /* Cargos puntuales */
 const CARGOS = [
-  { id: "x1", name: "Inscripción", price: 500, hint: "Pago único" },
-  { id: "x2", name: "Clase extra", price: 130, hint: "Para ya inscritas" },
-  { id: "x3", name: "Clase suelta / visita", price: 250, hint: "Sin inscripción" },
+  { id: "x1", name: "Inscripción", plan: "Inscripción", price: 500, hint: "Pago único" },
+  { id: "x2", name: "Clase extra", plan: "Clase Extra", price: 130, hint: "Para ya inscritas" },
+  { id: "x3", name: "Clase suelta / visita", plan: "Clase Suelta / Visita", price: 250, hint: "Sin inscripción" },
 ] as const;
 
 /* Eventos — sección informativa, no reservable */
@@ -143,6 +143,11 @@ const Index = () => {
     id: string; displayName: string; specialties?: string | string[];
     photoUrl?: string; photoFocusX?: number; photoFocusY?: number;
   }[]>([]);
+  const [livePlans, setLivePlans] = useState<{ name: string; price: number }[]>([]);
+  const priceByName = useMemo(
+    () => Object.fromEntries(livePlans.map((p) => [p.name, Number(p.price)])),
+    [livePlans],
+  );
 
   const navigate = useNavigate();
   const { isAuthenticated, user } = useAuthStore();
@@ -163,6 +168,9 @@ const Index = () => {
     api.get("/public/instructors").then(({ data }) => {
       const rows = Array.isArray(data?.data) ? data.data : [];
       if (rows.length > 0) setInstructors(rows);
+    }).catch(() => {});
+    api.get("/plans").then(({ data }) => {
+      setLivePlans(Array.isArray(data?.data) ? data.data : []);
     }).catch(() => {});
   }, []);
 
@@ -680,6 +688,7 @@ const Index = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5 items-stretch">
               {PAQUETES.map((p) => {
                 const featured = p.popular || p.best;
+                const price = priceByName[p.plan] ?? p.price;
                 return (
                   <div
                     key={p.id}
@@ -713,7 +722,7 @@ const Index = () => {
                     </div>
                     <div className="relative flex items-baseline gap-1 mt-3">
                       <span className={`font-display text-[2.7rem] leading-none tabular-nums ${p.best ? "text-valiance-nude" : "text-valiance-charcoal"}`}>
-                        ${p.price.toLocaleString()}
+                        ${price.toLocaleString()}
                       </span>
                       <span className={`text-[0.72rem] ${p.best ? "text-valiance-nude/50" : "text-valiance-charcoal/50"}`}>MXN</span>
                     </div>
@@ -721,7 +730,7 @@ const Index = () => {
                       {p.classes} clases · {p.hint}
                     </div>
                     <div className={`relative text-[0.74rem] mt-1 tabular-nums ${p.best ? "text-valiance-blush/60" : "text-valiance-mauve"} font-body`}>
-                      ${(p.price / p.classes).toFixed(0)} por clase
+                      ${(price / p.classes).toFixed(0)} por clase
                     </div>
                     <button
                       onClick={() => navigate(ctaPath)}
@@ -753,18 +762,21 @@ const Index = () => {
             </div>
 
             <div className="rounded-[1.75rem] bg-valiance-nude ring-1 ring-valiance-charcoal/8 px-8 sm:px-10 divide-y divide-valiance-lavender/25">
-              {CARGOS.map((c) => (
+              {CARGOS.map((c) => {
+                const price = priceByName[c.plan] ?? c.price;
+                return (
                 <div key={c.id} className="py-6 flex items-center justify-between gap-4">
                   <div>
                     <div className="font-display text-[1.3rem] text-valiance-charcoal leading-tight">{c.name}</div>
                     <div className="text-[0.74rem] text-valiance-mauve font-body mt-1">{c.hint}</div>
                   </div>
                   <div className="font-display text-[1.9rem] text-valiance-charcoal leading-none flex items-baseline gap-1 tabular-nums">
-                    ${c.price.toLocaleString()}
+                    ${price.toLocaleString()}
                     <span className="text-[0.66rem] text-valiance-charcoal/50">MXN</span>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
