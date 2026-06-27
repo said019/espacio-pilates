@@ -1640,101 +1640,98 @@ async function ensureSchema() {
     console.error("Schema migration warning:", err.message);
   }
 
-  // ── Seed demo classes for the next 4 weeks (only if classes table is empty) ──
+  // ── Seed classes for the next 4 weeks FROM the VM schedule (schedule_slots) ──
   try {
-    // First ensure at least one instructor exists
-    const instCount = await pool.query("SELECT COUNT(*) FROM instructors");
+    // 1) Ensure at least one active instructor exists, linked to a coach user.
+    //    instructors.user_id is NOT NULL (FK → users), so we must create the
+    //    user first, then the instructor row that references it.
+    const instCount = await pool.query(
+      "SELECT COUNT(*) FROM instructors WHERE is_active = true"
+    );
     if (parseInt(instCount.rows[0].count) === 0) {
-      await pool.query(`
-        INSERT INTO instructors (display_name, email, bio, specialties, is_active) VALUES
-          ('Angie', 'angie@puntoneutro.com.mx', 'Soy una profesional del movimiento apasionada por acompañar a las personas a sentirse mejor en su cuerpo desde un enfoque consciente, funcional y sostenible. Mi enfoque integra fuerza, movilidad y control corporal, adaptándose a cada persona y a cada proceso.', '["Pilates Matt Clásico","Pilates Terapéutico","Flex & Flow","Body Strong"]'::jsonb, true)
-        ON CONFLICT DO NOTHING;
-      `);
-      console.log("✅ Seeded Tu Espacio Pilates instructor (Angie)");
+      const coachHash = await bcrypt.hash("Coach2026!", 12);
+      const coachUserRes = await pool.query(
+        `INSERT INTO users (display_name, email, phone, password_hash, role, is_active)
+         VALUES ('Coach Tu Espacio', 'coach@tuespaciopilatesvm.mx', '0000000000', $1, 'instructor', true)
+         ON CONFLICT (email) DO UPDATE SET role = 'instructor'
+         RETURNING id`,
+        [coachHash]
+      );
+      const coachUserId = coachUserRes.rows[0].id;
+      await pool.query(
+        `INSERT INTO instructors (user_id, display_name, email, bio, specialties, is_active)
+         VALUES ($1, 'Coach Tu Espacio', 'coach@tuespaciopilatesvm.mx', 'Coach certificada de Pilates.', '["Pilates"]'::jsonb, true)
+         ON CONFLICT DO NOTHING`,
+        [coachUserId]
+      );
+      console.log("✅ Seeded Tu Espacio Pilates coach");
     }
 
+    // 2) Generate bookable classes from schedule_slots (cup 8), next 4 weeks.
     const classCount = await pool.query("SELECT COUNT(*) FROM classes");
     if (parseInt(classCount.rows[0].count) === 0) {
-      // Fetch real class_type ids and instructor ids from DB
-      const typesRes = await pool.query(
-        "SELECT id, name FROM class_types WHERE is_active = true ORDER BY sort_order ASC LIMIT 8"
+      const typeRes = await pool.query(
+        "SELECT id FROM class_types WHERE is_active = true ORDER BY sort_order ASC LIMIT 1"
       );
       const instRes = await pool.query(
-        "SELECT id FROM instructors WHERE is_active = true ORDER BY created_at ASC LIMIT 4"
+        "SELECT id FROM instructors WHERE is_active = true ORDER BY created_at ASC LIMIT 1"
+      );
+      const slotsRes = await pool.query(
+        "SELECT time_slot, day_of_week FROM schedule_slots WHERE is_active = true"
       );
 
-      if (typesRes.rows.length > 0 && instRes.rows.length > 0) {
-        const types = typesRes.rows;       // [{id, name}, ...]
-        const insts = instRes.rows;        // [{id}, ...]
-        const getType = (i) => types[i % types.length].id;
-        const getInst = (i) => insts[i % insts.length].id;
+      if (typeRes.rows.length > 0 && instRes.rows.length > 0 && slotsRes.rows.length > 0) {
+        const classTypeId = typeRes.rows[0].id;
+        const instructorId = instRes.rows[0].id;
 
-        // Build classes for Mon–Sat for the next 4 weeks
+        // Parse a time_slot string like '7:00 am' / '5:30 pm' → 24h "HH:MM".
+        const parseSlot = (raw) => {
+          const m = String(raw).trim().toLowerCase().match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/);
+          if (!m) return null;
+          let hour = parseInt(m[1], 10) % 12;        // 12 → 0
+          const min = parseInt(m[2], 10);
+          if (m[3] === "pm") hour += 12;             // pm: hour%12 + 12 (12pm→12)
+          return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+        };
+
+        // Add 60 minutes to a "HH:MM" string, returned as "HH:MM".
+        const addHour = (hhmm) => {
+          const [h, mn] = hhmm.split(":").map((n) => parseInt(n, 10));
+          const total = h * 60 + mn + 60;
+          const eh = Math.floor(total / 60) % 24;
+          const em = total % 60;
+          return `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+        };
+
+        // Monday of the current week (day_of_week: 1=Mon … 6=Sat, no Sunday).
         const today = new Date();
-        // Find Monday of current week
-        const dayOfWeek = today.getDay(); // 0=Sun
-        const diffToMon = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        today.setHours(0, 0, 0, 0);
+        const dow = today.getDay();                  // 0=Sun … 6=Sat
+        const diffToMon = dow === 0 ? -6 : 1 - dow;
         const monday = new Date(today);
         monday.setDate(today.getDate() + diffToMon);
 
-        // Time slots: morning + evening
-        const SLOTS = [
-          { hour: 7, min: 0, dur: 55 },
-          { hour: 9, min: 0, dur: 55 },
-          { hour: 11, min: 0, dur: 60 },
-          { hour: 18, min: 0, dur: 55 },
-          { hour: 19, min: 30, dur: 55 },
-        ];
-        // Days: Mon(1)–Sat(6), no Sunday
-        const DAYS = [0, 1, 2, 3, 4, 5]; // offset from monday
-
-        let typeIdx = 0;
-        let instIdx = 0;
         const inserts = [];
-
         for (let week = 0; week < 4; week++) {
-          for (const dayOffset of DAYS) {
+          for (const slot of slotsRes.rows) {
+            const start = parseSlot(slot.time_slot);
+            if (!start) continue;
             const date = new Date(monday);
-            date.setDate(monday.getDate() + week * 7 + dayOffset);
-            const dateStr = date.toISOString().slice(0, 10); // YYYY-MM-DD
-
-            // Not every slot on every day — skip some to feel realistic
-            const slotsToday = SLOTS.filter((_, si) => {
-              // Weekends (Sat = offset 5) only morning slots
-              if (dayOffset === 5 && si > 2) return false;
-              // Some variety: skip slot if typeIdx+dayOffset+si is divisible by 7
-              if ((typeIdx + dayOffset + si) % 7 === 0) return false;
-              return true;
-            });
-
-            for (const slot of slotsToday) {
-              const startH = String(slot.hour).padStart(2, "0");
-              const startM = String(slot.min).padStart(2, "0");
-              const totalMin = slot.hour * 60 + slot.min + slot.dur;
-              const endH = String(Math.floor(totalMin / 60)).padStart(2, "0");
-              const endM = String(totalMin % 60).padStart(2, "0");
-              inserts.push({
-                classTypeId: getType(typeIdx),
-                instructorId: getInst(instIdx),
-                date: dateStr,
-                startTime: `${startH}:${startM}`,
-                endTime: `${endH}:${endM}`,
-                maxCapacity: 10,
-              });
-              typeIdx++;
-              instIdx++;
-            }
+            date.setDate(monday.getDate() + week * 7 + (slot.day_of_week - 1));
+            if (date < today) continue;              // skip past dates this week
+            const dateStr = date.toISOString().slice(0, 10);
+            inserts.push({ date: dateStr, start, end: addHour(start) });
           }
         }
 
         for (const c of inserts) {
           await pool.query(
             `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status)
-             VALUES ($1,$2,$3,$4,$5,$6,'scheduled') ON CONFLICT DO NOTHING`,
-            [c.classTypeId, c.instructorId, c.date, c.startTime, c.endTime, c.maxCapacity]
+             VALUES ($1,$2,$3,$4,$5,8,'scheduled') ON CONFLICT DO NOTHING`,
+            [classTypeId, instructorId, c.date, c.start, c.end]
           );
         }
-        console.log(`✅ Seeded ${inserts.length} demo classes for the next 4 weeks`);
+        console.log(`✅ Seeded ${inserts.length} classes (VM schedule, próximas 4 semanas)`);
       }
     }
   } catch (err) {
