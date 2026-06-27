@@ -27,7 +27,7 @@ const Auth = () => {
     <div className="min-h-screen bg-background flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
         <h1 className="font-syne font-extrabold text-2xl text-foreground mb-2 text-center">
-          Valiance Pilates<span className="text-primary">.</span>
+          Tu Espacio Pilates<span className="text-primary">.</span>
         </h1>
         <p className="text-muted-foreground text-sm text-center mb-8">Panel de administración</p>
         <form onSubmit={handleLogin} className="flex flex-col gap-4">

@@ -40,7 +40,7 @@ const ForgotPassword = () => {
     <div className="min-h-[100dvh] bg-valiance-nude text-valiance-charcoal flex items-center justify-center p-6">
       <div className="w-full max-w-[420px]">
         <Link to="/" className="flex justify-center mb-10">
-          <img src={valianceLogo} alt="Valiance Pilates" className="h-12 w-auto" />
+          <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-12 w-auto" />
         </Link>
 
         {sent ? (
@@ -118,7 +118,7 @@ const ForgotPassword = () => {
             </div>
 
             <p className="text-center font-body text-[0.7rem] text-valiance-charcoal/40 mt-10">
-              © {new Date().getFullYear()} Valiance Pilates
+              © {new Date().getFullYear()} Tu Espacio Pilates
             </p>
           </>
         )}

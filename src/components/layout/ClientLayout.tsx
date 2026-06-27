@@ -96,7 +96,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
       >
         {/* Brand */}
         <div className="flex h-32 items-center justify-between px-6 border-b border-valiance-blush">
-          <Link to="/" className="flex items-center no-underline" aria-label="Valiance Pilates — Inicio">
+          <Link to="/" className="flex items-center no-underline" aria-label="Tu Espacio Pilates — Inicio">
             <img src={valianceLogo} alt="" aria-hidden className="h-28 w-auto object-contain" />
           </Link>
           <button
@@ -204,7 +204,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
             <Menu size={20} />
           </button>
 
-          <Link to="/" aria-label="Valiance Pilates — Inicio">
+          <Link to="/" aria-label="Tu Espacio Pilates — Inicio">
             <img src={valianceLogo} alt="" aria-hidden className="h-20 w-auto object-contain" />
           </Link>
 

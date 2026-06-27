@@ -103,8 +103,8 @@ const Login = () => {
         <div className="absolute inset-0 bg-gradient-to-t from-valiance-charcoal via-transparent to-transparent" />
 
         <div className="relative z-10 flex flex-col justify-between p-14 w-full">
-          <Link to="/" className="inline-block self-start" aria-label="Valiance Pilates — Inicio">
-            <img src={valianceLogo} alt="Valiance Pilates" className="h-16 w-auto brightness-[10] contrast-[1.2]" />
+          <Link to="/" className="inline-block self-start" aria-label="Tu Espacio Pilates — Inicio">
+            <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-16 w-auto brightness-[10] contrast-[1.2]" />
           </Link>
 
           <div className="max-w-[460px]">
@@ -118,7 +118,7 @@ const Login = () => {
             >
               Tu hora.<br />
               Tu fuerza.<br />
-              <em className="not-italic text-valiance-blush">Tu valiance.</em>
+              <em className="not-italic text-valiance-blush">Tu espacio.</em>
             </h2>
             <p className="font-body text-[0.95rem] text-valiance-nude/70 leading-[1.75] max-w-[380px]">
               Entra a tu cuenta para reservar clases, ver tu paquete y revisar tu próxima sesión.
@@ -131,7 +131,7 @@ const Login = () => {
       <main className="flex-1 flex flex-col justify-center items-center px-6 py-12 sm:px-10 relative">
         <div className="w-full max-w-[400px]">
           <Link to="/" className="flex justify-center mb-10">
-            <img src={valianceLogo} alt="Valiance Pilates" className="h-16 w-auto" />
+            <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-16 w-auto" />
           </Link>
 
           <header className="mb-9">
@@ -242,10 +242,10 @@ const Login = () => {
               </button>
               <div className="p-4 flex items-center gap-4">
                 <div className="shrink-0 w-14 h-14 rounded-2xl bg-valiance-nude shadow-sm flex items-center justify-center border border-valiance-blush">
-                  <img src={valianceLogo} alt="Valiance" className="w-10 h-10 object-contain" />
+                  <img src={valianceLogo} alt="Tu Espacio Pilates" className="w-10 h-10 object-contain" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-display text-[0.95rem] text-valiance-charcoal leading-tight mb-0.5">Instala Valiance</p>
+                  <p className="font-display text-[0.95rem] text-valiance-charcoal leading-tight mb-0.5">Instala Tu Espacio Pilates</p>
                   <p className="font-body text-[0.72rem] text-valiance-charcoal/55 leading-snug">Accede más rápido desde tu pantalla de inicio</p>
                 </div>
               </div>
@@ -272,10 +272,10 @@ const Login = () => {
               </button>
               <div className="p-4 flex items-center gap-4">
                 <div className="shrink-0 w-14 h-14 rounded-2xl bg-valiance-nude shadow-sm flex items-center justify-center border border-valiance-blush">
-                  <img src={valianceLogo} alt="Valiance" className="w-10 h-10 object-contain" />
+                  <img src={valianceLogo} alt="Tu Espacio Pilates" className="w-10 h-10 object-contain" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-display text-[0.95rem] text-valiance-charcoal leading-tight mb-0.5">Instala Valiance en tu iPhone</p>
+                  <p className="font-display text-[0.95rem] text-valiance-charcoal leading-tight mb-0.5">Instala Tu Espacio Pilates en tu iPhone</p>
                   <p className="font-body text-[0.72rem] text-valiance-charcoal/55">Agrégala a tu pantalla de inicio</p>
                 </div>
               </div>
@@ -296,7 +296,7 @@ const Login = () => {
           )}
 
           <p className="text-center font-body text-[0.7rem] text-valiance-charcoal/40 mt-8">
-            © {new Date().getFullYear()} Valiance Pilates
+            © {new Date().getFullYear()} Tu Espacio Pilates
           </p>
         </div>
       </main>

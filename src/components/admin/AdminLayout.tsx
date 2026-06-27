@@ -125,7 +125,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
         >
           {!isCompact && (
             <Link to="/" aria-label="Inicio" className="inline-flex items-center">
-              <img src={valianceLogo} alt="Valiance Pilates" className="h-28 w-auto object-contain" />
+              <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-28 w-auto object-contain" />
             </Link>
           )}
 

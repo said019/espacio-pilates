@@ -368,7 +368,7 @@ const InstructorsList = () => {
 
                 <div className="space-y-1">
                   <Label>Email</Label>
-                  <Input type="email" {...form.register("email")} placeholder="coach@valiance.com" />
+                  <Input type="email" {...form.register("email")} placeholder="coach@ejemplo.com" />
                   {form.formState.errors.email && (
                     <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
                   )}

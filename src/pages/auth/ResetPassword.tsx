@@ -66,7 +66,7 @@ const ResetPassword = () => {
     <div className="min-h-[100dvh] bg-valiance-nude text-valiance-charcoal flex items-center justify-center p-6">
       <div className="w-full max-w-[420px]">
         <Link to="/" className="flex justify-center mb-10">
-          <img src={valianceLogo} alt="Valiance Pilates" className="h-12 w-auto" />
+          <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-12 w-auto" />
         </Link>
 
         {done ? (

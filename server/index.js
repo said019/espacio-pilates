@@ -29,12 +29,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || "puntoneutro_secret_2026";
-const APP_PUBLIC_URL = String(process.env.APP_URL || process.env.SITE_URL || "https://valiancepilates.com.mx").replace(/\/+$/, "");
+const APP_PUBLIC_URL = String(process.env.APP_URL || process.env.SITE_URL || "http://localhost:5173").replace(/\/+$/, "");
 
 // ─── Evolution API (WhatsApp) config ────────────────────────────────────────
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || "https://evolution-api-production-c1cb.up.railway.app";
 const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || "xoL0b1t0s-2026";
-const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE_NAME || "valiance-pilates";
+const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE_NAME || "tu-espacio-pilates-vm";
 const evolutionApi = axios.create({
   baseURL: EVOLUTION_API_URL,
   headers: { apikey: EVOLUTION_API_KEY },
@@ -156,7 +156,7 @@ async function getConfiguredBankInfo(dbClient = pool) {
 
 const DEFAULT_POLICIES_SETTINGS = {
   cancellation_policy: "Para cancelar o reprogramar tu clase se requiere al menos 8 horas de anticipación. De no hacerlo, se tomará como clase impartida y no hay reposición. En caso de inasistencia no hay reembolso.",
-  terms_of_service: "Al reservar o comprar en Valiance Pilates aceptas el reglamento interno: puntualidad (5 minutos antes de la clase, tolerancia de 5 minutos), dress code (calcetas antiderrapantes obligatorias y ropa deportiva cómoda), cuidado del equipo y uso personal e intransferible de clases y membresías.",
+  terms_of_service: "Al reservar o comprar en Tu Espacio Pilates aceptas el reglamento interno: puntualidad (5 minutos antes de la clase, tolerancia de 5 minutos), dress code (calcetas antiderrapantes obligatorias y ropa deportiva cómoda), cuidado del equipo y uso personal e intransferible de clases y membresías.",
   privacy_policy: "Tus datos se usan únicamente para gestionar reservas, pagos y comunicación operativa del estudio. No compartimos tu información personal con terceros sin autorización.",
 };
 
@@ -205,8 +205,8 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     body: "Hola {name} 💜 Te queda *1 clase* en tu plan {plan}. Renueva para seguir entrenando sin parar. 🤍",
   },
   welcome: {
-    subject: "Bienvenida a Valiance Pilates",
-    body: "Hola {name}, bienvenida a Valiance Pilates. ¡Nos encanta tenerte aquí!",
+    subject: "Bienvenida a Tu Espacio Pilates",
+    body: "Hola {name}, bienvenida a Tu Espacio Pilates. ¡Nos encanta tenerte aquí!",
   },
   password_reset: {
     subject: "Recuperación de contraseña",
@@ -722,7 +722,7 @@ async function ensureSchema() {
     // ── Migrate plans: 'mixto' class_category means both, keep as 'mixto' for logic ──
     // (mixto plans are still valid — the booking endpoint allows them on both categories)
     // ── Seed plans: deactivate old schema_complete.sql plans & ensure only correct ones ──
-    // Soft-delete (deactivate) old plans que NO son parte del catálogo Valiance.
+    // Soft-delete (deactivate) old plans que NO son parte del catálogo VM.
     // Lista canónica vive en seed-valiance-full.sql y aquí abajo en el bloque de fresh-DB.
     // Usamos UPDATE en vez de DELETE para evitar FK constraints de orders/memberships.
     await pool.query(`
@@ -737,7 +737,7 @@ async function ensureSchema() {
         'Cinco Sesiones (20 al Mes)',
         'Seis Sesiones (24 al Mes)',
         'Siete Sesiones (28 al Mes)',
-        -- Legacy del seed Punto Neutro genérico (precios incorrectos)
+        -- Legacy del seed genérico anterior (precios incorrectos)
         'Clase Suelta',
         '4 Clases',
         '8 Clases',
@@ -1194,17 +1194,18 @@ async function ensureSchema() {
     try {
       const ins = await pool.query(`
         INSERT INTO plans (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_admin_only)
-        SELECT 'TotalPass 154', 'Convenio TotalPass · uso interno walk-in', 154, 'MXN', 1, 1, 'reformer', '["Walk-in TotalPass","Solo uso interno"]'::jsonb, true, 999, true
+        SELECT 'TotalPass 154', 'Convenio TotalPass · uso interno walk-in', 154, 'MXN', 1, 1, 'reformer', '["Walk-in TotalPass","Solo uso interno"]'::jsonb, false, 999, true
         WHERE NOT EXISTS (SELECT 1 FROM plans WHERE LOWER(name) = LOWER('TotalPass 154'))
         RETURNING id
       `);
       // Always force-set the flags so a previously-created row (e.g. from a
       // failed earlier attempt with wrong category or is_admin_only=false)
-      // converges to the correct state.
+      // converges to the correct state. is_active stays false: convenio
+      // Valiance/aggregator fuera de alcance para Tu Espacio Pilates VM.
       const upd = await pool.query(`
         UPDATE plans
            SET is_admin_only = true,
-               is_active = true,
+               is_active = false,
                class_category = 'reformer',
                price = COALESCE(NULLIF(price, 0), 154),
                class_limit = COALESCE(class_limit, 1),
@@ -1640,7 +1641,7 @@ async function ensureSchema() {
           ('Angie', 'angie@puntoneutro.com.mx', 'Soy una profesional del movimiento apasionada por acompañar a las personas a sentirse mejor en su cuerpo desde un enfoque consciente, funcional y sostenible. Mi enfoque integra fuerza, movilidad y control corporal, adaptándose a cada persona y a cada proceso.', '["Pilates Matt Clásico","Pilates Terapéutico","Flex & Flow","Body Strong"]'::jsonb, true)
         ON CONFLICT DO NOTHING;
       `);
-      console.log("✅ Seeded Valiance instructor (Angie)");
+      console.log("✅ Seeded Tu Espacio Pilates instructor (Angie)");
     }
 
     const classCount = await pool.query("SELECT COUNT(*) FROM classes");
@@ -1736,15 +1737,8 @@ async function ensureSchema() {
     const adminEmail = process.env.ADMIN_EMAIL || "espaciopilatesvm@gmail.com";
     const adminPass = process.env.ADMIN_PASSWORD || "EspacioVM2026!";
     const adminHash = await bcrypt.hash(adminPass, 12);
-    // Migración idempotente: si existe el admin viejo y el nuevo email
-    // todavía no se usa, renombramos. Si el nuevo ya existe, no hacemos
-    // nada (lo siguiente lo upsertea). Evita la colisión con UNIQUE(email).
-    await pool.query(
-      `UPDATE users SET email = $1
-        WHERE email = 'admin@valiancepilates.com.mx'
-          AND NOT EXISTS (SELECT 1 FROM users WHERE email = $1)`,
-      [adminEmail]
-    ).catch(() => { });
+    // El admin se garantiza con el upsert (ON CONFLICT) de abajo a partir
+    // del email definido por ADMIN_EMAIL. No hay migración de admin previo.
     await pool.query(
       `INSERT INTO users (display_name, email, phone, password_hash, role, accepts_terms, accepts_communications)
        VALUES ('Admin Tu Espacio', $1, '0000000000', $2, 'admin', true, false)
@@ -1760,7 +1754,7 @@ async function ensureSchema() {
 // ─── Middleware ──────────────────────────────────────────────────────────────
 const CORS_ALLOWED_ORIGINS = String(
   process.env.CORS_ALLOWED_ORIGINS ||
-  "https://valiancepilates.com.mx,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080",
+  "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080",
 )
   .split(",")
   .map((origin) => origin.trim())
@@ -4475,10 +4469,10 @@ app.post("/api/loyalty/redeem", authMiddleware, async (req, res) => {
 
 // ─── Google Wallet helpers ──────────────────────────────────────────────────
 
-const SITE_URL = process.env.SITE_URL || "https://valiancepilates.com.mx";
+const SITE_URL = process.env.SITE_URL || "http://localhost:5173";
 const GW_ISSUER_ID = process.env.GOOGLE_ISSUER_ID || "";
-const GW_ISSUER_NAME = process.env.GOOGLE_ISSUER_NAME || "Valiance Pilates";
-const GW_PROGRAM_NAME = process.env.GOOGLE_PROGRAM_NAME || "Valiance Pilates Club";
+const GW_ISSUER_NAME = process.env.GOOGLE_ISSUER_NAME || "Tu Espacio Pilates";
+const GW_PROGRAM_NAME = process.env.GOOGLE_PROGRAM_NAME || "Tu Espacio Pilates Club";
 const GW_HEX_BG = process.env.GOOGLE_HEX_BACKGROUND_COLOR || "#1A1A1A";
 const GW_HEX_BG_EVENT = process.env.GOOGLE_HEX_BACKGROUND_COLOR_EVENT || "#1F0047";
 
@@ -4614,11 +4608,11 @@ async function ensureGoogleWalletClass() {
       programName: GW_PROGRAM_NAME,
       programLogo: {
         sourceUri: { uri: `${SITE_URL}/wallet-program-black.png` },
-        contentDescription: { defaultValue: { language: "es", value: "Valiance Pilates" } },
+        contentDescription: { defaultValue: { language: "es", value: "Tu Espacio Pilates" } },
       },
       heroImage: {
         sourceUri: { uri: `${SITE_URL}/wallet-hero-black.png` },
-        contentDescription: { defaultValue: { language: "es", value: "Valiance Pilates" } },
+        contentDescription: { defaultValue: { language: "es", value: "Tu Espacio Pilates" } },
       },
       hexBackgroundColor: GW_HEX_BG,
       reviewStatus: "UNDER_REVIEW",
@@ -4709,7 +4703,7 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
   const nonRepeatable = hasMembership && parseBooleanFlag(membership.is_non_repeatable);
 
   // Header label
-  let passHeader = "VALIANCE CLUB";
+  let passHeader = "TU ESPACIO PILATES";
   if (hasEventPass) {
     passHeader = "PASE DE EVENTO";
   } else if (hasMembership) {
@@ -4839,7 +4833,7 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
   // Row 5: Points
   textModules.push({
     id: "puntos",
-    header: "PUNTOS VALIANCE",
+    header: "PUNTOS TEP",
     body: `${points.toLocaleString("es-MX")} pts`,
   });
 
@@ -5745,8 +5739,8 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const eventTimeLong = eventStartTimeLabel && eventEndTimeLabel
     ? `${eventStartTimeLabel} - ${eventEndTimeLabel}`
     : (eventStartTimeLabel || "Horario por confirmar");
-  const eventLocationShort = truncateWalletField(activeEventPass?.eventLocation || "Valiance Pilates", 24);
-  const eventLocationLong = truncateWalletField(activeEventPass?.eventLocation || "Valiance Pilates", 38);
+  const eventLocationShort = truncateWalletField(activeEventPass?.eventLocation || "Tu Espacio Pilates", 24);
+  const eventLocationLong = truncateWalletField(activeEventPass?.eventLocation || "Tu Espacio Pilates", 38);
   const eventCodeLabel = truncateWalletField(activeEventPass?.passCode || "—", 18);
   const eventRelevantDate = (() => {
     if (!hasEventPass || !hasValidEventDate) return new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
@@ -6019,14 +6013,14 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
 
   backFields.push(
     { key: "cliente", label: "CLIENTE", value: userName },
-    { key: "puntos", label: "PUNTOS VALIANCE", value: `${points.toLocaleString("es-MX")} pts` },
+    { key: "puntos", label: "PUNTOS TEP", value: `${points.toLocaleString("es-MX")} pts` },
     { key: "web", label: "RESERVAR EN LÍNEA", value: `${SITE_URL}/app/bookings` },
     {
       key: "terms",
       label: "TÉRMINOS",
       value: hasEventPass
         ? "Pase válido para un acceso al evento indicado. Presenta el QR en recepción."
-        : "Válido para clases de Valiance. Presenta tu pase al ingresar.",
+        : "Válido para clases de Tu Espacio Pilates. Presenta tu pase al ingresar.",
     }
   );
 
@@ -6087,10 +6081,10 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     passTypeIdentifier: APPLE_PASS_TYPE_ID,
     serialNumber,
     teamIdentifier: APPLE_TEAM_ID,
-    organizationName: "Valiance Pilates",
+    organizationName: "Tu Espacio Pilates",
     description: hasEventPass
-      ? `Evento — ${activeEventPass?.eventTitle || "Valiance Pilates"}`
-      : `${membershipCategoryLabel} — Valiance Pilates`,
+      ? `Evento — ${activeEventPass?.eventTitle || "Tu Espacio Pilates"}`
+      : `${membershipCategoryLabel} — Tu Espacio Pilates`,
     logoText: "",
     foregroundColor: passForeground,
     backgroundColor: passBackground,
@@ -6375,7 +6369,7 @@ app.get("/api/wallet/apple/pkpass", authMiddleware, async (req, res) => {
         });
         console.log("[Apple Wallet] ✅ .pkpass generated, size:", pkpassBuffer.length, "bytes");
         res.setHeader("Content-Type", "application/vnd.apple.pkpass");
-        res.setHeader("Content-Disposition", `attachment; filename="valiance-pass.pkpass"`);
+        res.setHeader("Content-Disposition", `attachment; filename="tu-espacio-pilates-pass.pkpass"`);
         res.setHeader("Content-Length", pkpassBuffer.length);
         return res.send(pkpassBuffer);
       } catch (pkpassErr) {
@@ -6417,8 +6411,8 @@ app.get("/api/wallet/apple/pkpass", authMiddleware, async (req, res) => {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Valiance Pilates">
-<title>Valiance Pilates — ${userName}</title>
+<meta name="apple-mobile-web-app-title" content="Tu Espacio Pilates">
+<title>Tu Espacio Pilates — ${userName}</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0a0a0a;color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
@@ -6450,21 +6444,21 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
 <body>
 <div class="pass">
   <div class="header">
-    <div class="logo">Valiance Pilates</div>
+    <div class="logo">Tu Espacio Pilates</div>
     <div class="badge">Club</div>
   </div>
   <div class="name">${userName}</div>
   <div class="points-section">
     <div class="points-label">Puntos acumulados</div>
     <div class="points">${points}</div>
-    <div class="points-sub">Valiance Pilates</div>
+    <div class="points-sub">Tu Espacio Pilates</div>
   </div>
   <div class="qr-section">
     <div class="qr-wrap">
       <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(qrCode)}&bgcolor=FFFFFF&color=1a0b26" alt="QR Code" />
     </div>
   </div>
-  <div class="qr-hint">Tu código de acceso Valiance</div>
+  <div class="qr-hint">Tu código de acceso a Tu Espacio Pilates</div>
   <div class="fields">
     ${membershipHtml}
     ${nextBookingHtml}
@@ -6508,7 +6502,7 @@ app.get("/api/wallet/events/apple/pkpass", authMiddleware, async (req, res) => {
     const eventTimeLong = eventStartTimeLabel && eventEndTimeLabel
       ? `${eventStartTimeLabel} - ${eventEndTimeLabel}`
       : (eventStartTimeLabel || "Horario por confirmar");
-    const eventLocationLong = truncateWalletField(activeEventPass?.eventLocation || "Valiance Pilates", 38);
+    const eventLocationLong = truncateWalletField(activeEventPass?.eventLocation || "Tu Espacio Pilates", 38);
 
     if (isAppleWalletConfigured()) {
       const pkpassBuffer = await generateApplePkpass({
@@ -6521,7 +6515,7 @@ app.get("/api/wallet/events/apple/pkpass", authMiddleware, async (req, res) => {
         activeEventPass,
       });
       res.setHeader("Content-Type", "application/vnd.apple.pkpass");
-      res.setHeader("Content-Disposition", `attachment; filename="valiance-event-pass.pkpass"`);
+      res.setHeader("Content-Disposition", `attachment; filename="tu-espacio-pilates-event-pass.pkpass"`);
       res.setHeader("Content-Length", pkpassBuffer.length);
       return res.send(pkpassBuffer);
     }
@@ -6531,7 +6525,7 @@ app.get("/api/wallet/events/apple/pkpass", authMiddleware, async (req, res) => {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Pase de Evento — Valiance Pilates</title>
+<title>Pase de Evento — Tu Espacio Pilates</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0a0a0a;color:#fff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
@@ -6553,7 +6547,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   <div class="pass">
     <div class="header">
       <span class="badge">Pase de evento</span>
-      <div class="title">${activeEventPass.eventTitle || "Evento Valiance"}</div>
+      <div class="title">${activeEventPass.eventTitle || "Evento Tu Espacio Pilates"}</div>
     </div>
     <div class="meta">
       <div class="meta-item">
@@ -6566,7 +6560,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
       </div>
       <div class="meta-item" style="grid-column:1 / span 2;">
         <div class="meta-label">Sede</div>
-        <div class="meta-value">${eventLocationLong || "Valiance Pilates"}</div>
+        <div class="meta-value">${eventLocationLong || "Tu Espacio Pilates"}</div>
       </div>
     </div>
     <div class="qr"><img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(activeEventPass.passCode || qrCode)}&bgcolor=FFFFFF&color=1F0047" alt="QR"/></div>
@@ -7910,7 +7904,7 @@ app.post("/api/pos/checkout", adminMiddleware, async (req, res) => {
 app.get("/api/loyalty/config", adminMiddleware, async (req, res) => {
   try {
     const r = await pool.query("SELECT value FROM settings WHERE key='loyalty_config' LIMIT 1");
-    const defaults = { enabled: true, points_per_class: 10, points_per_peso: 1, welcome_bonus: 50, birthday_bonus: 100 };
+    const defaults = { enabled: false, points_per_class: 10, points_per_peso: 1, welcome_bonus: 50, birthday_bonus: 100 };
     return res.json({ data: r.rows.length ? { ...defaults, ...r.rows[0].value } : defaults });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
 });
@@ -8748,7 +8742,7 @@ app.post("/api/evolution/connect", adminMiddleware, async (req, res) => {
 
       if (createAlreadyInUse) {
         return res.status(409).json({
-          message: `No se pudo obtener QR para la instancia "${EVOLUTION_INSTANCE}". Ese nombre ya está en uso. Cambia EVOLUTION_INSTANCE_NAME en Railway por un nombre único (ej. valiance-pilates-2026).`,
+          message: `No se pudo obtener QR para la instancia "${EVOLUTION_INSTANCE}". Ese nombre ya está en uso. Cambia EVOLUTION_INSTANCE_NAME en Railway por un nombre único (ej. tu-espacio-pilates-2026).`,
         });
       }
       return res.status(502).json({ message: "Evolution respondió sin QR. Intenta nuevamente en unos segundos." });
@@ -8784,7 +8778,7 @@ app.post("/api/evolution/send-test", adminMiddleware, async (req, res) => {
     const number = normalisePhone(phone);
     await queueWhatsAppSend(
       number,
-      "✅ Mensaje de prueba desde Valiance. ¡WhatsApp conectado correctamente!",
+      "✅ Mensaje de prueba desde Tu Espacio Pilates. ¡WhatsApp conectado correctamente!",
     );
     return res.json({ data: { message: "Mensaje de prueba enviado correctamente" } });
   } catch (err) {
@@ -13816,7 +13810,7 @@ async function bootServer() {
   // Initialize Google Wallet loyalty class if configured
   ensureGoogleWalletClass().catch(() => { });
   app.listen(PORT, () => {
-    console.log(`🚀 Valiance API + Frontend → http://localhost:${PORT}`);
+    console.log(`🚀 Tu Espacio Pilates VM → http://localhost:${PORT}`);
   });
 }
 

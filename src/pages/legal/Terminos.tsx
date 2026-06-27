@@ -20,7 +20,7 @@ const Terminos = () => {
       {/* Nav */}
       <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border px-6 lg:px-[60px] py-4 flex items-center justify-between">
         <button onClick={() => navigate("/")} className="flex items-center bg-transparent border-none cursor-pointer">
-          <img src={valianceLogo} alt="Valiance Pilates" className="h-14 w-auto object-contain" />
+          <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-14 w-auto object-contain" />
         </button>
         <button
           onClick={() => navigate(-1)}
@@ -55,12 +55,12 @@ const Terminos = () => {
             </p>
 
             <p>
-              Al utilizar los servicios de <strong className="text-foreground">Valiance Pilates</strong>, incluyendo nuestra plataforma web, aplicación y clases presenciales, usted acepta los presentes Términos y Condiciones. Le recomendamos leerlos detenidamente.
+              Al utilizar los servicios de <strong className="text-foreground">Tu Espacio Pilates</strong>, incluyendo nuestra plataforma web, aplicación y clases presenciales, usted acepta los presentes Términos y Condiciones. Le recomendamos leerlos detenidamente.
             </p>
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">1. Definiciones</h2>
             <ul className="list-disc pl-6 space-y-2">
-              <li><strong className="text-foreground">"Estudio"</strong> se refiere a Valiance Pilates y sus instalaciones en Iztapalapa, Ciudad de México, Querétaro.</li>
+              <li><strong className="text-foreground">"Estudio"</strong> se refiere a Tu Espacio Pilates y sus instalaciones en Iztapalapa, Ciudad de México.</li>
               <li><strong className="text-foreground">"Alumna/o"</strong> se refiere a cualquier persona registrada en la plataforma que asiste a clases.</li>
               <li><strong className="text-foreground">"Paquete"</strong> se refiere a los planes de clases adquiridos (Pilates Reformer o Barre).</li>
               <li><strong className="text-foreground">"Clase"</strong> se refiere a cada sesión de ejercicio programada en el estudio.</li>
@@ -139,7 +139,7 @@ const Terminos = () => {
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">11. Modificaciones</h2>
             <p>
-              Valiance Pilates se reserva el derecho de modificar los presentes Términos y Condiciones, así como los horarios, precios y políticas del estudio. Los cambios serán publicados en la plataforma y entrarán en vigor al momento de su publicación.
+              Tu Espacio Pilates se reserva el derecho de modificar los presentes Términos y Condiciones, así como los horarios, precios y políticas del estudio. Los cambios serán publicados en la plataforma y entrarán en vigor al momento de su publicación.
             </p>
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">12. Contacto</h2>
@@ -147,7 +147,7 @@ const Terminos = () => {
               Para cualquier duda respecto a estos Términos y Condiciones:
             </p>
             <ul className="list-none space-y-1">
-              <li><strong className="text-foreground">Email:</strong> hola@valiancepilates.com.mx</li>
+              <li><strong className="text-foreground">Email:</strong> espaciopilatesvm@gmail.com</li>
               <li><strong className="text-foreground">Teléfono:</strong> +52 55 2317 3402</li>
               <li><strong className="text-foreground">Dirección:</strong> Av. Luis Hidalgo Monroy 369, San Miguel, Iztapalapa, 09360 CDMX</li>
             </ul>
@@ -157,7 +157,7 @@ const Terminos = () => {
 
       {/* Footer */}
       <footer className="border-t border-border px-6 lg:px-[60px] py-6 text-center">
-        <p className="text-xs text-muted-foreground/50">© 2026 Valiance Pilates. Todos los derechos reservados.</p>
+        <p className="text-xs text-muted-foreground/50">© 2026 Tu Espacio Pilates. Todos los derechos reservados.</p>
       </footer>
     </div>
   );

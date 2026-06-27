@@ -20,7 +20,7 @@ const Privacidad = () => {
       {/* Nav */}
       <nav className="sticky top-0 z-50 bg-background/95 backdrop-blur-md border-b border-border px-6 lg:px-[60px] py-4 flex items-center justify-between">
         <button onClick={() => navigate("/")} className="flex items-center bg-transparent border-none cursor-pointer">
-          <img src={valianceLogo} alt="Valiance Pilates" className="h-14 w-auto object-contain" />
+          <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-14 w-auto object-contain" />
         </button>
         <button
           onClick={() => navigate(-1)}
@@ -56,7 +56,7 @@ const Privacidad = () => {
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">1. Responsable del tratamiento</h2>
             <p>
-              <strong className="text-foreground">Valiance Pilates</strong>, con domicilio en Av. Luis Hidalgo Monroy 369, San Miguel, Iztapalapa, 09360 CDMX, es responsable del tratamiento de los datos personales que recabamos de usted, en los términos de la Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP).
+              <strong className="text-foreground">Tu Espacio Pilates</strong>, con domicilio en Av. Luis Hidalgo Monroy 369, San Miguel, Iztapalapa, 09360 CDMX, es responsable del tratamiento de los datos personales que recabamos de usted, en los términos de la Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP).
             </p>
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">2. Datos personales que recabamos</h2>
@@ -93,7 +93,7 @@ const Privacidad = () => {
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">5. Derechos ARCO</h2>
             <p>
-              Usted tiene derecho a Acceder, Rectificar, Cancelar u Oponerse (derechos ARCO) al tratamiento de sus datos personales. Para ejercer estos derechos, envíe una solicitud al correo electrónico <strong className="text-primary">hola@valiancepilates.com.mx</strong> indicando:
+              Usted tiene derecho a Acceder, Rectificar, Cancelar u Oponerse (derechos ARCO) al tratamiento de sus datos personales. Para ejercer estos derechos, envíe una solicitud al correo electrónico <strong className="text-primary">espaciopilatesvm@gmail.com</strong> indicando:
             </p>
             <ul className="list-disc pl-6 space-y-2">
               <li>Nombre completo y datos de contacto.</li>
@@ -124,7 +124,7 @@ const Privacidad = () => {
               Si tiene alguna duda o comentario sobre este Aviso de Privacidad, puede contactarnos en:
             </p>
             <ul className="list-none space-y-1">
-              <li><strong className="text-foreground">Email:</strong> hola@valiancepilates.com.mx</li>
+              <li><strong className="text-foreground">Email:</strong> espaciopilatesvm@gmail.com</li>
               <li><strong className="text-foreground">Teléfono:</strong> +52 55 2317 3402</li>
               <li><strong className="text-foreground">Dirección:</strong> Av. Luis Hidalgo Monroy 369, San Miguel, Iztapalapa, 09360 CDMX</li>
             </ul>
@@ -134,7 +134,7 @@ const Privacidad = () => {
 
       {/* Footer */}
       <footer className="border-t border-border px-6 lg:px-[60px] py-6 text-center">
-        <p className="text-xs text-muted-foreground/50">© 2026 Valiance Pilates. Todos los derechos reservados.</p>
+        <p className="text-xs text-muted-foreground/50">© 2026 Tu Espacio Pilates. Todos los derechos reservados.</p>
       </footer>
     </div>
   );

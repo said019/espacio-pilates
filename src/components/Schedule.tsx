@@ -506,13 +506,13 @@ export default function Schedule() {
         {/* ── CTA ─────────────────────────────────────────────────────── */}
         <div className="mt-14 rounded-2xl border border-[#D9B5BA]/25 bg-[#FAE5E7] p-8 sm:p-10 text-center">
           <p className="text-[0.72rem] tracking-[0.18em] uppercase text-[#8C6B6F] font-semibold mb-2">
-            ¿Primera vez en Valiance Pilates?
+            ¿Primera vez en Tu Espacio Pilates?
           </p>
           <h3 className="font-bebas text-[clamp(1.8rem,3vw,2.5rem)] leading-none text-[#1A1A1A] mb-3">
             Prueba una clase sin compromiso
           </h3>
           <p className="text-[0.88rem] text-[#3D3A3A] mb-7 max-w-sm mx-auto font-alilato">
-            Reserva tu sesión muestra y descubre por qué cientos de mujeres eligen Valiance Pilates.
+            Reserva tu sesión muestra y descubre por qué cientos de mujeres eligen Tu Espacio Pilates.
           </p>
           <Link
             to="/auth/register?returnUrl=/app/book"

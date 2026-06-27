@@ -1,6 +1,6 @@
 /**
  * MembershipCard – Tarjeta visual de membresía
- * Paleta oficial Valiance Pilates · Fuentes Gulfs + Alilato
+ * Paleta oficial Tu Espacio Pilates · Fuentes Gulfs + Alilato
  */
 
 import { useMemo } from "react";
@@ -24,7 +24,7 @@ function detectCategory(planName: string): PlanCategory {
 }
 
 // ─────────────────────────────────────────────
-// Paleta Valiance Pilates
+// Paleta Tu Espacio Pilates
 // ─────────────────────────────────────────────
 const PALETTE = {
   pilates: {

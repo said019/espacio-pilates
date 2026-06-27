@@ -108,8 +108,8 @@ const Register = () => {
         <div className="absolute inset-0 bg-gradient-to-br from-valiance-charcoal/85 via-valiance-charcoal/45 to-valiance-charcoal/75" />
 
         <div className="relative z-10 flex flex-col justify-between p-12 w-full">
-          <Link to="/" className="inline-block self-start" aria-label="Valiance Pilates — Inicio">
-            <img src={valianceLogo} alt="Valiance Pilates" className="h-16 w-auto brightness-[10] contrast-[1.2]" />
+          <Link to="/" className="inline-block self-start" aria-label="Tu Espacio Pilates — Inicio">
+            <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-16 w-auto brightness-[10] contrast-[1.2]" />
           </Link>
 
           <div className="max-w-[400px]">
@@ -145,7 +145,7 @@ const Register = () => {
       <main className="flex-1 flex flex-col justify-center items-center px-6 py-10 sm:px-10 relative overflow-y-auto">
         <div className="w-full max-w-[440px] py-4">
           <Link to="/" className="flex justify-center mb-10">
-            <img src={valianceLogo} alt="Valiance Pilates" className="h-16 w-auto" />
+            <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-16 w-auto" />
           </Link>
 
           <header className="mb-8">
@@ -156,7 +156,7 @@ const Register = () => {
               className="font-display text-[clamp(2.2rem,4vw,3rem)] leading-[1.02] tracking-[-0.02em] text-valiance-charcoal"
               style={{ textWrap: "balance" } as React.CSSProperties}
             >
-              Bienvenida a Valiance.
+              Bienvenida a Tu Espacio Pilates.
             </h1>
             <p className="font-body text-[0.95rem] text-valiance-charcoal/65 mt-2">
               Cuéntanos quién eres.
@@ -346,7 +346,7 @@ const Register = () => {
           </Link>
 
           <p className="text-center font-body text-[0.7rem] text-valiance-charcoal/40 mt-8">
-            © {new Date().getFullYear()} Valiance Pilates
+            © {new Date().getFullYear()} Tu Espacio Pilates
           </p>
         </div>
       </main>

@@ -1,5 +1,5 @@
 /**
- * Styled date picker for the Valiance Pilates palette.
+ * Styled date picker for the Tu Espacio Pilates palette.
  * Works on both light admin pages and light client pages.
  * Accepts and emits "YYYY-MM-DD" strings.
  */

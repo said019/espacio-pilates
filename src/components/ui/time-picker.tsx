@@ -1,5 +1,5 @@
 /**
- * Styled time picker for the Valiance Pilates dark palette.
+ * Styled time picker for the Tu Espacio Pilates dark palette.
  * Renders a clean HH:MM selector with +/- controls.
  * Accepts and emits "HH:MM" strings (same as <input type="time">).
  */
