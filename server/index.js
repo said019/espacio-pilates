@@ -482,6 +482,21 @@ pool.on("error", (err) => {
 // Ensure users table has password_hash column (idempotent migration)
 async function ensureSchema() {
   try {
+    // ── Self-init: en una base de datos vacía (p.ej. Postgres nueva de Railway)
+    // las tablas core (users, plans, bookings, …) viven en schema_complete.sql,
+    // no en esta función. Si no existen, cargamos el schema base una sola vez para
+    // que la app se inicialice sola sin un paso manual de psql. ──
+    {
+      const coreCheck = await pool.query("SELECT to_regclass('public.users') AS t");
+      if (!coreCheck.rows[0].t) {
+        const schemaSql = fs.readFileSync(
+          path.join(__dirname, "../supabase/migrations/schema_complete.sql"),
+          "utf8"
+        );
+        await pool.query(schemaSql);
+        console.log("✅ Base de datos inicializada (schema_complete.sql)");
+      }
+    }
     // ── Ensure all users columns the app needs ────────────────────────────
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS accepts_terms BOOLEAN DEFAULT false`).catch(() => { });

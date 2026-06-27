@@ -515,9 +515,13 @@ CREATE TABLE IF NOT EXISTS rewards (
     updated_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-ALTER TABLE loyalty_points
-    ADD CONSTRAINT IF NOT EXISTS fk_loyalty_related_reward
-    FOREIGN KEY (related_reward_id) REFERENCES rewards(id) ON DELETE SET NULL;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_loyalty_related_reward') THEN
+        ALTER TABLE loyalty_points
+            ADD CONSTRAINT fk_loyalty_related_reward
+            FOREIGN KEY (related_reward_id) REFERENCES rewards(id) ON DELETE SET NULL;
+    END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_rewards_active   ON rewards(is_active);
 CREATE INDEX IF NOT EXISTS idx_rewards_category ON rewards(category);
