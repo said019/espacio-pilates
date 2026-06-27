@@ -163,6 +163,7 @@ const DEFAULT_POLICIES_SETTINGS = {
 const DEFAULT_NOTIFICATION_SETTINGS = {
   email_reminders: true,
   whatsapp_reminders: true,
+  class_reminder_enabled: true,   // recordatorio de clase (noche anterior 9pm / mañana 8am) — activo por default
   reminder_hours_before: 2,
 };
 
