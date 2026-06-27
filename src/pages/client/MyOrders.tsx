@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Link, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import api from "@/lib/api";
@@ -8,7 +8,8 @@ import ClientLayout from "@/components/layout/ClientLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Upload, Clock, CheckCircle, XCircle, AlertTriangle, ShoppingBag } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { Upload, Clock, CheckCircle, XCircle, AlertTriangle, ShoppingBag, CreditCard, Loader2 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; icon: any; className: string }> = {
   pending_payment:      { label: "Subir comprobante",  icon: Upload,        className: "border-amber-500/50 text-amber-700 bg-amber-50" },
@@ -20,12 +21,37 @@ const STATUS_CONFIG: Record<string, { label: string; icon: any; className: strin
 };
 
 const MyOrders = () => {
+  const { toast } = useToast();
+  const [params] = useSearchParams();
+  const checkoutResult = params.get("checkout"); // 'success' | 'failure' | 'pending' | null
+
   const { data, isLoading } = useQuery({
     queryKey: ["my-orders"],
     queryFn: async () => (await api.get("/orders")).data,
+    refetchInterval: (query) => {
+      const rows: any[] = Array.isArray((query.state.data as any)?.data) ? (query.state.data as any).data : [];
+      const waitingCard = rows.some(
+        (o) => o.payment_method === "card" && o.status === "pending_payment"
+      );
+      return checkoutResult === "success" && waitingCard ? 3000 : false;
+    },
   });
 
   const orders: any[] = Array.isArray(data?.data) ? data.data : [];
+
+  const retryMutation = useMutation({
+    mutationFn: async (order: any) => {
+      if (order.mp_checkout_url) return { mp_checkout_url: order.mp_checkout_url };
+      const res = await api.post(`/orders/${order.id}/pay-with-card`);
+      return res.data?.data ?? res.data;
+    },
+    onSuccess: (d: any) => {
+      if (d?.mp_checkout_url) window.location.href = d.mp_checkout_url;
+      else toast({ title: "No se pudo reiniciar el pago", variant: "destructive" });
+    },
+    onError: (err: any) =>
+      toast({ title: "Error al reintentar el pago", description: err?.response?.data?.message, variant: "destructive" }),
+  });
 
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
@@ -37,6 +63,23 @@ const MyOrders = () => {
               <Link to="/app/checkout"><ShoppingBag size={14} className="mr-2" />Nueva orden</Link>
             </Button>
           </div>
+
+          {checkoutResult === "success" && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 flex items-center gap-2">
+              <Loader2 size={15} className="animate-spin shrink-0" />
+              Estamos confirmando tu pago con el banco. Tu membresía se activará en cuanto se acredite (puede tardar unos segundos).
+            </div>
+          )}
+          {checkoutResult === "failure" && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              El pago no se completó. Puedes reintentar desde la orden pendiente.
+            </div>
+          )}
+          {checkoutResult === "pending" && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Tu pago quedó en proceso. Te avisaremos cuando se confirme.
+            </div>
+          )}
 
           {isLoading ? (
             <div className="space-y-3">
@@ -66,7 +109,7 @@ const MyOrders = () => {
                         <p className="text-xs text-[#3D3A3A]">
                           ${Number(o.total_amount).toLocaleString("es-MX")} MXN
                           {" · "}
-                          {o.payment_method === "cash" ? "Efectivo" : o.payment_method === "transfer" ? "Transferencia" : o.payment_method}
+                          {o.payment_method === "cash" ? "Efectivo" : o.payment_method === "transfer" ? "Transferencia" : o.payment_method === "card" ? "Tarjeta" : o.payment_method}
                         </p>
                         <p className="text-[11px] text-[#8C6B6F]">
                           {o.order_number && <span className="font-mono">{o.order_number} · </span>}
@@ -79,7 +122,20 @@ const MyOrders = () => {
                       </Badge>
                     </div>
 
-                    {o.status === "pending_payment" && (
+                    {o.status === "pending_payment" && o.payment_method === "card" && (
+                      <Button
+                        size="sm"
+                        className="mt-3 w-full sm:w-auto"
+                        disabled={retryMutation.isPending}
+                        onClick={() => retryMutation.mutate(o)}
+                      >
+                        {retryMutation.isPending
+                          ? <Loader2 size={14} className="mr-2 animate-spin" />
+                          : <CreditCard size={14} className="mr-2" />}
+                        Reintentar pago
+                      </Button>
+                    )}
+                    {o.status === "pending_payment" && o.payment_method !== "card" && (
                       <Button asChild size="sm" className="mt-3 w-full sm:w-auto">
                         <Link to={`/app/checkout?orderId=${o.id}`}>
                           <Upload size={14} className="mr-2" />Subir comprobante
