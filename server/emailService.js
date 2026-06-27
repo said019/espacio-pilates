@@ -15,7 +15,7 @@ if (process.env.RESEND_API_KEY) {
 
 const FROM_EMAIL = process.env.EMAIL_FROM || "Tu Espacio Pilates <onboarding@resend.dev>";
 const SITE_URL = String(process.env.SITE_URL || process.env.APP_URL || "http://localhost:5173").replace(/\/+$/, "");
-const LOGO_URL = `${SITE_URL}/tep-logo.png`;
+const LOGO_URL = `${SITE_URL}/tep-mark-ink.png`;
 
 // ─── Brand palette Tu Espacio Pilates VM (paleta del sitio) ──────────────────
 const B = {
@@ -30,18 +30,24 @@ const B = {
   cream:   "#FBF6F4",   // nude
   sage10:  "#F3E7E3",   // light blush for backgrounds
   amber:   "#B45309",   // warning/alert
-  gold:    "#B8915A",   // gold accent (cálido premium)
+  gold:    "#B8915A",   // gold accent (cálido premium) — signature hairline
+  blush:   "#C9ADA3",   // blush accent
+  mauve:   "#8C6B6F",   // mauve
 };
+
+// ─── Editorial type stacks ─────────────────────────────────────────────────────
+const SERIF = "Georgia,'Cormorant Garamond','Times New Roman',serif";
+const SANS  = "'Helvetica Neue',Helvetica,Arial,sans-serif";
 
 // ─── Base layout ──────────────────────────────────────────────────────────────
 function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } = {}) {
   const ctaBlock = ctaUrl
-    ? `<tr><td align="center" style="padding:28px 0 12px;">
+    ? `<tr><td align="center" style="padding:36px 0 8px;">
          <a href="${ctaUrl}"
             style="display:inline-block;background:${B.brown};
-                   color:#ffffff;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
-                   font-size:14px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;
-                   text-decoration:none;border-radius:50px;padding:14px 40px;">
+                   color:${B.cream};font-family:${SANS};
+                   font-size:13px;font-weight:500;letter-spacing:1.5px;text-transform:uppercase;
+                   text-decoration:none;border-radius:40px;padding:16px 44px;">
            ${ctaText}
          </a>
        </td></tr>`
@@ -63,36 +69,39 @@ function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } 
 
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%"
          style="background-color:${B.bg};">
-    <tr><td align="center" style="padding:40px 16px 48px;">
+    <tr><td align="center" style="padding:48px 16px 56px;">
 
       <!-- Card -->
       <table role="presentation" cellpadding="0" cellspacing="0" width="560"
              style="max-width:560px;width:100%;background-color:${B.card};
-                    border:1px solid ${B.border};border-radius:16px;
-                    box-shadow:0 4px 24px rgba(140,107,111,0.08);">
+                    border:1px solid ${B.border};border-radius:6px;
+                    box-shadow:0 6px 30px rgba(140,107,111,0.07);">
 
-        <!-- Top accent bar -->
-        <tr><td style="height:4px;background:linear-gradient(90deg,${B.green},${B.muted});
-                        border-radius:16px 16px 0 0;font-size:0;line-height:0;">&nbsp;</td></tr>
-
-        <!-- Logo -->
-        <tr><td align="center" style="padding:32px 40px 4px;">
+        <!-- Logo (ink seal on transparent) -->
+        <tr><td align="center" style="padding:48px 48px 0;">
           <a href="${SITE_URL}" style="text-decoration:none;">
-            <img src="${LOGO_URL}" alt="Tu Espacio Pilates" width="180" height="auto"
-                 style="display:block;max-width:180px;" />
+            <img src="${LOGO_URL}" alt="Tu Espacio Pilates" width="132" height="auto"
+                 style="display:block;width:132px;max-width:132px;height:auto;" />
           </a>
         </td></tr>
 
         <!-- Tagline -->
-        <tr><td align="center" style="padding:0 40px 20px;">
-          <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:10px;
-                    letter-spacing:2.5px;text-transform:uppercase;color:${B.muted};margin:0;">
-            Pilates &middot; Villa Magna &middot; Comunidad
+        <tr><td align="center" style="padding:18px 48px 6px;">
+          <p style="font-family:${SANS};font-size:10px;
+                    letter-spacing:3px;text-transform:uppercase;color:${B.muted};margin:0;">
+            Pilates &middot; Villa Magna
           </p>
         </td></tr>
 
+        <!-- Gold hairline (signature accent) -->
+        <tr><td align="center" style="padding:18px 48px 6px;">
+          <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+            <td style="width:48px;height:1px;background:${B.gold};font-size:0;line-height:0;">&nbsp;</td>
+          </tr></table>
+        </td></tr>
+
         <!-- Content -->
-        <tr><td style="padding:0 40px;">
+        <tr><td style="padding:8px 48px 0;">
           ${content}
         </td></tr>
 
@@ -100,16 +109,20 @@ function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } 
         ${ctaBlock}
 
         <!-- Divider -->
-        <tr><td style="padding:16px 40px 0;">
+        <tr><td style="padding:28px 48px 0;">
           <hr style="border:none;border-top:1px solid ${B.border};margin:0;" />
         </td></tr>
 
         <!-- Footer -->
-        <tr><td align="center" style="padding:20px 40px 28px;">
-          <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;
-                    color:${B.muted};margin:0;line-height:1.7;">
-            © ${new Date().getFullYear()} Tu Espacio Pilates VM<br>
-            <a href="https://www.instagram.com/_espaciopilatesvm/" style="color:${B.dark};text-decoration:none;font-weight:600;">@_espaciopilatesvm</a>
+        <tr><td align="center" style="padding:24px 48px 40px;">
+          <p style="font-family:${SANS};font-size:11px;
+                    color:${B.muted};margin:0 0 8px;line-height:1.8;letter-spacing:0.3px;">
+            Tu Espacio Pilates &middot; Villa Magna
+          </p>
+          <p style="font-family:${SANS};font-size:11px;
+                    color:${B.muted};margin:0;line-height:1.8;letter-spacing:0.3px;">
+            <a href="https://www.instagram.com/_espaciopilatesvm/" style="color:${B.dark};text-decoration:none;">@_espaciopilatesvm</a>
+            &nbsp;&middot;&nbsp; &copy; ${new Date().getFullYear()}
           </p>
         </td></tr>
 
@@ -122,55 +135,57 @@ function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function h1(text) {
-  return `<h1 style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:24px;
-                      font-weight:700;color:${B.dark};margin:16px 0 8px;line-height:1.3;">${text}</h1>`;
+  return `<h1 style="font-family:${SERIF};font-size:28px;
+                      font-weight:400;color:${B.dark};margin:20px 0 12px;line-height:1.25;
+                      letter-spacing:-0.2px;">${text}</h1>`;
 }
 function h2(text) {
-  return `<h2 style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:16px;
-                      font-weight:700;color:${B.brown};margin:20px 0 6px;text-transform:uppercase;
-                      letter-spacing:0.5px;">${text}</h2>`;
+  return `<h2 style="font-family:${SANS};font-size:11px;
+                      font-weight:600;color:${B.gold};margin:26px 0 8px;text-transform:uppercase;
+                      letter-spacing:2px;">${text}</h2>`;
 }
 function p(text) {
-  return `<p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;
-                     color:${B.body};line-height:1.7;margin:0 0 12px;">${text}</p>`;
+  return `<p style="font-family:${SANS};font-size:15px;
+                     color:${B.body};line-height:1.75;margin:0 0 14px;">${text}</p>`;
 }
 function small(text) {
-  return `<p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;
-                     color:${B.muted};line-height:1.6;margin:0 0 10px;">${text}</p>`;
+  return `<p style="font-family:${SANS};font-size:13px;
+                     color:${B.muted};line-height:1.65;margin:0 0 10px;">${text}</p>`;
 }
 function infoRow(label, value) {
   return `<tr>
-    <td style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;
-               color:${B.muted};padding:10px 0;border-bottom:1px solid ${B.border};">${label}</td>
-    <td style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;
-               color:${B.dark};font-weight:600;padding:10px 0 10px 12px;
+    <td style="font-family:${SANS};font-size:11px;
+               color:${B.muted};padding:13px 0;border-bottom:1px solid ${B.border};
+               letter-spacing:1.2px;text-transform:uppercase;">${label}</td>
+    <td style="font-family:${SERIF};font-size:16px;
+               color:${B.dark};font-weight:400;padding:13px 0 13px 12px;
                border-bottom:1px solid ${B.border};text-align:right;">${value}</td>
   </tr>`;
 }
 function infoTable(rows) {
   return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%"
-                  style="margin:16px 0 20px;">
+                  style="margin:22px 0 24px;border-top:1px solid ${B.border};">
     ${rows.join("")}
   </table>`;
 }
 function pill(text, color) {
-  return `<span style="display:inline-block;background:${color}15;border:1px solid ${color}40;
-                        color:${color};border-radius:50px;font-size:11px;font-weight:700;
-                        padding:4px 14px;letter-spacing:0.5px;text-transform:uppercase;">${text}</span>`;
+  return `<span style="display:inline-block;background:${color}1A;border:1px solid ${color}55;
+                        color:${color};border-radius:40px;font-size:10px;font-weight:600;
+                        padding:6px 16px;letter-spacing:1.5px;text-transform:uppercase;">${text}</span>`;
 }
 function alertBox(text, type = "info") {
   const colors = {
-    info:    { bg: `${B.green}40`, border: B.muted, text: B.dark },
-    success: { bg: `${B.green}55`, border: B.gold,  text: B.dark },
-    warning: { bg: "#FEF3C7",      border: "#F59E0B", text: "#92400E" },
-    error:   { bg: "#FEF2F2",      border: "#EF4444", text: "#991B1B" },
+    info:    { bg: B.sage10,  border: B.blush, text: B.dark },
+    success: { bg: B.sage10,  border: B.gold,  text: B.dark },
+    warning: { bg: "#FBF1E6", border: B.gold,  text: "#6B4E2E" },
+    error:   { bg: "#FBEDED", border: "#C0726F", text: "#7A3B39" },
   };
   const c = colors[type] || colors.info;
   return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%"
-                  style="background:${c.bg};border-left:4px solid ${c.border};
-                         border-radius:0 8px 8px 0;margin:12px 0 20px;">
-    <tr><td style="padding:14px 16px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;
-                    font-size:14px;color:${c.text};line-height:1.6;">${text}</td></tr>
+                  style="background:${c.bg};border-left:2px solid ${c.border};
+                         border-radius:0 4px 4px 0;margin:18px 0 20px;">
+    <tr><td style="padding:16px 20px;font-family:${SANS};
+                    font-size:14px;color:${c.text};line-height:1.65;">${text}</td></tr>
   </table>`;
 }
 
@@ -243,7 +258,7 @@ async function sendBookingConfirmed(opts) {
 
   const statusPill = isWaitlist
     ? pill("Lista de espera", B.amber)
-    : pill("Confirmada", B.green);
+    : pill("Confirmada", B.gold);
 
   const classesLeftText = classesLeft === null
     ? "Ilimitadas"
@@ -270,7 +285,7 @@ async function sendBookingConfirmed(opts) {
       ...(classesLeftText ? [infoRow("Tu paquete", classesLeftText)] : []),
     ])}
     ${waitlistNote}
-    ${alertBox("Puedes cancelar hasta <strong>2 horas antes</strong> de la clase para recuperar tu crédito. Cancelaciones tardías no son reembolsables.", "warning")}
+    ${alertBox("Puedes cancelar con <strong>12 horas</strong> de anticipación para recuperar tu crédito. Entre 12 y 3 horas antes puedes reagendar (el crédito ya no se reembolsa). Con menos de 3 horas se pierde la clase.", "warning")}
   `;
   const html = baseLayout({
     preheader: isWaitlist ? `En lista de espera para ${className}` : `Reserva confirmada: ${className} — ${fmtDate(date)}`,
@@ -290,8 +305,8 @@ async function sendBookingCancelled(opts) {
   const classesLeftText = classesLeft === null ? "Ilimitadas" : classesLeft !== undefined ? `${classesLeft} clases` : null;
 
   const creditBlock = creditRestored
-    ? alertBox("Tu clase fue <strong>devuelta a tu paquete</strong>. Cancelaste con más de 2 horas de anticipación.", "success")
-    : alertBox("La clase <strong>no se devolvió</strong> a tu paquete. La cancelación fue con menos de 2 horas de anticipación.", "error");
+    ? alertBox("Tu clase fue <strong>devuelta a tu paquete</strong>. Cancelaste con más de 12 horas de anticipación.", "success")
+    : alertBox("La clase <strong>no se devolvió</strong> a tu paquete. La cancelación fue con menos de 12 horas de anticipación.", "error");
 
   const content = `
     ${h1(`Reserva cancelada, ${name.split(" ")[0]}`)}
@@ -304,7 +319,7 @@ async function sendBookingCancelled(opts) {
     ])}
     ${creditBlock}
     ${isLate
-      ? small("Recuerda: para cancelar tu reserva se tiene como mínimo 2 horas de anticipación. De no hacerlo se pierde la clase y no hay reposición.")
+      ? small("Recuerda: para recuperar el crédito debes cancelar con al menos 12 horas. Después puedes reagendar hasta 3 horas antes; con menos tiempo se pierde la clase.")
       : p("¿Quieres reservar otra clase? Hay muchos horarios disponibles.")
     }
   `;
@@ -442,14 +457,14 @@ async function sendClientWelcomeWithCredentials(opts) {
   const firstName = String(name || "").trim().split(/\s+/)[0] || "Bienvenida";
   const credBox = `
     <table role="presentation" cellpadding="0" cellspacing="0" width="100%"
-           style="background:${B.green}40;border:1px solid ${B.border};border-radius:12px;margin:18px 0;">
-      <tr><td style="padding:18px 20px;">
-        <p style="margin:0 0 6px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;
-                  color:${B.muted};letter-spacing:1.5px;text-transform:uppercase;font-weight:700;">Tus credenciales</p>
-        <p style="margin:0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;color:${B.muted};">Usuario</p>
-        <p style="margin:0 0 10px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:15px;color:${B.dark};font-weight:600;word-break:break-all;">${email}</p>
-        <p style="margin:0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;color:${B.muted};">Contraseña temporal</p>
-        <p style="margin:0;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:16px;color:${B.dark};font-weight:700;letter-spacing:1px;">${tempPassword}</p>
+           style="background:${B.sage10};border:1px solid ${B.border};border-radius:6px;margin:22px 0;">
+      <tr><td style="padding:24px 24px;">
+        <p style="margin:0 0 14px;font-family:${SANS};font-size:10px;
+                  color:${B.gold};letter-spacing:2px;text-transform:uppercase;font-weight:600;">Tus credenciales</p>
+        <p style="margin:0 0 3px;font-family:${SANS};font-size:11px;color:${B.muted};letter-spacing:1px;text-transform:uppercase;">Usuario</p>
+        <p style="margin:0 0 16px;font-family:${SERIF};font-size:17px;color:${B.dark};font-weight:400;word-break:break-all;">${email}</p>
+        <p style="margin:0 0 3px;font-family:${SANS};font-size:11px;color:${B.muted};letter-spacing:1px;text-transform:uppercase;">Contraseña temporal</p>
+        <p style="margin:0;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:17px;color:${B.dark};font-weight:700;letter-spacing:1px;">${tempPassword}</p>
       </td></tr>
     </table>
   `;
@@ -471,6 +486,69 @@ async function sendClientWelcomeWithCredentials(opts) {
   await sendEmail({ to, subject: "Tu cuenta en Tu Espacio Pilates está lista", html });
 }
 
+// ─── Preview helper (dev only — renders HTML with the real layout/helpers) ─────
+function __renderPreview(kind) {
+  if (kind === "booking") {
+    const opts = {
+      name: "María Fernanda López",
+      className: "Reformer Flow",
+      date: "2026-07-02",
+      startTime: "09:30",
+      instructor: "Ana Sofía",
+      classesLeft: 6,
+      isWaitlist: false,
+    };
+    const statusPill = pill("Confirmada", B.gold);
+    const content = `
+      ${h1(`Reserva confirmada, ${opts.name.split(" ")[0]}`)}
+      ${p("Tu clase ha sido reservada con éxito. ¡Te esperamos en el estudio!")}
+      <div style="text-align:center;margin:8px 0 16px;">${statusPill}</div>
+      ${infoTable([
+        infoRow("Clase", opts.className),
+        infoRow("Fecha", fmtDate(opts.date)),
+        infoRow("Hora", fmtTime(opts.startTime)),
+        infoRow("Instructora", opts.instructor),
+        infoRow("Tu paquete", `${opts.classesLeft} clases restantes`),
+      ])}
+      ${alertBox("Puedes cancelar con <strong>12 horas</strong> de anticipación para recuperar tu crédito. Entre 12 y 3 horas antes puedes reagendar (el crédito ya no se reembolsa). Con menos de 3 horas se pierde la clase.", "warning")}
+    `;
+    return baseLayout({
+      preheader: `Reserva confirmada: ${opts.className} — ${fmtDate(opts.date)}`,
+      content,
+      ctaUrl: `${SITE_URL}/app/bookings`,
+      ctaText: "Ver mis reservas",
+    });
+  }
+  if (kind === "membership") {
+    const opts = {
+      name: "María Fernanda López",
+      planName: "Mensual Ilimitado",
+      startDate: "2026-06-27",
+      endDate: "2026-07-27",
+      classLimit: null,
+    };
+    const classesText = opts.classLimit ? `${opts.classLimit} clases` : "Ilimitadas";
+    const content = `
+      ${h1(`¡Bienvenida, ${opts.name.split(" ")[0]}!`)}
+      ${p("Tu membresía en Tu Espacio Pilates ha sido activada. Es momento de moverte con propósito.")}
+      ${infoTable([
+        infoRow("Plan", opts.planName),
+        infoRow("Clases incluidas", classesText),
+        infoRow("Inicio", fmtDate(opts.startDate)),
+        infoRow("Vencimiento", fmtDate(opts.endDate)),
+      ])}
+      ${alertBox("Reserva tus clases desde tu perfil y empieza a disfrutar del estudio.", "success")}
+    `;
+    return baseLayout({
+      preheader: `Tu membresía ${opts.planName} está activa. ¡Reserva tus clases!`,
+      content,
+      ctaUrl: `${SITE_URL}/app/classes`,
+      ctaText: "Reservar clases",
+    });
+  }
+  return "";
+}
+
 // ─── Exports ──────────────────────────────────────────────────────────────────
 export {
   sendMembershipActivated,
@@ -481,4 +559,5 @@ export {
   sendPasswordResetEmail,
   sendOrderRejected,
   sendClientWelcomeWithCredentials,
+  __renderPreview,
 };

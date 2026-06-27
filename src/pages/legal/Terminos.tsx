@@ -95,9 +95,9 @@ const Terminos = () => {
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">5. Cancelaciones e inasistencias</h2>
             <ul className="list-disc pl-6 space-y-2">
-              <li>Las cancelaciones deben realizarse con un mínimo de <strong className="text-foreground">8 horas de anticipación</strong> al inicio de la clase.</li>
-              <li>Cancelaciones tardías (menos de 8 horas) o inasistencias sin aviso resultarán en la <strong className="text-foreground">pérdida de la clase</strong> del paquete.</li>
-              <li>No se otorgan reposiciones por cancelaciones tardías ni inasistencias.</li>
+              <li>Para recuperar el crédito, cancele con un mínimo de <strong className="text-foreground">12 horas de anticipación</strong> al inicio de la clase.</li>
+              <li>Entre 12 y 3 horas antes puede <strong className="text-foreground">reagendar</strong> a otro horario, pero el crédito ya no se reembolsa.</li>
+              <li>Con menos de 3 horas de anticipación o inasistencias sin aviso, se pierde la clase del paquete (sin reposición ni reembolso).</li>
             </ul>
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">6. Puntualidad</h2>
