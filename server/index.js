@@ -14,6 +14,7 @@ import crypto from "crypto";
 import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
+import { endOfPurchaseMonth } from "./lib/bookingPolicy.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -8251,11 +8252,17 @@ function addMonths(dateStr, months) {
 function calcMembershipEndDate(startStr, plan) {
   const days = plan.duration_days || 30;
   if (days <= 7) {
+    // drop-in / visita → days-based
     const d = new Date(startStr + "T12:00:00");
     d.setDate(d.getDate() + days);
     return d.toISOString().slice(0, 10);
   }
+  if (days <= 31) {
+    // monthly packages (7/9/14, Clase Extra) → fin del mes de compra
+    return endOfPurchaseMonth(startStr);
+  }
   // Calendar month: 30 days = 1 month, 60 = 2, etc.
+  // long-term (e.g. Inscripción 3650d) → calendar months
   const months = Math.max(1, Math.round(days / 30));
   return addMonths(startStr, months);
 }
