@@ -1676,6 +1676,19 @@ async function ensureSchema() {
     `);
     console.log("✅ MercadoPago: columnas orders + payment_webhook_events listas");
 
+    // ── booking_reschedules: audit trail for PUT /api/bookings/:id/reschedule ──
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS booking_reschedules (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        booking_id  UUID,
+        user_id     UUID,
+        from_class_id UUID,
+        to_class_id   UUID,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_booking_reschedules_user ON booking_reschedules(user_id)`).catch(() => { });
+
     console.log("✅ Schema ensured");
   } catch (err) {
     console.error("Schema migration warning:", err.message);
@@ -3721,6 +3734,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
     }
 
     // ── Transaction: move the spot (capacity-safe, FOR UPDATE on new class) ────
+    let oldClassId = null; // authoritative old class id (re-read under lock); used for audit after COMMIT
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -3739,7 +3753,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
         });
       }
       // Authoritative old class id (in case it changed under us).
-      const oldClassId = bRow.rows[0].class_id;
+      oldClassId = bRow.rows[0].class_id;
 
       // Lock the target class row to avoid overbooking in concurrent requests
       const newClassRes = await client.query(
@@ -3813,6 +3827,14 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
     } finally {
       client.release();
     }
+
+    // ── Audit (best-effort; a logging failure must never break the reschedule) ─
+    try {
+      pool.query(
+        "INSERT INTO booking_reschedules (booking_id, user_id, from_class_id, to_class_id) VALUES ($1,$2,$3,$4)",
+        [req.params.id, req.userId, oldClassId, newClassId]
+      ).catch(() => { });
+    } catch (_) { }
 
     // ── Notify (best-effort; failures must not break the response) ────────────
     try {
@@ -9853,7 +9875,7 @@ app.get("/api/memberships", adminMiddleware, async (req, res) => {
     // to_char para que el front reciba "YYYY-MM-DD" sin ambigüedad.
     let q = `SELECT m.id, m.user_id, m.plan_id, m.status, m.payment_method,
                     m.classes_remaining, m.bundle_parent_id, m.notes, m.created_at,
-                    m.discipline_credits,
+                    m.order_id, m.discipline_credits,
                     to_char(m.start_date, 'YYYY-MM-DD') AS start_date,
                     to_char(m.end_date,   'YYYY-MM-DD') AS end_date,
                     u.display_name AS user_name,
@@ -9896,6 +9918,7 @@ app.get("/api/memberships", adminMiddleware, async (req, res) => {
         disciplineCredits: m.discipline_credits ?? null,
         notes: m.notes ?? null,
         createdAt: m.created_at,
+        orderId: m.order_id ?? null,
       }))
     });
   } catch (err) {
@@ -10705,7 +10728,8 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
 app.get("/api/bookings", adminMiddleware, async (req, res) => {
   try {
     const { status, classId, userId, limit = 100 } = req.query;
-    let q = `SELECT b.*, u.display_name AS user_name, (c.date || 'T' || c.start_time || '-06:00') AS start_time, ct.name AS class_name
+    let q = `SELECT b.*, u.display_name AS user_name, (c.date || 'T' || c.start_time || '-06:00') AS start_time,
+                    to_char(c.date, 'YYYY-MM-DD') AS class_date, ct.name AS class_name
              FROM bookings b
              LEFT JOIN users u ON b.user_id = u.id
              LEFT JOIN classes c ON b.class_id = c.id
@@ -10717,9 +10741,32 @@ app.get("/api/bookings", adminMiddleware, async (req, res) => {
     if (classId) { params.push(classId); q += ` AND b.class_id = $${params.length}`; }
     params.push(parseInt(limit)); q += ` ORDER BY b.created_at DESC LIMIT $${params.length}`;
     const r = await pool.query(q, params);
-    return res.json({ data: r.rows.map(b => ({ ...b, userName: b.user_name, className: b.class_name, startTime: b.start_time })) });
+    return res.json({ data: r.rows.map(b => ({ ...b, userName: b.user_name, className: b.class_name, startTime: b.start_time, classDate: b.class_date })) });
   } catch (err) {
     console.error("GET /bookings error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// GET /api/admin/clients/:id/reschedules — a client's reschedule history (newest first)
+app.get("/api/admin/clients/:id/reschedules", adminMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT r.id, r.created_at,
+              fc.date AS from_date, fc.start_time AS from_time, fct.name AS from_class,
+              tc.date AS to_date,   tc.start_time AS to_time,   tct.name AS to_class
+       FROM booking_reschedules r
+       LEFT JOIN classes fc ON r.from_class_id = fc.id
+       LEFT JOIN class_types fct ON fc.class_type_id = fct.id
+       LEFT JOIN classes tc ON r.to_class_id = tc.id
+       LEFT JOIN class_types tct ON tc.class_type_id = tct.id
+       WHERE r.user_id = $1
+       ORDER BY r.created_at DESC`,
+      [req.params.id]
+    );
+    return res.json({ data: r.rows });
+  } catch (err) {
+    console.error("GET /admin/clients/:id/reschedules error:", err);
     return res.status(500).json({ message: "Error interno" });
   }
 });
@@ -12149,6 +12196,7 @@ app.get("/api/payments", adminMiddleware, async (req, res) => {
         COALESCE(p.name, 'Clase suelta') AS plan_name,
         o.total_amount,
         o.payment_method AS method,
+        o.payment_provider AS provider,
         o.status::text AS status,
         o.created_at,
         CASE WHEN o.user_id IS NULL THEN 'walkin' ELSE 'order' END AS source
@@ -12169,6 +12217,7 @@ app.get("/api/payments", adminMiddleware, async (req, res) => {
         p.name AS plan_name,
         p.price AS total_amount,
         m.payment_method AS method,
+        NULL::text AS provider,
         m.status::text AS status,
         m.created_at,
         'membership' AS source
