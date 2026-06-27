@@ -14,7 +14,7 @@ import crypto from "crypto";
 import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
-import { endOfPurchaseMonth } from "./lib/bookingPolicy.js";
+import { endOfPurchaseMonth, canCancel, canReschedule } from "./lib/bookingPolicy.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -3475,8 +3475,8 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
       });
     }
 
-    const minMinutes = (Number(cancelConfig.min_hours) || 0) * 60;
-    const isLate = minMinutes > 0 && minutesUntilClass < minMinutes;
+    const cancelCheck = canCancel({ nowMs: now.getTime(), classStartMs: classStartUTC ? classStartUTC.getTime() : now.getTime() + 999 * 60000, cancelHours: Number(cancelConfig.min_hours) || 0 });
+    const isLate = !cancelCheck.allowed;
 
     // Block cancellation when outside the configured window
     if (isLate) {
@@ -3606,6 +3606,184 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error("DELETE bookings error:", err.message, err.stack);
+    return res.status(500).json({ message: "Error interno", detail: err.message });
+  }
+});
+
+// PUT /api/bookings/:id/reschedule
+// Moves a CONFIRMED booking to a different future class WITHOUT changing credit.
+app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const newClassId = req.body?.new_class_id ?? req.body?.newClassId;
+
+    // ── Load booking (must exist + belong to user) ────────────────────────────
+    const r = await pool.query(
+      `SELECT b.id, b.class_id, b.user_id, b.membership_id, b.status
+         FROM bookings b
+        WHERE b.id = $1 AND b.user_id = $2`,
+      [bookingId, req.userId]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: "Reserva no encontrada" });
+    const booking = r.rows[0];
+
+    if (booking.status !== "confirmed") {
+      return res.status(400).json({ message: "Solo puedes reagendar reservas confirmadas." });
+    }
+
+    if (!newClassId || newClassId === booking.class_id) {
+      return res.status(400).json({ message: "Selecciona una clase distinta" });
+    }
+
+    // ── Check advance notice window on the CURRENT class (Mexico City) ─────────
+    const classStartRes = await pool.query(
+      `SELECT (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
+         FROM classes c WHERE c.id = $1`,
+      [booking.class_id]
+    );
+    const currentClassStart = classStartRes.rows[0]?.class_start_utc
+      ? new Date(classStartRes.rows[0].class_start_utc)
+      : null;
+    const now = new Date();
+    const minutesUntilClass = currentClassStart
+      ? (currentClassStart.getTime() - now.getTime()) / 60_000
+      : 999; // if we can't determine, assume on-time
+
+    if (minutesUntilClass < 0) {
+      return res.status(400).json({
+        code: "CLASS_ALREADY_STARTED",
+        message: "Esta clase ya comenzó y no puede reagendarse.",
+      });
+    }
+
+    // ── Reschedule window check (config-driven, via tested policy module) ──────
+    const cancelConfig = await getCancellationConfig();
+    const rescheduleHours = Number(cancelConfig.reschedule_hours ?? 3);
+    const rescheduleCheck = canReschedule({
+      nowMs: now.getTime(),
+      classStartMs: currentClassStart ? currentClassStart.getTime() : now.getTime() + 999 * 60000,
+      rescheduleHours,
+    });
+    if (!rescheduleCheck.allowed) {
+      return res.status(403).json({
+        code: "RESCHEDULE_WINDOW_EXCEEDED",
+        message: "Solo puedes reagendar con al menos " + rescheduleHours + " horas de anticipación.",
+      });
+    }
+
+    // ── Transaction: move the spot (capacity-safe, FOR UPDATE on new class) ────
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Lock the target class row to avoid overbooking in concurrent requests
+      const newClassRes = await client.query(
+        `SELECT id, max_capacity, current_bookings, status, date,
+                (date + start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
+           FROM classes
+          WHERE id = $1
+          FOR UPDATE`,
+        [newClassId]
+      );
+      if (newClassRes.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ message: "Clase no encontrada" });
+      }
+      const newCls = newClassRes.rows[0];
+
+      if (newCls.status === "cancelled") {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "La clase seleccionada fue cancelada." });
+      }
+
+      const newStart = newCls.class_start_utc ? new Date(newCls.class_start_utc) : null;
+      if (newStart && newStart.getTime() < now.getTime()) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "No puedes reagendar a una clase que ya pasó." });
+      }
+
+      if (Number(newCls.current_bookings) >= Number(newCls.max_capacity)) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          code: "CLASS_FULL",
+          message: "La clase seleccionada ya está llena.",
+        });
+      }
+
+      // Free old spot
+      await client.query(
+        "UPDATE classes SET current_bookings = GREATEST(current_bookings - 1, 0) WHERE id = $1",
+        [booking.class_id]
+      );
+      // Take new spot
+      await client.query(
+        "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
+        [newClassId]
+      );
+      // Move the booking (do NOT touch status, membership_id or credit)
+      await client.query(
+        "UPDATE bookings SET class_id = $1, updated_at = NOW() WHERE id = $2",
+        [newClassId, bookingId]
+      );
+
+      await client.query("COMMIT");
+    } catch (txErr) {
+      try { await client.query("ROLLBACK"); } catch (_) { }
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    // ── Notify (best-effort; failures must not break the response) ────────────
+    try {
+      const userRes = await pool.query("SELECT email, display_name, phone FROM users WHERE id = $1", [req.userId]);
+      const classFullRes = await pool.query(
+        `SELECT c.date, c.start_time, ct.name AS class_type_name,
+                i.display_name AS instructor_name
+           FROM classes c
+           JOIN class_types ct ON c.class_type_id = ct.id
+           LEFT JOIN instructors i ON c.instructor_id = i.id
+          WHERE c.id = $1`,
+        [newClassId]
+      );
+      const classesLeft = booking.membership_id
+        ? (await pool.query("SELECT classes_remaining FROM memberships WHERE id = $1", [booking.membership_id])).rows[0]?.classes_remaining ?? null
+        : null;
+
+      if (userRes.rows[0] && classFullRes.rows[0]) {
+        const u = userRes.rows[0];
+        const cl = classFullRes.rows[0];
+        if (await areEmailNotificationsEnabled()) {
+          sendBookingConfirmed({
+            to: u.email,
+            name: u.display_name || "Alumna",
+            className: cl.class_type_name,
+            date: cl.date,
+            startTime: cl.start_time,
+            instructor: cl.instructor_name,
+            classesLeft,
+            isWaitlist: false,
+          }).catch((e) => console.error("[Email] booking rescheduled:", e.message));
+        }
+        const waName = u.display_name || "Alumna";
+        const waClass = cl.class_type_name || "tu clase";
+        const waDate = cl.date ? new Date(cl.date).toLocaleDateString("es-MX") : "";
+        const waTime = cl.start_time ? String(cl.start_time).slice(0, 5) : "";
+        sendConfiguredWhatsAppTemplate({
+          templateKey: "booking_confirmed",
+          phone: u.phone,
+          vars: { name: waName, class: waClass, date: waDate, time: waTime },
+          fallbackMessage: `Hola ${waName}, reagendaste tu reserva. Ahora tienes ${waClass} (${waDate} ${waTime}).`,
+        }).catch((e) => console.error("[WA] booking rescheduled:", e.message));
+      }
+    } catch (notifyErr) {
+      console.error("[Reschedule] notify query error:", notifyErr.message);
+    }
+
+    triggerWalletPassSync(req.userId, "booking_rescheduled");
+    return res.json({ data: { id: bookingId, class_id: newClassId, status: "confirmed" } });
+  } catch (err) {
+    console.error("PUT bookings reschedule error:", err.message, err.stack);
     return res.status(500).json({ message: "Error interno", detail: err.message });
   }
 });
