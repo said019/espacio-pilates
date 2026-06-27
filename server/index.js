@@ -3476,20 +3476,27 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
       });
     }
 
-    const cancelCheck = canCancel({ nowMs: now.getTime(), classStartMs: classStartUTC ? classStartUTC.getTime() : now.getTime() + 999 * 60000, cancelHours: Number(cancelConfig.min_hours) || 0 });
-    const isLate = !cancelCheck.allowed;
+    // Refund threshold = min_hours (default 12); no-cancel cutoff = reschedule_hours (default 3).
+    // - hoursLeft >= min_hours  → cancel allowed + credit refunded.
+    // - reschedule_hours <= hoursLeft < min_hours → cancel allowed, credit NOT refunded (penalty).
+    // - hoursLeft < reschedule_hours → cancel BLOCKED (student loses the spot).
+    const cancelCheck = canCancel({
+      nowMs: now.getTime(),
+      classStartMs: classStartUTC ? classStartUTC.getTime() : now.getTime() + 999 * 60000,
+      cancelHours: Number(cancelConfig.min_hours) || 12,
+      minHours: Number(cancelConfig.reschedule_hours) || 3,
+    });
 
-    // Block cancellation when outside the configured window
-    if (isLate) {
-      const rawMsg = cancelConfig.late_cancel_message || "Las cancelaciones requieren al menos {hours}h de anticipación.";
+    // Block cancellation only when inside the no-cancel window (< reschedule_hours).
+    if (!cancelCheck.allowed) {
       return res.status(403).json({
-        code: "CANCELLATION_WINDOW_EXCEEDED",
-        message: rawMsg.replace("{hours}", String(cancelConfig.min_hours ?? 2)),
+        code: "CANCELLATION_TOO_LATE",
+        message: "Ya no puedes cancelar con menos de " + (Number(cancelConfig.reschedule_hours) || 3) + " horas. Si no asistes perderás el lugar.",
       });
     }
 
-    // Determine if credit should be restored (config flag + membership type)
-    const shouldRefund = cancelConfig.refund_credit_on_cancel !== false;
+    // Refund credit only when within the refund window (>= min_hours) AND the config flag allows it.
+    const shouldRefund = cancelCheck.refundCredit && (cancelConfig.refund_credit_on_cancel !== false);
 
     // Cancel the booking (mark as user-initiated so startup reconciliation
     // correctly counts this against the client's cancellation limit)

@@ -5,10 +5,12 @@ export function endOfPurchaseMonth(startISO) {
   return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 }
 
-export function canCancel({ nowMs, classStartMs, cancelHours = 12 }) {
+export function canCancel({ nowMs, classStartMs, cancelHours = 12, minHours = 3 }) {
   const hoursLeft = (classStartMs - nowMs) / 3600_000;
-  const allowed = hoursLeft >= cancelHours;
-  return { allowed, refundCredit: allowed };
+  return {
+    allowed: hoursLeft >= minHours,        // can cancel down to minHours before class
+    refundCredit: hoursLeft >= cancelHours // refund only when >= cancelHours
+  };
 }
 
 export function canReschedule({ nowMs, classStartMs, rescheduleHours = 3 }) {

@@ -110,7 +110,7 @@ const BookingCard = ({
             <CalendarClock size={14} className="mr-1" />Reagendar
           </Button>
         )}
-        {booking.status === "confirmed" && !isPast && cancellationsEnabled && (
+        {booking.status === "confirmed" && !isPast && cancellationsEnabled && hoursUntil >= rescheduleHours && (
           <Button variant="ghost" size="sm" className="text-destructive" onClick={() => onCancel(booking.id)}>
             Cancelar
           </Button>

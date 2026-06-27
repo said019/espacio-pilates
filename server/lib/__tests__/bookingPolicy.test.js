@@ -20,11 +20,17 @@ describe('canCancel', () => {
   it('≥12h: cancela y devuelve crédito', () => {
     expect(canCancel({ nowMs: start - 13*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: true });
   });
-  it('entre 3 y 12h: si cancela, pierde crédito (no permitido sin penalización)', () => {
-    expect(canCancel({ nowMs: start - 5*H, classStartMs: start })).toEqual({ allowed: false, refundCredit: false });
+  it('entre 3 y 12h: cancela pero NO devuelve crédito (penalización)', () => {
+    expect(canCancel({ nowMs: start - 5*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: false });
   });
   it('<3h: no cancela', () => {
     expect(canCancel({ nowMs: start - 1*H, classStartMs: start })).toEqual({ allowed: false, refundCredit: false });
+  });
+  it('exactamente 12h: devuelve crédito (>=)', () => {
+    expect(canCancel({ nowMs: start - 12*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: true });
+  });
+  it('exactamente 3h: permite cancelar (>=)', () => {
+    expect(canCancel({ nowMs: start - 3*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: false });
   });
 });
 
