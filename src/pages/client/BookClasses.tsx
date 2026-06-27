@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import {
   startOfWeek, endOfWeek, addWeeks, subWeeks, format,
-  isBefore,
+  isBefore, isSameDay,
 } from "date-fns";
 import { es } from "date-fns/locale";
 import api from "@/lib/api";
@@ -12,123 +12,67 @@ import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
 import ClientLayout from "@/components/layout/ClientLayout";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, ChevronRight, Lock, CheckCircle2, AlertCircle, Clock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BookingClient } from "@/types/booking";
 
-const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"] as const;
 
-// ── Category helpers ──────────────────────────────────────────────────────────
-// Must mirror the union in PlansList.tsx and server/index.js (plans.class_category).
-type ClassCat = "pilates" | "bienestar" | "reformer" | "barre" | "mixto" | "funcional" | "all";
+// Tema muscular por día (índice = getDay(): 0=Dom … 6=Sáb). Disciplina única.
+const DAY_THEMES = [
+  "",                  // Domingo — sin clases
+  "Pierna & glúteo",   // Lunes
+  "Full body",         // Martes
+  "Tren superior",     // Miércoles
+  "Pierna & glúteo",   // Jueves
+  "Full body",         // Viernes
+  "Core",              // Sábado
+] as const;
 
-const PILATES_PALETTE   = { bg: "bg-[#D9B5BA]/15",          text: "text-[#6B4F53]",     border: "border-[#D9B5BA]/40", dot: "bg-[#8C6B6F]"     };
-const BIENESTAR_PALETTE = { bg: "bg-[#8C6B6F]/15",          text: "text-[#3D3A3A]",     border: "border-[#8C6B6F]/40", dot: "bg-[#6B4F53]"     };
-const NEUTRAL_PALETTE   = { bg: "bg-[#8C6B6F]/[0.06]",      text: "text-[#1A1A1A]/70",  border: "border-[#8C6B6F]/20", dot: "bg-[#8C6B6F]/40"  };
-
-const CAT_COLORS: Record<ClassCat, { bg: string; text: string; border: string; dot: string }> = {
-  pilates:   PILATES_PALETTE,
-  reformer:  PILATES_PALETTE,
-  bienestar: BIENESTAR_PALETTE,
-  barre:     BIENESTAR_PALETTE,
-  funcional: BIENESTAR_PALETTE,
-  mixto:     NEUTRAL_PALETTE,
-  all:       NEUTRAL_PALETTE,
+// "07:00" → "7:00 am" — formato cálido y legible.
+const prettyTime = (date: Date): string => {
+  let h = date.getHours();
+  const m = date.getMinutes();
+  const ampm = h >= 12 ? "pm" : "am";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${h}:${m.toString().padStart(2, "0")} ${ampm}`;
 };
 
-const CAT_LABELS: Record<ClassCat, string> = {
-  pilates: "Pilates",
-  reformer: "Reformer",
-  bienestar: "Bienestar",
-  barre: "Barre",
-  funcional: "Funcional",
-  mixto: "Mixto",
-  all: "Todas",
-};
+const DEFAULT_CAPACITY = 8;
 
-// Safe lookups — guarantee we never crash if the server returns a category we
-// haven't registered yet (e.g., a future plan type).
-const colorsOf = (cat: string | null | undefined) =>
-  (cat && CAT_COLORS[cat as ClassCat]) || NEUTRAL_PALETTE;
-const labelOf = (cat: string | null | undefined) =>
-  (cat && CAT_LABELS[cat as ClassCat]) || "Categoría";
-
-function inferClassCat(name: string): ClassCat {
-  const n = name?.toLowerCase() ?? "";
-  if (n.includes("reformer")) return "reformer";
-  if (n.includes("barre")) return "barre";
-  if (n.includes("funcional") || n.includes("functional")) return "funcional";
-  if (n.includes("pilates") || n.includes("mat") || n.includes("flow") || n.includes("clásico") || n.includes("terapéutico")) return "pilates";
-  if (n.includes("flex") || n.includes("body") || n.includes("strong")) return "bienestar";
-  return "pilates";
-}
-
-// Mirror server-side matching: `mixto` and `all` are wildcards; otherwise the
-// class category must equal the membership category. `pilates` and `reformer`
-// are treated as equivalent (reformer is pilates equipment); `bienestar`,
-// `barre`, and `funcional` share the wellness bucket.
-function canBook(classCat: ClassCat, membershipCat: ClassCat | null): boolean {
-  if (!membershipCat || membershipCat === "all" || membershipCat === "mixto") return true;
-  if (classCat === membershipCat) return true;
-  const pilatesGroup = new Set<ClassCat>(["pilates", "reformer"]);
-  const wellnessGroup = new Set<ClassCat>(["bienestar", "barre", "funcional"]);
-  if (pilatesGroup.has(classCat) && pilatesGroup.has(membershipCat)) return true;
-  if (wellnessGroup.has(classCat) && wellnessGroup.has(membershipCat)) return true;
-  return false;
-}
-
-// ── Clase Muestra schedule restriction ───────────────────────────────────────
-const TRIAL_ALLOWED_SCHEDULES = [
-  { day: 1, time: "08:20" }, // Lunes 8:20 AM
-  { day: 1, time: "19:20" }, // Lunes 7:20 PM
-  { day: 2, time: "09:25" }, // Martes 9:25 AM
-  { day: 4, time: "09:25" }, // Jueves 9:25 AM
-];
-
-function isTrialMembership(membership: any): boolean {
-  const rk = String(membership?.repeatKey ?? membership?.repeat_key ?? "").toLowerCase();
-  const name = String(membership?.planName ?? membership?.plan_name ?? "").toLowerCase();
-  return rk.startsWith("trial_single_session") || name.includes("muestra");
-}
-
-function isClassAllowedForTrial(classDate: Date, startTimeStr: string): boolean {
-  const day = classDate.getDay(); // 0=Sun … 6=Sat
-  const time = startTimeStr.slice(0, 5); // "HH:MM"
-  return TRIAL_ALLOWED_SCHEDULES.some((s) => s.day === day && s.time === time);
-}
-
-// ── Membership banner ─────────────────────────────────────────────────────────
-const MembershipBanner = ({ membership }: { membership: any }) => {
-  const rawCat = membership.classCategory ?? membership.class_category ?? "all";
-  const colors = colorsOf(rawCat);
-  const catLabel = labelOf(rawCat);
-  const remaining = membership.classesRemaining ?? membership.classes_remaining;
+// ── Membership banner (rebranded VM: blush + ink + gold hairlines) ────────────
+const MembershipBanner = ({ membership }: { membership: Record<string, unknown> }) => {
+  const planName = (membership.planName ?? membership.plan_name) as string | undefined;
+  const remaining = (membership.classesRemaining ?? membership.classes_remaining) as number | null | undefined;
   const isUnlimited = remaining === null || remaining === undefined || remaining === 9999;
-  const endDate = membership.endDate ?? membership.end_date;
+  const endDate = (membership.endDate ?? membership.end_date) as string | undefined;
 
   return (
-    <div className={cn("flex items-center justify-between gap-3 px-4 py-3 rounded-xl border text-sm", colors.bg, colors.border)}>
-      <div className="flex items-center gap-2 min-w-0">
-        <div className={cn("w-2.5 h-2.5 rounded-full shrink-0", colors.dot)} />
-        <span className={cn("font-semibold truncate", colors.text)}>{membership.planName ?? membership.plan_name}</span>
-        <span className={cn("capitalize text-[10px] px-2 py-0.5 rounded-full font-semibold border shrink-0", colors.bg, colors.text, colors.border)}>
-          {catLabel}
+    <div className="flex items-center justify-between gap-3 rounded-2xl border border-valiance-charcoal/8 bg-valiance-nude px-5 py-3.5 ring-1 ring-valiance-gold/15 shadow-[0_12px_40px_-22px_rgba(184,145,90,0.30)]">
+      <div className="flex items-center gap-2.5 min-w-0">
+        <span className="inline-block w-6 h-px bg-valiance-gold shrink-0" />
+        <span className="font-display text-[1.25rem] leading-none text-valiance-charcoal truncate">
+          {planName ?? "Tu plan"}
         </span>
       </div>
-      <div className="flex items-center gap-4 shrink-0">
-        {!isUnlimited && (
-          <div className="text-right">
-            <div className={cn("text-base font-bold leading-none", colors.text)}>{remaining}</div>
-            <div className="text-[10px] text-[#1A1A1A]/50">clases</div>
+      <div className="flex items-center gap-6 shrink-0">
+        <div className="text-right">
+          {isUnlimited ? (
+            <div className="font-display text-[1.4rem] leading-none text-valiance-charcoal">Ilimitado</div>
+          ) : (
+            <div className="font-display text-[1.6rem] leading-none text-valiance-charcoal tabular-nums">{remaining}</div>
+          )}
+          <div className="text-[0.6rem] tracking-[0.18em] uppercase text-valiance-mauve mt-1">
+            {isUnlimited ? "acceso" : remaining === 1 ? "clase restante" : "clases restantes"}
           </div>
-        )}
-        {isUnlimited && <span className={cn("text-xs font-bold", colors.text)}>∞ Ilimitado</span>}
+        </div>
         {endDate && (
-          <div className="text-right">
-            <div className="text-xs font-medium text-[#1A1A1A]/70">
-              {new Date(endDate).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}
+          <div className="text-right border-l border-valiance-lavender/30 pl-6">
+            <div className="text-[0.82rem] font-medium text-valiance-charcoal/80 tabular-nums">
+              {new Date(endDate).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
             </div>
-            <div className="text-[10px] text-[#1A1A1A]/50">vencimiento</div>
+            <div className="text-[0.6rem] tracking-[0.18em] uppercase text-valiance-mauve mt-1">vence</div>
           </div>
         )}
       </div>
@@ -160,15 +104,17 @@ const BookClasses = () => {
     queryFn: async () => (await api.get("/memberships/my")).data,
   });
 
-  const classes: any[] = Array.isArray(classesData?.data) ? classesData.data : Array.isArray(classesData) ? classesData : [];
-  const myBookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
+  const classes: Record<string, unknown>[] = Array.isArray(classesData?.data)
+    ? classesData.data
+    : Array.isArray(classesData) ? classesData : [];
+  const myBookings: BookingClient[] = Array.isArray(bookingsData?.data)
+    ? bookingsData.data
+    : Array.isArray(bookingsData) ? bookingsData : [];
   const rawMem = membershipData?.data !== undefined ? membershipData.data : membershipData;
-  const membership = rawMem && typeof rawMem === "object" && "id" in rawMem ? rawMem : null;
-  const hasActive = membership?.status === "active";
-  const membershipCat: ClassCat | null = hasActive
-    ? ((membership.classCategory ?? membership.class_category ?? "all") as ClassCat)
+  const membership = rawMem && typeof rawMem === "object" && "id" in rawMem
+    ? (rawMem as Record<string, unknown>)
     : null;
-  const isTrial = hasActive && isTrialMembership(membership);
+  const hasActive = membership?.status === "active";
 
   const myBookedClassIds = new Set(myBookings.map((b) => b.class_id));
 
@@ -181,149 +127,227 @@ const BookClasses = () => {
   const classesForDay = (day: Date) =>
     classes
       .filter((c) => {
-        if (!c.start_time) return false;
-        const dt = safeParse(c.start_time);
-        return format(dt, "yyyy-MM-dd") === format(day, "yyyy-MM-dd");
+        const st = c.start_time as string | undefined;
+        if (!st) return false;
+        return isSameDay(safeParse(st), day);
       })
-      .sort((a, b) => (a.start_time ?? "").localeCompare(b.start_time ?? ""));
+      .sort((a, b) =>
+        ((a.start_time as string) ?? "").localeCompare((b.start_time as string) ?? "")
+      );
 
   const now = new Date();
+  const today = new Date();
 
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
       <ClientLayout>
-        <div className="space-y-4">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold">Reservar clase</h1>
+        <div className="space-y-6">
+          {/* ── Header ── */}
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+            <div>
+              <p className="flex items-center text-[0.62rem] tracking-[0.24em] uppercase text-valiance-mauve font-body mb-2">
+                <span className="inline-block w-6 h-px bg-valiance-gold mr-2.5" />
+                Tu Espacio Pilates
+              </p>
+              <h1 className="font-display text-[2.2rem] sm:text-[2.6rem] leading-[1] tracking-[-0.015em] text-valiance-charcoal">
+                Reserva tu clase
+              </h1>
+            </div>
+
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="icon" onClick={() => setWeekStart((w) => subWeeks(w, 1))}>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Semana anterior"
+                onClick={() => setWeekStart((w) => subWeeks(w, 1))}
+                className="rounded-full border-valiance-charcoal/15 text-valiance-charcoal hover:bg-valiance-lavender/15 hover:border-valiance-charcoal/25"
+              >
                 <ChevronLeft size={16} />
               </Button>
-              <span className="text-sm font-medium min-w-[96px] sm:min-w-[130px] text-center">
+              <span className="font-body text-[0.82rem] font-medium min-w-[140px] sm:min-w-[160px] text-center text-valiance-charcoal/80 tabular-nums">
                 {format(weekStart, "d MMM", { locale: es })} – {format(weekEnd, "d MMM yyyy", { locale: es })}
               </span>
-              <Button variant="outline" size="icon" onClick={() => setWeekStart((w) => addWeeks(w, 1))}>
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label="Semana siguiente"
+                onClick={() => setWeekStart((w) => addWeeks(w, 1))}
+                className="rounded-full border-valiance-charcoal/15 text-valiance-charcoal hover:bg-valiance-lavender/15 hover:border-valiance-charcoal/25"
+              >
                 <ChevronRight size={16} />
               </Button>
             </div>
           </div>
 
-          {/* Membership status */}
-          {hasActive ? (
+          {/* ── Membership status ── */}
+          {hasActive && membership ? (
             <MembershipBanner membership={membership} />
           ) : (
-            <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-amber-600/30 bg-amber-50 text-sm">
-              <AlertCircle size={15} className="text-amber-600 shrink-0" />
-              <span className="text-amber-800">
-                No tienes membresía activa.{" "}
-                <a href="/app/checkout" className="underline font-semibold text-amber-900">Adquiere un plan</a> para reservar.
-              </span>
-            </div>
-          )}
-
-          {/* Filter hint */}
-          {membershipCat && membershipCat !== "all" && membershipCat !== "mixto" && (
-            <div className="flex items-center gap-1.5 text-xs px-1">
-              <CheckCircle2 size={11} className={colorsOf(membershipCat).text} />
-              <span className="text-[#1A1A1A]/55">
-                Tu membresía <span className={cn("font-semibold", colorsOf(membershipCat).text)}>{labelOf(membershipCat)}</span> solo permite reservar clases de esa categoría.
-              </span>
-            </div>
-          )}
-
-          {/* Trial schedule restriction banner */}
-          {isTrial && (
-            <div className="flex items-start gap-2.5 px-4 py-3 rounded-xl border border-blue-500/30 bg-blue-50 text-sm">
-              <Clock size={15} className="text-blue-600 shrink-0 mt-0.5" />
-              <div className="text-blue-800 text-xs leading-relaxed">
-                <span className="font-semibold">Clase Muestra</span> — solo puedes reservar en estos horarios:
-                <ul className="mt-1 ml-3 list-disc space-y-0.5">
-                  <li>Lunes: 8:20 AM y 7:20 PM</li>
-                  <li>Martes: 9:25 AM</li>
-                  <li>Jueves: 9:25 AM</li>
-                </ul>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-valiance-gold/25 bg-valiance-lavender/12 px-5 py-4">
+              <div className="flex items-center gap-2.5">
+                <span className="inline-block w-6 h-px bg-valiance-gold shrink-0" />
+                <span className="font-body text-[0.88rem] text-valiance-charcoal/80">
+                  Aún no tienes una membresía activa.
+                </span>
               </div>
+              <button
+                onClick={() => navigate("/app/checkout")}
+                className="group inline-flex items-center gap-2 self-start sm:self-auto rounded-full bg-valiance-charcoal text-valiance-nude pl-5 pr-4 py-2.5 font-body text-[0.74rem] font-medium tracking-[0.06em] uppercase hover:bg-valiance-plum transition-colors active:scale-[0.98]"
+              >
+                Adquiere un plan
+                <ArrowUpRight size={14} strokeWidth={2} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              </button>
             </div>
           )}
 
-          {/* Week grid */}
-          <div className="overflow-x-auto">
-            <div className="grid grid-cols-7 gap-1 min-w-[520px] sm:min-w-[560px]">
-              {days.map((day, i) => (
-                <div key={i} className="text-center">
-                  <div className="text-xs font-medium text-muted-foreground py-1">{DAYS[i]}</div>
-                  <div className="text-sm font-bold pb-2">{format(day, "d")}</div>
-                  {loadingClasses ? (
-                    <Skeleton className="h-16 w-full rounded-lg" />
-                  ) : (
-                    <div className="space-y-1">
-                      {classesForDay(day).map((cls) => {
-                        const isPast = cls.start_time ? isBefore(safeParse(cls.start_time), now) : true;
-                        const isBooked = myBookedClassIds.has(cls.id);
-                        const classCat = inferClassCat(cls.class_type_name ?? "");
-                        const c = colorsOf(classCat);
-                        const allowed = canBook(classCat, membershipCat);
-                        const trialBlocked = isTrial && !isClassAllowedForTrial(day, format(safeParse(cls.start_time), "HH:mm"));
-                        const locked = !isBooked && !isPast && (!allowed || trialBlocked);
-                        const disabled = isPast || locked;
+          {/* ── Week grid ── */}
+          <div className="overflow-x-auto -mx-1 px-1 pb-1">
+            <div className="grid grid-cols-7 gap-2 sm:gap-2.5 min-w-[680px]">
+              {days.map((day, i) => {
+                const isToday = isSameDay(day, today);
+                const theme = DAY_THEMES[day.getDay()];
+                const dayClasses = classesForDay(day);
 
-                        return (
-                          <button
-                            key={cls.id}
-                            disabled={disabled}
-                            onClick={() => navigate(`/app/classes/${cls.id}`)}
-                            className={cn(
-                              "w-full text-left rounded-lg border p-1.5 text-xs transition-all relative",
-                              isBooked  && "border-green-600/40 bg-green-50",
-                              !isBooked && !disabled && cn(c.border, "hover:opacity-90 cursor-pointer", c.bg),
-                              !isBooked && isPast  && "opacity-40 cursor-not-allowed border-[#8C6B6F]/12 bg-transparent",
-                              !isBooked && locked  && "opacity-30 cursor-not-allowed border-[#8C6B6F]/10 bg-transparent",
-                            )}
-                          >
-                            <div className="flex items-center gap-1 mb-0.5">
-                              <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", c.dot)} />
-                              <p className={cn("font-semibold truncate text-[11px]", c.text)}>
-                                {cls.class_type_name}
-                              </p>
-                            </div>
-                            <p className="text-[#1A1A1A]/55 text-[10px]">
-                              {cls.start_time ? format(safeParse(cls.start_time), "HH:mm") : "—"}
-                            </p>
-                            {isBooked && (
-                              <span className="absolute top-1 right-1">
-                                <CheckCircle2 size={10} className="text-green-600" />
-                              </span>
-                            )}
-                            {locked && (
-                              <span className="absolute top-1 right-1">
-                                <Lock size={8} className="text-[#1A1A1A]/30" />
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
+                return (
+                  <div key={i} className="flex flex-col">
+                    {/* Day header */}
+                    <div
+                      className={cn(
+                        "text-center pb-3 mb-2 border-b",
+                        isToday ? "border-valiance-gold/40" : "border-valiance-lavender/25"
+                      )}
+                    >
+                      <div className={cn(
+                        "text-[0.6rem] tracking-[0.16em] uppercase font-medium",
+                        isToday ? "text-valiance-gold" : "text-valiance-mauve"
+                      )}>
+                        {DAYS[i]}
+                      </div>
+                      <div className={cn(
+                        "font-display text-[1.5rem] leading-none mt-1",
+                        isToday ? "text-valiance-charcoal" : "text-valiance-charcoal/85"
+                      )}>
+                        {format(day, "d")}
+                      </div>
+                      {theme && (
+                        <div className="text-[0.58rem] tracking-[0.04em] text-valiance-mauve/90 mt-1.5 leading-tight px-0.5">
+                          {theme}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    {/* Classes */}
+                    {loadingClasses ? (
+                      <div className="space-y-2">
+                        <Skeleton className="h-[58px] w-full rounded-xl" />
+                        <Skeleton className="h-[58px] w-full rounded-xl" />
+                      </div>
+                    ) : dayClasses.length === 0 ? (
+                      <div className="flex items-center justify-center py-6">
+                        <span className="text-valiance-mauve/40 text-lg leading-none">·</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {dayClasses.map((cls) => {
+                          const startTime = cls.start_time as string | undefined;
+                          const start = startTime ? safeParse(startTime) : null;
+                          const isPast = start ? isBefore(start, now) : true;
+                          const isBooked = myBookedClassIds.has(cls.id as string);
+
+                          // Availability — disciplina única, cupo 8.
+                          const rawCurrent = cls.current_bookings;
+                          const rawMax = cls.max_capacity;
+                          const hasAvailability =
+                            (typeof rawCurrent === "number") || (typeof rawMax === "number");
+                          const maxCap = typeof rawMax === "number" ? rawMax : DEFAULT_CAPACITY;
+                          const current = typeof rawCurrent === "number" ? rawCurrent : 0;
+                          const remaining = Math.max(0, maxCap - current);
+                          const isFull = hasAvailability && remaining === 0;
+
+                          // Bookable only when not past, not full (unless already booked).
+                          const disabled = !isBooked && (isPast || isFull);
+
+                          return (
+                            <button
+                              key={cls.id as string}
+                              disabled={disabled}
+                              onClick={() => navigate(`/app/classes/${cls.id}`)}
+                              className={cn(
+                                "group w-full text-left rounded-xl border p-2.5 transition-all duration-200 relative",
+                                // Booked — clear "reservada" state (gold-ringed nude card)
+                                isBooked &&
+                                  "border-valiance-gold/40 bg-valiance-nude ring-1 ring-valiance-gold/30 cursor-pointer hover:ring-valiance-gold/50",
+                                // Available — blush warmth, lifts on hover
+                                !isBooked && !disabled &&
+                                  "border-valiance-charcoal/8 bg-valiance-nude ring-1 ring-valiance-charcoal/5 cursor-pointer hover:ring-valiance-blush/50 hover:border-valiance-blush/40 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_-14px_rgba(201,173,163,0.45)]",
+                                // Past — faded, inert
+                                !isBooked && isPast &&
+                                  "border-valiance-lavender/15 bg-transparent opacity-40 cursor-not-allowed",
+                                // Full (future) — quiet, waitlist note
+                                !isBooked && !isPast && isFull &&
+                                  "border-valiance-lavender/20 bg-valiance-lavender/[0.07] opacity-70 cursor-not-allowed"
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-1">
+                                <p className={cn(
+                                  "font-body text-[0.82rem] font-semibold leading-none tabular-nums",
+                                  isBooked ? "text-valiance-charcoal" : "text-valiance-charcoal/90"
+                                )}>
+                                  {start ? prettyTime(start) : "—"}
+                                </p>
+                                {isBooked && (
+                                  <span className="shrink-0 flex items-center justify-center w-4 h-4 rounded-full bg-valiance-gold/15 text-valiance-gold">
+                                    <Check size={10} strokeWidth={2.5} />
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="font-display text-[0.95rem] leading-tight text-valiance-charcoal/80 mt-1.5">
+                                Pilates
+                              </p>
+
+                              {/* Status line: booked / availability / waitlist */}
+                              {isBooked ? (
+                                <p className="text-[0.6rem] tracking-[0.1em] uppercase text-valiance-gold font-medium mt-1.5">
+                                  Reservada
+                                </p>
+                              ) : isFull ? (
+                                <p className="text-[0.6rem] text-valiance-mauve mt-1.5 leading-tight">
+                                  Lleno · lista de espera
+                                </p>
+                              ) : hasAvailability && !isPast ? (
+                                <p className="text-[0.62rem] text-valiance-mauve mt-1.5 tabular-nums">
+                                  {remaining === 1 ? "1 lugar" : `${remaining} lugares`}
+                                </p>
+                              ) : null}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {/* Legend */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            {(["pilates", "bienestar"] as ClassCat[]).map(cat => (
-              <div key={cat} className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-medium", CAT_COLORS[cat].bg, CAT_COLORS[cat].text, CAT_COLORS[cat].border)}>
-                <div className={cn("w-1.5 h-1.5 rounded-full", CAT_COLORS[cat].dot)} />
-                {CAT_LABELS[cat]}
-              </div>
-            ))}
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.06] text-[11px] font-medium text-[#1A1A1A]/50">
-              <Lock size={9} /> Requiere otra membresía
-            </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-green-600/30 bg-green-50 text-[11px] font-medium text-green-700">
-              <CheckCircle2 size={9} /> Reservada
-            </div>
+          {/* ── Legend ── single, calm ── */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pt-1 text-[0.7rem] text-valiance-mauve">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="flex items-center justify-center w-3.5 h-3.5 rounded-full bg-valiance-gold/15 text-valiance-gold">
+                <Check size={8} strokeWidth={3} />
+              </span>
+              Reservada
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full ring-1 ring-valiance-blush/50 bg-valiance-nude" />
+              Disponible
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-valiance-lavender/30" />
+              Lleno · lista de espera
+            </span>
+            <span className="ml-auto text-valiance-mauve/70 hidden sm:inline">Cupo de 8 por clase</span>
           </div>
         </div>
       </ClientLayout>
