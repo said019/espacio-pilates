@@ -15,6 +15,7 @@ import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
 import { endOfPurchaseMonth, canCancel, canReschedule } from "./lib/bookingPolicy.js";
+import { createPreference, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -4251,10 +4252,37 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     await client.query("COMMIT");
 
     const order = orderRes.rows[0];
+
+    // ── Tarjeta: generar checkout de MercadoPago (fuera de la transacción) ──
+    let mp_checkout_url = null;
+    if (paymentMethod === "card") {
+      try {
+        const u = await pool.query("SELECT email FROM users WHERE id = $1", [req.userId]);
+        const pref = await createPreference({
+          orderId: order.id,
+          orderNumber: order.order_number,
+          planName: plan.name,
+          amount: Number(order.total_amount),
+          userEmail: u.rows[0]?.email || "",
+        });
+        mp_checkout_url = pref.checkout_url;
+        await pool.query(
+          `UPDATE orders SET payment_provider = 'mercadopago',
+                             payment_intent_id = $1, mp_checkout_url = $2, updated_at = NOW()
+             WHERE id = $3`,
+          [pref.preference_id, pref.checkout_url, order.id]
+        );
+      } catch (mpErr) {
+        console.error("MercadoPago preference error:", mpErr.message);
+        // La orden ya existe (pending_payment); el cliente reintenta con pay-with-card.
+      }
+    }
+
     return res.status(201).json({
       data: {
         ...order,
         plan_name: plan.name,
+        mp_checkout_url,
         bank_details: { ...bankInfo, amount: total, currency: "MXN" },
       }
     });
@@ -4315,6 +4343,51 @@ app.post("/api/orders/:id/proof", authMiddleware, upload.any(), async (req, res)
     console.error("POST orders/proof error:", err.message, err.stack);
     return res.status(500).json({ message: "Error interno", detail: err.message });
   }
+});
+
+// POST /api/orders/:id/pay-with-card — generar/reutilizar checkout de MP para una orden pendiente
+app.post("/api/orders/:id/pay-with-card", authMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT o.*, p.name AS plan_name, u.email AS user_email
+         FROM orders o
+         JOIN plans p ON o.plan_id = p.id
+         JOIN users u ON o.user_id = u.id
+        WHERE o.id = $1 AND o.user_id = $2`,
+      [req.params.id, req.userId]
+    );
+    if (!r.rows.length) return res.status(404).json({ message: "Orden no encontrada" });
+    const order = r.rows[0];
+    if (order.status !== "pending_payment") {
+      return res.status(400).json({ message: "Esta orden ya no acepta pagos" });
+    }
+    if (order.mp_checkout_url) {
+      return res.json({ data: { mp_checkout_url: order.mp_checkout_url } });
+    }
+    const pref = await createPreference({
+      orderId: order.id,
+      orderNumber: order.order_number,
+      planName: order.plan_name,
+      amount: Number(order.total_amount),
+      userEmail: order.user_email || "",
+    });
+    await pool.query(
+      `UPDATE orders SET payment_method = 'card'::payment_method,
+                         payment_provider = 'mercadopago',
+                         payment_intent_id = $1, mp_checkout_url = $2, updated_at = NOW()
+         WHERE id = $3`,
+      [pref.preference_id, pref.checkout_url, order.id]
+    );
+    return res.json({ data: { mp_checkout_url: pref.checkout_url } });
+  } catch (err) {
+    console.error("pay-with-card error:", err.message);
+    return res.status(500).json({ message: "No se pudo generar el checkout" });
+  }
+});
+
+// GET /api/payments/config — el frontend decide si muestra "Tarjeta"
+app.get("/api/payments/config", (req, res) => {
+  return res.json({ data: { cardEnabled: Boolean(process.env.MP_ACCESS_TOKEN) } });
 });
 
 // ─── Routes: /api/discount-codes ────────────────────────────────────────────
