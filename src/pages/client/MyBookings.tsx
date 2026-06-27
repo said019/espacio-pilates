@@ -20,7 +20,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Star } from "lucide-react";
+import { Star, CalendarClock } from "lucide-react";
 import type { BookingClient } from "@/types/booking";
 
 function useCancellationConfig() {
@@ -36,7 +36,24 @@ function useCancellationConfig() {
     refund_credit_on_cancel: raw.refund_credit_on_cancel !== false,
     cancellations_limit: Number(raw.cancellations_limit ?? 2),
     late_cancel_message: String(raw.late_cancel_message ?? ""),
+    reschedule_hours: Number(raw.reschedule_hours ?? 3),
   };
+}
+
+// Narrowed shape of an axios error from the reschedule endpoint.
+interface ApiError {
+  response?: { data?: { code?: string; message?: string } };
+}
+
+// Shape of a class row returned by GET /api/classes — only the fields we use.
+interface ClassOption {
+  id: string;
+  start_time: string;
+  class_type_name?: string;
+  instructor_name?: string;
+  current_bookings?: number;
+  max_capacity?: number;
+  capacity?: number;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -59,15 +76,22 @@ const BookingCard = ({
   booking,
   onCancel,
   onReview,
+  onReschedule,
   cancellationsEnabled,
+  rescheduleHours,
 }: {
   booking: BookingClient;
   onCancel: (id: string) => void;
   onReview: (booking: BookingClient) => void;
+  onReschedule: (booking: BookingClient) => void;
   cancellationsEnabled: boolean;
+  rescheduleHours: number;
 }) => {
   const isPast = new Date(booking.start_time) < new Date();
   const hasReview = Boolean(booking.has_review);
+  const hoursUntil = (new Date(booking.start_time).getTime() - Date.now()) / 3600000;
+  const canReschedule =
+    booking.status === "confirmed" && !isPast && hoursUntil >= rescheduleHours;
   return (
     <div className="flex items-center justify-between rounded-xl border p-4">
       <div className="space-y-1">
@@ -81,6 +105,11 @@ const BookingCard = ({
         <Badge variant={STATUS_VARIANTS[booking.status] ?? "secondary"}>
           {STATUS_LABELS[booking.status] ?? booking.status}
         </Badge>
+        {canReschedule && (
+          <Button variant="outline" size="sm" onClick={() => onReschedule(booking)}>
+            <CalendarClock size={14} className="mr-1" />Reagendar
+          </Button>
+        )}
         {booking.status === "confirmed" && !isPast && cancellationsEnabled && (
           <Button variant="ghost" size="sm" className="text-destructive" onClick={() => onCancel(booking.id)}>
             Cancelar
@@ -114,6 +143,13 @@ const MyBookings = () => {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [rescheduleBooking, setRescheduleBooking] = useState<BookingClient | null>(null);
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+
+  const closeReschedule = () => {
+    setRescheduleBooking(null);
+    setSelectedClassId(null);
+  };
 
   const { data: bookingsData, isLoading } = useQuery({
     queryKey: ["my-bookings"],
@@ -127,6 +163,46 @@ const MyBookings = () => {
     staleTime: 1000 * 60 * 10,
   });
   const reviewTags: { id: string; name: string; color: string }[] = Array.isArray(tagsData?.data) ? tagsData.data : [];
+
+  // Available classes for the reschedule picker — today through +14 days.
+  // Only fetched while the reschedule dialog is open.
+  const rescheduleRange = (() => {
+    const startDate = new Date();
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + 14);
+    return {
+      start: format(startDate, "yyyy-MM-dd"),
+      end: format(endDate, "yyyy-MM-dd"),
+    };
+  })();
+
+  const { data: availableClassesData, isLoading: loadingAvailable } = useQuery({
+    queryKey: ["reschedule-classes", rescheduleRange.start, rescheduleRange.end],
+    queryFn: async () =>
+      (await api.get(`/classes?start=${rescheduleRange.start}&end=${rescheduleRange.end}`)).data,
+    enabled: !!rescheduleBooking,
+    staleTime: 60 * 1000,
+  });
+
+  const availableClasses: ClassOption[] = Array.isArray(availableClassesData?.data)
+    ? availableClassesData.data
+    : Array.isArray(availableClassesData)
+      ? availableClassesData
+      : [];
+
+  // Candidates: future classes that are not the current booking's class and not full.
+  const nowTs = Date.now();
+  const rescheduleOptions = availableClasses
+    .filter((c) => {
+      if (!c.start_time) return false;
+      if (rescheduleBooking && c.id === rescheduleBooking.class_id) return false;
+      if (new Date(c.start_time).getTime() <= nowTs) return false;
+      const cap = c.max_capacity ?? c.capacity;
+      const booked = c.current_bookings;
+      if (typeof cap === "number" && typeof booked === "number" && booked >= cap) return false;
+      return true;
+    })
+    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
 
   const bookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
   const now = new Date();
@@ -182,6 +258,40 @@ const MyBookings = () => {
     },
   });
 
+  const rescheduleMutation = useMutation({
+    mutationFn: ({ id, newClassId }: { id: string; newClassId: string }) =>
+      api.put(`/bookings/${id}/reschedule`, { new_class_id: newClassId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["my-bookings"] });
+      qc.invalidateQueries({ queryKey: ["my-membership"] });
+      qc.invalidateQueries({ queryKey: ["public-classes"] });
+      toast({
+        title: "Reserva reagendada",
+        description: "Tu clase se movió. El crédito no cambia.",
+      });
+      closeReschedule();
+    },
+    onError: (err: ApiError) => {
+      const data = err?.response?.data;
+      const code = data?.code;
+      let description: string;
+      switch (code) {
+        case "CLASS_FULL":
+          description = "Esa clase ya está llena.";
+          break;
+        case "ALREADY_BOOKED":
+          description = "Ya tienes una reserva en esa clase.";
+          break;
+        case "RESCHEDULE_WINDOW_EXCEEDED":
+          description = data?.message || "Ya pasó el tiempo límite para reagendar esta clase.";
+          break;
+        default:
+          description = data?.message || "No se pudo reagendar.";
+      }
+      toast({ title: "No se pudo reagendar", description, variant: "destructive" });
+    },
+  });
+
   return (
     <ClientAuthGuard requiredRoles={["client"]}>
       <ClientLayout>
@@ -211,7 +321,9 @@ const MyBookings = () => {
                         booking={b}
                         onCancel={setCancelId}
                         onReview={setReviewBooking}
+                        onReschedule={setRescheduleBooking}
                         cancellationsEnabled={cancelConfig.enabled}
+                        rescheduleHours={cancelConfig.reschedule_hours}
                       />
                     ))
                   )}
@@ -316,6 +428,83 @@ const MyBookings = () => {
             <DialogFooter>
               <Button onClick={() => reviewMutation.mutate()} disabled={reviewMutation.isPending}>
                 {reviewMutation.isPending ? "Enviando..." : "Enviar reseña"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Reschedule dialog */}
+        <Dialog open={!!rescheduleBooking} onOpenChange={(open) => { if (!open) closeReschedule(); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Reagendar — {rescheduleBooking?.class_type_name}</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-1">
+              <p className="text-xs text-muted-foreground">
+                Elige una nueva clase para mover tu reserva. Tu crédito no cambia.
+              </p>
+              {loadingAvailable ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => <Skeleton key={i} className="h-14 w-full rounded-lg" />)}
+                </div>
+              ) : rescheduleOptions.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-6 text-center">
+                  No hay clases disponibles en los próximos 14 días.
+                </p>
+              ) : (
+                <div className="max-h-[55vh] overflow-y-auto space-y-2 pr-1">
+                  {rescheduleOptions.map((c) => {
+                    const isSelected = selectedClassId === c.id;
+                    const cap = c.max_capacity ?? c.capacity;
+                    const booked = c.current_bookings;
+                    const spotsLeft =
+                      typeof cap === "number" && typeof booked === "number"
+                        ? Math.max(0, cap - booked)
+                        : null;
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setSelectedClassId(c.id)}
+                        className={`w-full text-left rounded-lg border px-3 py-2.5 transition-all ${
+                          isSelected
+                            ? "border-primary bg-primary/10 ring-1 ring-primary"
+                            : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{c.class_type_name ?? "Clase"}</p>
+                            <p className="text-xs text-muted-foreground capitalize">
+                              {format(safeParse(c.start_time), "EEEE d MMM · HH:mm", { locale: es })}
+                            </p>
+                            {c.instructor_name && (
+                              <p className="text-[11px] text-muted-foreground">{c.instructor_name}</p>
+                            )}
+                          </div>
+                          {spotsLeft !== null && (
+                            <span className="shrink-0 text-[11px] text-muted-foreground whitespace-nowrap">
+                              {spotsLeft} {spotsLeft === 1 ? "lugar" : "lugares"}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={closeReschedule}>Cancelar</Button>
+              <Button
+                disabled={!selectedClassId || rescheduleMutation.isPending}
+                onClick={() => {
+                  if (rescheduleBooking && selectedClassId) {
+                    rescheduleMutation.mutate({ id: rescheduleBooking.id, newClassId: selectedClassId });
+                  }
+                }}
+              >
+                {rescheduleMutation.isPending ? "Reagendando..." : "Confirmar"}
               </Button>
             </DialogFooter>
           </DialogContent>
