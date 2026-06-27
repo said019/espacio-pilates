@@ -174,8 +174,8 @@ const Cancelacion = () => {
             </p>
             <ul className="list-none space-y-1">
               <li><strong className="text-foreground">Email:</strong> espaciopilatesvm@gmail.com</li>
-              <li><strong className="text-foreground">Teléfono:</strong> +52 55 2317 3402</li>
-              <li><strong className="text-foreground">Dirección:</strong> Av. Luis Hidalgo Monroy 369, San Miguel, Iztapalapa, 09360 CDMX</li>
+              <li><strong className="text-foreground">Teléfono:</strong> 444 548 0352</li>
+              <li><strong className="text-foreground">Dirección:</strong> Av. Villa Magna Nte. 600 A, Villa Magna, 78183 San Luis Potosí, S.L.P.</li>
             </ul>
           </div>
         )}

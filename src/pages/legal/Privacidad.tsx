@@ -56,7 +56,7 @@ const Privacidad = () => {
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">1. Responsable del tratamiento</h2>
             <p>
-              <strong className="text-foreground">Tu Espacio Pilates</strong>, con domicilio en Av. Luis Hidalgo Monroy 369, San Miguel, Iztapalapa, 09360 CDMX, es responsable del tratamiento de los datos personales que recabamos de usted, en los términos de la Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP).
+              <strong className="text-foreground">Tu Espacio Pilates</strong>, con domicilio en Av. Villa Magna Nte. 600 A, Villa Magna, 78183 San Luis Potosí, S.L.P., es responsable del tratamiento de los datos personales que recabamos de usted, en los términos de la Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP).
             </p>
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">2. Datos personales que recabamos</h2>
@@ -125,8 +125,8 @@ const Privacidad = () => {
             </p>
             <ul className="list-none space-y-1">
               <li><strong className="text-foreground">Email:</strong> espaciopilatesvm@gmail.com</li>
-              <li><strong className="text-foreground">Teléfono:</strong> +52 55 2317 3402</li>
-              <li><strong className="text-foreground">Dirección:</strong> Av. Luis Hidalgo Monroy 369, San Miguel, Iztapalapa, 09360 CDMX</li>
+              <li><strong className="text-foreground">Teléfono:</strong> 444 548 0352</li>
+              <li><strong className="text-foreground">Dirección:</strong> Av. Villa Magna Nte. 600 A, Villa Magna, 78183 San Luis Potosí, S.L.P.</li>
             </ul>
           </div>
         )}

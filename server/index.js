@@ -1433,6 +1433,15 @@ async function ensureSchema() {
       `INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
       ["notification_templates", JSON.stringify(DEFAULT_NOTIFICATION_TEMPLATES)],
     ).catch(() => { });
+    // Lealtad fuera de alcance para Tu Espacio Pilates VM: persistimos el
+    // config deshabilitado (INSERT-if-missing). Sin esta fila, los sitios de
+    // acumulación leen cfg={} y `cfg.enabled !== false` deja acumular puntos
+    // de forma invisible. Con enabled:false la acumulación queda apagada.
+    // No sobrescribe un config que un admin haya guardado (DO NOTHING).
+    await pool.query(
+      `INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+      ["loyalty_config", JSON.stringify({ enabled: false, points_per_class: 10, points_per_peso: 1, welcome_bonus: 50, birthday_bonus: 100 })],
+    ).catch(() => { });
     for (const [settingKey, defaults] of Object.entries(DEFAULT_SETTINGS_BY_KEY)) {
       await pool.query(
         `UPDATE settings

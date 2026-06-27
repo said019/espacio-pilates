@@ -60,7 +60,7 @@ const Terminos = () => {
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">1. Definiciones</h2>
             <ul className="list-disc pl-6 space-y-2">
-              <li><strong className="text-foreground">"Estudio"</strong> se refiere a Tu Espacio Pilates y sus instalaciones en Iztapalapa, Ciudad de México.</li>
+              <li><strong className="text-foreground">"Estudio"</strong> se refiere a Tu Espacio Pilates y sus instalaciones en Villa Magna, San Luis Potosí, S.L.P.</li>
               <li><strong className="text-foreground">"Alumna/o"</strong> se refiere a cualquier persona registrada en la plataforma que asiste a clases.</li>
               <li><strong className="text-foreground">"Paquete"</strong> se refiere a los planes de clases adquiridos (Pilates Reformer o Barre).</li>
               <li><strong className="text-foreground">"Clase"</strong> se refiere a cada sesión de ejercicio programada en el estudio.</li>
@@ -148,8 +148,8 @@ const Terminos = () => {
             </p>
             <ul className="list-none space-y-1">
               <li><strong className="text-foreground">Email:</strong> espaciopilatesvm@gmail.com</li>
-              <li><strong className="text-foreground">Teléfono:</strong> +52 55 2317 3402</li>
-              <li><strong className="text-foreground">Dirección:</strong> Av. Luis Hidalgo Monroy 369, San Miguel, Iztapalapa, 09360 CDMX</li>
+              <li><strong className="text-foreground">Teléfono:</strong> 444 548 0352</li>
+              <li><strong className="text-foreground">Dirección:</strong> Av. Villa Magna Nte. 600 A, Villa Magna, 78183 San Luis Potosí, S.L.P.</li>
             </ul>
           </div>
         )}
