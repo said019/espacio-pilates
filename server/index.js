@@ -639,15 +639,30 @@ async function ensureSchema() {
       `);
       console.log("✅ Seeded Tu Espacio Pilates VM packages");
     }
-    // ── Seed class_types – ensure Tu Espacio Pilates VM type exists ──────────────
-    const hasPNTypes = await pool.query("SELECT 1 FROM class_types WHERE name = 'Pilates' LIMIT 1");
-    if (hasPNTypes.rows.length === 0) {
-      await pool.query(`
-        INSERT INTO class_types (name, subtitle, description, category, intensity, level, duration_min, capacity, color, emoji, sort_order, is_active) VALUES
-          ('Pilates', 'Reformer · Tower · Mat · Silla', 'Clase de Pilates de bajo impacto y alta exigencia en reformer, tower, mat y silla. Grupos de 8 con atención personalizada y enfoque muscular distinto cada día.', 'pilates', 'media', 'all', 60, 8, '#C9ADA3', '🤍', 1, true)
-        ON CONFLICT DO NOTHING;
-      `);
-      console.log("✅ Seeded Tu Espacio Pilates VM class type");
+    // ── Seed class_types – idempotent: garantizar UN único tipo 'Pilates' ──────
+    // Funciona en cualquier estado de DB (vacía o pre-sembrada por
+    // schema_complete.sql). UPSERT por nombre + desactivar el resto, de modo
+    // que el resultado final sea siempre exactamente un tipo activo 'Pilates'.
+    {
+      const vmTypeDesc = "Clase de Pilates de bajo impacto y alta exigencia en reformer, tower, mat y silla. Grupos de 8 con atención personalizada y enfoque muscular distinto cada día.";
+      await pool.query(
+        `UPDATE class_types
+            SET subtitle = $1, description = $2, category = 'pilates', intensity = 'media',
+                level = 'all', duration_min = 60, capacity = 8, color = '#C9ADA3',
+                emoji = '🤍', sort_order = 1, is_active = true
+          WHERE name = 'Pilates'`,
+        ["Reformer · Tower · Mat · Silla", vmTypeDesc],
+      ).catch(() => { });
+      await pool.query(
+        `INSERT INTO class_types (name, subtitle, description, category, intensity, level, duration_min, capacity, color, emoji, sort_order, is_active)
+         SELECT 'Pilates', $1, $2, 'pilates', 'media', 'all', 60, 8, '#C9ADA3', '🤍', 1, true
+         WHERE NOT EXISTS (SELECT 1 FROM class_types WHERE name = 'Pilates')`,
+        ["Reformer · Tower · Mat · Silla", vmTypeDesc],
+      ).catch(() => { });
+      // Desactivar cualquier otro tipo pre-sembrado (Barre Studio, Pilates Mat,
+      // Yoga Sculpt, etc.) — VM opera un único tipo de clase.
+      await pool.query(`UPDATE class_types SET is_active = false WHERE name <> 'Pilates'`).catch(() => { });
+      console.log("✅ Ensured single Tu Espacio Pilates VM class type 'Pilates'");
     }
     // ── Seed schedule_slots si la tabla está vacía ─────────────────────────
     const ssCount = await pool.query("SELECT COUNT(*) FROM schedule_slots");
@@ -769,24 +784,42 @@ async function ensureSchema() {
     } catch (legacyTopErr) {
       console.warn("[schema] Legacy session lookup failed:", legacyTopErr?.message || legacyTopErr);
     }
-    // ── Seed canónico Valiance: solo si la tabla está completamente vacía ──
-    // Este bloque solo dispara en DBs frescas. Si ya hay planes (incluso
-    // inactivos) se respeta el estado existente — el catálogo se gestiona
-    // desde el admin UI o vía seed-valiance-full.sql.
-    const plCount = await pool.query("SELECT COUNT(*) FROM plans");
-    if (parseInt(plCount.rows[0].count) === 0) {
-      await pool.query(`
-        INSERT INTO plans (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order) VALUES
-          ('Paquete 7 Clases',      '7 clases al mes. Vence al fin del mes de compra.',  880,  'MXN', 30, 7,  'all', '["7 clases","Vigencia: mes de compra","Personal e intransferible","Solo transferencia"]'::jsonb,  true, 1),
-          ('Paquete 9 Clases',      '9 clases al mes. Vence al fin del mes de compra.',  1050, 'MXN', 30, 9,  'all', '["9 clases","Vigencia: mes de compra","Personal e intransferible","Solo transferencia"]'::jsonb,  true, 2),
-          ('Paquete 14 Clases',     '14 clases al mes. Vence al fin del mes de compra.', 1400, 'MXN', 30, 14, 'all', '["14 clases","Vigencia: mes de compra","Personal e intransferible","Solo transferencia"]'::jsonb, true, 3),
-          ('Clase Extra',           'Clase adicional para alumnas ya inscritas.',        130,  'MXN', 30, 1,  'all', '["1 clase extra","Solo para inscritas"]'::jsonb,                                                  true, 4),
-          ('Clase Suelta / Visita', 'Clase individual sin inscripción.',                 250,  'MXN', 7,  1,  'all', '["1 clase","Sin inscripción","Si te inscribes se toma a cuenta"]'::jsonb,                         true, 5),
-          ('Inscripción',           'Pago único de inscripción. Se re-paga tras ausencia mayor a 3 meses.', 500, 'MXN', 3650, 0, 'all', '["Pago único","Requerida para paquetes"]'::jsonb,                                  true, 6)
-        ON CONFLICT DO NOTHING;
-      `);
-      console.log("[schema] Seeded Tu Espacio Pilates VM plans");
+    // ── Seed canónico Tu Espacio Pilates VM: IDEMPOTENTE en cualquier estado ──
+    // schema_complete.sql pre-siembra planes, así que un guard `if empty` nunca
+    // dispararía. En su lugar: (1) desactivamos TODO, (2) upsert por nombre de
+    // los 6 planes VM (re-activándolos). Resultado: solo los 6 planes VM quedan
+    // activos (más TotalPass 154 admin-only, que se re-activa en su propio
+    // bloque idempotente más abajo). No requiere UNIQUE(name).
+    const VM_PLANS = [
+      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence al fin del mes de compra.",  price: 880,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 9 Clases",      desc: "9 clases al mes. Vence al fin del mes de compra.",  price: 1050, dur: 30,   cl: 9,  so: 2, feat: ["9 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence al fin del mes de compra.", price: 1400, dur: 30,   cl: 14, so: 3, feat: ["14 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Clase Extra",           desc: "Clase adicional para alumnas ya inscritas.",        price: 130,  dur: 30,   cl: 1,  so: 4, feat: ["1 clase extra", "Solo para inscritas"] },
+      { name: "Clase Suelta / Visita", desc: "Clase individual sin inscripción.",                 price: 250,  dur: 7,    cl: 1,  so: 5, feat: ["1 clase", "Sin inscripción", "Si te inscribes se toma a cuenta"] },
+      { name: "Inscripción",           desc: "Pago único de inscripción. Se re-paga tras ausencia mayor a 3 meses.", price: 500, dur: 3650, cl: 0, so: 6, feat: ["Pago único", "Requerida para paquetes"] },
+    ];
+    // (1) Desactivar todo antes de upsertar los planes VM. TotalPass 154 se
+    //     re-activa en su propio bloque (que corre después de éste).
+    await pool.query(`UPDATE plans SET is_active = false`).catch(() => { });
+    // (2) Upsert por nombre: UPDATE (re-activa + corrige) luego INSERT-if-missing.
+    for (const p of VM_PLANS) {
+      const feat = JSON.stringify(p.feat);
+      await pool.query(
+        `UPDATE plans
+            SET description = $2, price = $3, currency = 'MXN', duration_days = $4,
+                class_limit = $5, class_category = 'all', features = $6::jsonb,
+                is_active = true, sort_order = $7, updated_at = NOW()
+          WHERE name = $1`,
+        [p.name, p.desc, p.price, p.dur, p.cl, feat, p.so],
+      ).catch(() => { });
+      await pool.query(
+        `INSERT INTO plans (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order)
+         SELECT $1::text, $2::text, $3::numeric, 'MXN', $4::int, $5::int, 'all', $6::jsonb, true, $7::int
+         WHERE NOT EXISTS (SELECT 1 FROM plans WHERE name = $1::text)`,
+        [p.name, p.desc, p.price, p.dur, p.cl, feat, p.so],
+      ).catch(() => { });
     }
+    console.log("[schema] Seeded/ensured Tu Espacio Pilates VM plans (idempotent)");
     // ── Backfill class_category on existing plans ──
     await pool.query(`UPDATE plans SET class_category = 'all' WHERE class_category IS NULL`).catch(() => { });
     // ── Allow reformer/barre categories. Drop legacy CHECK constraints on
