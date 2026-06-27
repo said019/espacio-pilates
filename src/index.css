@@ -26,7 +26,7 @@
     --popover: 30 29% 97%;
     --popover-foreground: 0 0% 27%;
 
-    --primary: 39 6% 42%;               /* #716D64 olive */
+    --primary: 353 13% 48%;             /* #8C6B6F mauve-rosa (rosita) */
     --primary-foreground: 30 29% 97%;   /* #FAF8F6 ivory */
 
     --secondary: 22 26% 83%;            /* #DFD1C9 oat */
@@ -35,44 +35,44 @@
     --muted: 22 26% 83%;                /* #DFD1C9 oat */
     --muted-foreground: 39 6% 42%;
 
-    --accent: 57 14% 55%;               /* #9B997B fern */
-    --accent-foreground: 30 29% 97%;
+    --accent: 16 26% 71%;               /* #C9ADA3 blush */
+    --accent-foreground: 0 0% 10%;      /* #1A1A1A tinta */
 
     --destructive: 0 50% 52%;
     --destructive-foreground: 0 0% 100%;
 
     --border: 22 26% 83%;               /* #DFD1C9 oat */
     --input: 22 26% 83%;
-    --ring: 57 14% 55%;                 /* #9B997B fern */
+    --ring: 353 13% 48%;                /* #8C6B6F mauve-rosa (rosita) */
 
     --radius: 0.75rem;
 
     --tep-pebble: 0 0% 27%;
     --tep-olive: 39 6% 42%;
     --tep-fern: 57 14% 55%;
-    --tep-dusk: 10 24% 76%;
+    --tep-dusk: 16 26% 71%;             /* #C9ADA3 blush */
     --tep-ivory: 30 29% 97%;
     --tep-oat: 22 26% 83%;
-    --tep-blush: 10 24% 76%;
+    --tep-blush: 16 26% 71%;            /* #C9ADA3 blush */
     --tep-nude: 30 29% 97%;
-    --tep-rose: 22 26% 83%;
+    --tep-rose: 352 32% 78%;            /* #D9B5BA rosa claro */
     --tep-lavender: 22 26% 83%;
     --tep-lilac-soft: 30 29% 97%;
     --tep-gray: 22 26% 83%;
-    --tep-ink: 0 0% 27%;
-    --tep-gold: 57 14% 55%;
+    --tep-ink: 0 0% 10%;               /* #1A1A1A tinta */
+    --tep-gold: 35 40% 54%;            /* #B8915A dorado */
 
-    --valiance-blush: 10 24% 76%;
+    --valiance-blush: 16 26% 71%;      /* #C9ADA3 blush */
     --valiance-nude: 30 29% 97%;
-    --valiance-mauve: 39 6% 42%;
-    --valiance-gold: 57 14% 55%;
-    --valiance-charcoal: 0 0% 27%;
+    --valiance-mauve: 353 13% 48%;     /* #8C6B6F mauve-rosa */
+    --valiance-gold: 35 40% 54%;       /* #B8915A dorado */
+    --valiance-charcoal: 0 0% 10%;     /* #1A1A1A tinta */
 
     /* Backwards-compat aliases */
     --punto-cream: 30 29% 97%;
     --punto-green: 57 14% 55%;
     --punto-taupe: 39 6% 42%;
-    --pink-glow: 10 24% 76%;
+    --pink-glow: 16 26% 71%;           /* #C9ADA3 blush */
 
     /* ── Motion tokens (Emil) ──────────────────────────────────────────────
        Las curvas built-in de CSS son débiles. Estas tienen el "punch" que

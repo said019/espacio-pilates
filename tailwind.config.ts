@@ -47,41 +47,42 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        /* Tu Espacio Pilates — paleta actual (hex = fuente de verdad) */
+        /* Tu Espacio Pilates — paleta de marca (hex = fuente de verdad)
+           "Editorial Cálida con Sello": blush/mauve-rosa + hilo de oro + tinta sobre marfil. */
         tep: {
-          pebble: "#444444",
-          olive:  "#716D64",
-          fern:   "#9B997B",
-          dusk:   "#D1B9B4",
-          ivory:  "#FAF8F6",
-          oat:    "#DFD1C9",
-          blush:     "#D1B9B4",
+          pebble: "#444444",      // gris medio (texto secundario)
+          olive:  "#716D64",      // taupe neutro (legacy)
+          fern:   "#9B997B",      // verde-oliva suave (legacy)
+          dusk:   "#C9ADA3",      // blush de marca
+          ivory:  "#FAF8F6",      // marfil (fondo)
+          oat:    "#DFD1C9",      // avena (neutro cálido)
+          blush:     "#C9ADA3",   // blush de marca (rosita suave)
           nude:      "#FAF8F6",
-          rose:      "#DFD1C9",
+          rose:      "#D9B5BA",   // rosa claro (acento)
           lavender:  "#DFD1C9",
           lilacSoft: "#FAF8F6",
           gray:      "#DFD1C9",
-          ink:       "#444444",
-          gold:      "#9B997B",
+          ink:       "#1A1A1A",   // tinta de marca
+          gold:      "#B8915A",   // dorado de marca (hilo de oro)
         },
-        /* Alias backwards-compat `valiance-*` para no romper componentes existentes. */
+        /* Alias backwards-compat `valiance-*` (componentes heredados) — re-mapeados a la marca TEP. */
         valiance: {
           pebble:   "#444444",
           olive:    "#716D64",
           fern:     "#9B997B",
-          dusk:     "#D1B9B4",
+          dusk:     "#C9ADA3",    // blush
           ivory:    "#FAF8F6",
           oat:      "#DFD1C9",
-          blush:    "#D1B9B4",
+          blush:    "#C9ADA3",    // blush de marca (rosita suave)
           nude:     "#FAF8F6",
-          rose:     "#DFD1C9",
+          rose:     "#D9B5BA",    // rosa claro
           lavender: "#DFD1C9",
-          dusty:    "#D1B9B4",
-          mauve:    "#716D64",
-          plum:     "#444444",
-          charcoal: "#444444",
+          dusty:    "#C9ADA3",
+          mauve:    "#8C6B6F",    // mauve-rosa (acentos / bordes / íconos)
+          plum:     "#333333",    // near-black (hover de charcoal)
+          charcoal: "#1A1A1A",    // tinta de marca
           cream:    "#FAF8F6",
-          gold:     "#9B997B",
+          gold:     "#B8915A",    // dorado de marca (hilo de oro)
           wood:     "#716D64",
         },
         /* ── Backwards-compat alias para no romper código heredado ── */
@@ -109,7 +110,7 @@ export default {
         "valiance-soft": "0 18px 45px -28px rgba(68,68,68,0.26)",
         "valiance-card": "0 24px 56px -34px rgba(113,109,100,0.28)",
         "valiance-deep": "0 30px 70px -30px rgba(68,68,68,0.42)",
-        "valiance-gold": "0 18px 42px -26px rgba(155,153,123,0.46)",
+        "valiance-gold": "0 18px 42px -26px rgba(184,145,90,0.46)",
       },
       keyframes: {
         "accordion-down": {

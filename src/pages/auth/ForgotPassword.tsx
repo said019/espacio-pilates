@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, CheckCircle2, ArrowLeft } from "lucide-react";
-import valianceLogo from "@/assets/valiance-pilates-logo.png";
+import valianceLogo from "@/assets/tep-mark-ink.png";
 
 const schema = z.object({ email: z.string().email("Email inválido") });
 type FormValues = { email: string };

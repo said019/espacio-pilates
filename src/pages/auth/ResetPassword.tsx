@@ -6,7 +6,7 @@ import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, CheckCircle2, Eye, EyeOff } from "lucide-react";
-import valianceLogo from "@/assets/valiance-pilates-logo.png";
+import valianceLogo from "@/assets/tep-mark-ink.png";
 
 const schema = z.object({
   password: z

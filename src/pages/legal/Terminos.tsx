@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import valianceLogo from "@/assets/valiance-pilates-logo.png";
+import valianceLogo from "@/assets/tep-mark-ink.png";
 import api from "@/lib/api";
 
 const Terminos = () => {

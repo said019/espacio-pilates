@@ -8,7 +8,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Eye, EyeOff, Check, ArrowRight } from "lucide-react";
 import { COUNTRIES } from "@/components/ui/phone-input";
 import heroPhoto from "@/assets/tu-espacio-studio/reformer-inversion.webp";
-import valianceLogo from "@/assets/valiance-pilates-logo.png";
+import valianceLogo from "@/assets/tep-mark-ink.png";
+import markCream from "@/assets/tep-mark-cream.png"; // sello crema → fondos oscuros
 
 const schema = z.object({
   displayName: z.string().min(2, "Mínimo 2 caracteres"),
@@ -109,7 +110,7 @@ const Register = () => {
 
         <div className="relative z-10 flex flex-col justify-between p-12 w-full">
           <Link to="/" className="inline-block self-start" aria-label="Tu Espacio Pilates — Inicio">
-            <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-16 w-auto brightness-[10] contrast-[1.2]" />
+            <img src={markCream} alt="Tu Espacio Pilates" className="h-16 w-auto" />
           </Link>
 
           <div className="max-w-[400px]">

@@ -6,7 +6,7 @@ import {
   User, Bell, LogOut, Menu, X, Settings, ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import valianceLogo from "@/assets/valiance-pilates-logo.png";
+import valianceLogo from "@/assets/tep-mark-ink.png";
 
 /* ── Navigation groups ── */
 const NAV_GROUPS = [

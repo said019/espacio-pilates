@@ -7,7 +7,8 @@ import { useAuthStore } from "@/stores/authStore";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Eye, EyeOff, ArrowRight, Share, Plus, X, Download, Smartphone } from "lucide-react";
 import heroPhoto from "@/assets/tu-espacio-studio/studio-mirror-line.webp";
-import valianceLogo from "@/assets/valiance-pilates-logo.png";
+import valianceLogo from "@/assets/tep-mark-ink.png";
+import markCream from "@/assets/tep-mark-cream.png"; // sello crema → fondos oscuros
 
 const schema = z.object({
   email: z.string().email("Email inválido"),
@@ -104,7 +105,7 @@ const Login = () => {
 
         <div className="relative z-10 flex flex-col justify-between p-14 w-full">
           <Link to="/" className="inline-block self-start" aria-label="Tu Espacio Pilates — Inicio">
-            <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-16 w-auto brightness-[10] contrast-[1.2]" />
+            <img src={markCream} alt="Tu Espacio Pilates" className="h-16 w-auto" />
           </Link>
 
           <div className="max-w-[460px]">
