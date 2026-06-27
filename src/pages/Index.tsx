@@ -8,18 +8,15 @@ import {
   ArrowUpRight, Menu, X, Heart, Users, Star,
 } from "lucide-react";
 
-const heroReformer = "/hero-reformer.jpg"; // served from public/ — no Vite processing
-import muroFrontal from "@/assets/valiance-pilates-images/1000452092.jpg";        // muro mármol
-import muroLateral from "@/assets/valiance-pilates-images/1000452109.jpg";        // muro lateral
-import salaArcos1 from "@/assets/valiance-pilates-images/1000452084.jpg";         // sala arcos
-import salaArcos2 from "@/assets/valiance-pilates-images/1000452086.jpg";
-import salaArcos3 from "@/assets/valiance-pilates-images/1000452106.jpg";
-import salaMatBarre from "@/assets/valiance-pilates-images/1000452105.jpg";       // sala mat / tower
-import detalleVela from "@/assets/valiance-pilates-images/1000452104.jpg";        // ambiente
-import detalleBalones from "@/assets/valiance-pilates-images/1000431479.jpg";     // balones
-import claseAcostadas from "@/assets/valiance-pilates-images/1000439853.jpg";
-import claseBrazos from "@/assets/valiance-pilates-images/1000452524.jpg";
-import claseEspalda from "@/assets/valiance-pilates-images/1000453952.jpg";
+import heroCoachMirror from "@/assets/tu-espacio-studio/hero-coach-mirror.webp";
+import coachGuidance from "@/assets/tu-espacio-studio/coach-guidance.webp";
+import studioMirrorLine from "@/assets/tu-espacio-studio/studio-mirror-line.webp";
+import reformerPlank from "@/assets/tu-espacio-studio/reformer-plank.webp";
+import towerInversion from "@/assets/tu-espacio-studio/tower-inversion.webp";
+import towerControl from "@/assets/tu-espacio-studio/tower-control.webp";
+import heartMirrorDetail from "@/assets/tu-espacio-studio/heart-mirror-detail.webp";
+import reformerSideStretch from "@/assets/tu-espacio-studio/reformer-side-stretch.webp";
+import mirrorStrapDetail from "@/assets/tu-espacio-studio/mirror-strap-detail.webp";
 import markCream from "@/assets/tep-mark-cream.png"; // sello CREMA → fondos OSCUROS
 import markInk from "@/assets/tep-mark-ink.png";     // sello TINTA → fondos CLAROS
 
@@ -41,28 +38,28 @@ const FALLBACK_CLASS_TYPES: ClassTypeRow[] = [
   {
     id: "c1", name: "Pilates", subtitle: "Disciplina única",
     description: "Una sola práctica, cuatro aparatos. Trabajamos sobre reformer, tower, mat y silla en grupos de 8. Bajo impacto, alta exigencia y atención personalizada en cada clase. La diferencia está en el conocimiento de nuestras coach y en nuestros aparatos.",
-    category: "pilates", intensity: "media", color: "#C9ADA3",
+    category: "pilates", intensity: "media", color: "#D1B9B4",
     emoji: "waves", level: "Todos los niveles · madres y embarazadas", duration_min: 55, capacity: 8,
     is_active: true, sort_order: 1,
   },
   {
     id: "c2", name: "Reformer", subtitle: "El aparato estrella",
     description: "Resistencia controlada con poleas y resortes. Construye fuerza, postura y control de core sin castigar las articulaciones. Cada movimiento se adapta a ti.",
-    category: "reformer", intensity: "media", color: "#C9ADA3",
+    category: "reformer", intensity: "media", color: "#D1B9B4",
     emoji: "sparkles", level: "Todos los niveles", duration_min: 55, capacity: 8,
     is_active: true, sort_order: 2,
   },
   {
     id: "c3", name: "Tower & Silla", subtitle: "Fuerza y estabilidad",
     description: "El tower y la silla suman planos de movimiento distintos: más rango, más reto de equilibrio y un trabajo profundo de tren superior y core.",
-    category: "tower", intensity: "media", color: "#C0AAD6",
+    category: "tower", intensity: "media", color: "#9B997B",
     emoji: "flame", level: "Todos los niveles", duration_min: 55, capacity: 8,
     is_active: true, sort_order: 3,
   },
   {
     id: "c4", name: "Mat", subtitle: "Pilates clásico en colchoneta",
     description: "Conexión profunda con el core, respiración consciente y control postural. Sin máquina, todo eres tú y tu cuerpo.",
-    category: "mat", intensity: "media", color: "#8B7785",
+    category: "mat", intensity: "media", color: "#716D64",
     emoji: "activity", level: "Todos los niveles", duration_min: 55, capacity: 8,
     is_active: true, sort_order: 4,
   },
@@ -78,10 +75,12 @@ const TEMAS_SEMANA = [
   { dia: "Sábado", tema: "Core" },
 ] as const;
 
-/* Horarios por bloque — cupo 8 */
+/* Horarios por bloque — cupo 8. Todo Reformer; Vie 8:30 pm en Tower. */
 const HORARIOS = [
-  { dias: "Lun · Mié · Vie", horas: ["7:00", "8:00", "9:00 am", "5:30", "6:30", "7:30", "8:30 pm"] },
-  { dias: "Mar · Jue", horas: ["5:30", "6:30", "7:30 pm"] },
+  { dias: "Lunes", horas: ["7:00", "8:00 am", "5:30", "6:30", "8:30 pm"] },
+  { dias: "Martes", horas: ["7:30 pm"] },
+  { dias: "Miércoles · Viernes", horas: ["7:00", "8:00", "9:00 am", "5:30", "6:30", "7:30", "8:30 pm"] },
+  { dias: "Jueves", horas: ["5:30", "7:30 pm"] },
   { dias: "Sábado", horas: ["9:00 am"] },
 ] as const;
 
@@ -333,7 +332,7 @@ const Index = () => {
           />
           <div
             className="absolute right-0 top-0 bottom-0 w-[88%] max-w-[360px] shadow-[0_30px_60px_-20px_rgba(140,107,111,0.45)] flex flex-col animate-in slide-in-from-right duration-200 bg-valiance-nude"
-            style={{ backgroundColor: "#FBF6F4", backdropFilter: "none" }}
+            style={{ backgroundColor: "#FAF8F6", backdropFilter: "none" }}
           >
             <div className="flex items-center justify-between px-6 py-5 border-b border-valiance-lavender/25">
               <img src={markInk} alt="Tu Espacio Pilates" className="h-10 w-auto object-contain" />
@@ -380,21 +379,20 @@ const Index = () => {
       <section className="relative min-h-[100dvh] flex items-end overflow-hidden">
         <div className="absolute inset-0">
           <img
-            src={heroReformer}
-            alt="Clase de Pilates en reformer en Tu Espacio Pilates Villa Magna"
+            src={heroCoachMirror}
+            alt="Coach acompañando una clase en reformer en Tu Espacio Pilates Villa Magna"
             className="w-full h-full object-cover"
-            style={{ objectPosition: "center 40%", filter: "saturate(0.85) contrast(1.02)" }}
+            style={{ objectPosition: "center 42%", filter: "saturate(0.82) contrast(1.02)" }}
             loading="eager"
             fetchPriority="high"
             decoding="sync"
           />
-          {/* Velo cálido de 3 capas — tintado a plum, no negro */}
-          <div className="absolute inset-0 bg-gradient-to-t from-valiance-plum/85 via-valiance-charcoal/35 to-valiance-charcoal/10" />
-          <div className="absolute inset-0 bg-gradient-to-r from-valiance-charcoal/45 to-transparent" />
-          <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_180px_60px_rgba(26,26,26,0.32)]" />
+          <div className="absolute inset-0 bg-gradient-to-t from-valiance-charcoal/95 via-valiance-charcoal/56 to-valiance-charcoal/18 sm:from-valiance-charcoal/88 sm:via-valiance-charcoal/34 sm:to-valiance-charcoal/8" />
+          <div className="absolute inset-0 bg-gradient-to-r from-valiance-charcoal/72 via-valiance-charcoal/28 to-transparent sm:from-valiance-charcoal/58 sm:via-valiance-olive/20" />
+          <div className="absolute inset-0 pointer-events-none shadow-[inset_0_0_180px_60px_rgba(68,68,68,0.42)] sm:shadow-[inset_0_0_180px_60px_rgba(68,68,68,0.30)]" />
         </div>
 
-        <div className="relative z-10 w-full max-w-[1200px] mx-auto px-6 sm:px-10 pb-20 sm:pb-28 pt-32">
+        <div className="relative z-10 w-full max-w-[1200px] mx-auto px-6 sm:px-10 pb-28 sm:pb-28 pt-32">
           <div className="max-w-[640px]">
             {/* Sello crema — firma del hero, directo sobre la foto */}
             <img
@@ -405,20 +403,20 @@ const Index = () => {
 
             <p className="flex items-center text-[0.7rem] tracking-[0.28em] uppercase text-valiance-nude/80 font-body mb-7 reveal opacity-0 translate-y-6 transition-all duration-700 delay-100">
               <span className="inline-block w-7 h-px bg-valiance-gold mr-3" />
-              Estudio de Pilates · Villa Magna, SLP
+              Pilates boutique · Villa Magna, SLP
             </p>
 
             <h1
               className="font-display font-normal text-[clamp(3rem,8vw,6.5rem)] leading-[0.96] tracking-[-0.02em] text-valiance-nude mb-6 reveal opacity-0 translate-y-6 transition-all duration-700 delay-100"
-              style={{ textWrap: "balance" } as React.CSSProperties}
+              style={{ textWrap: "balance", textShadow: "0 18px 42px rgba(0,0,0,0.42)" } as React.CSSProperties}
             >
-              Explora el<br />
-              método pilates,<br />
-              <em className="italic text-valiance-gold leading-[1.1] pb-1">con resultados.</em>
+              Reserva rápido.<br />
+              Muévete con<br />
+              <em className="italic text-[#DFD1C9] sm:text-valiance-gold leading-[1.1] pb-1">intención.</em>
             </h1>
 
-            <p className="font-body text-[1.05rem] text-valiance-nude/85 leading-[1.7] max-w-[460px] mb-10 reveal opacity-0 translate-y-6 transition-all duration-700 delay-200">
-              Tu Espacio Pilates en Villa Magna. Una disciplina, cuatro aparatos (reformer, tower, mat y silla). Bajo impacto, alta exigencia, en grupos de 8 con atención personalizada. Un espacio hecho para ti.
+            <p className="font-body text-[1.05rem] text-valiance-nude/90 leading-[1.7] max-w-[460px] mb-10 reveal opacity-0 translate-y-6 transition-all duration-700 delay-200 [text-shadow:0_10px_32px_rgba(0,0,0,0.38)]">
+              Un estudio sencillo, lindo y cercano para explorar el método pilates con resultados. Coach que conocen tu cuerpo, aparatos cuidados y grupos pequeños para avanzar con disciplina.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 reveal opacity-0 translate-y-6 transition-all duration-700 delay-300">
@@ -579,7 +577,7 @@ const Index = () => {
                       className="inline-flex items-center justify-center w-8 h-8 rounded-full"
                       style={{
                         background: isHero ? "rgba(201,173,163,0.18)" : `${accent}30`,
-                        color: isHero ? "#E8D3CE" : "#5A4A57",
+                        color: isHero ? "#DFD1C9" : "#716D64",
                       }}
                     >
                       <Clock size={14} strokeWidth={1.6} />
@@ -630,7 +628,7 @@ const Index = () => {
           </div>
 
           {/* Bloques de horarios */}
-          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {HORARIOS.map((b) => (
               <div key={b.dias} className="rounded-[1.75rem] bg-valiance-nude ring-1 ring-valiance-charcoal/8 border-t-2 border-valiance-gold/30 p-8 flex flex-col gap-4">
                 <div className="flex items-center gap-2.5">
@@ -650,6 +648,9 @@ const Index = () => {
             ))}
           </div>
           <p className="text-[0.84rem] text-valiance-mauve mt-6 font-body">
+            Todas las clases en Reformer · Viernes 8:30 pm en Tower.
+          </p>
+          <p className="text-[0.84rem] text-valiance-mauve mt-1.5 font-body">
             Cupo de 8 personas por clase. Reserva tu lugar con anticipación.
           </p>
         </div>
@@ -794,71 +795,65 @@ const Index = () => {
               className="font-display font-normal text-[clamp(2.4rem,5vw,3.9rem)] leading-[1.02] tracking-[-0.015em] text-valiance-charcoal"
               style={{ textWrap: "balance" } as React.CSSProperties}
             >
-              Un estudio que te abraza desde que entras.
+              Un estudio claro, limpio y lleno de intención.
             </h2>
             <span className="block h-px w-16 bg-valiance-gold/50 origin-left mt-6 mb-6 reveal scale-x-0 transition-transform duration-700" />
             <p className="font-body text-[1.02rem] text-valiance-charcoal/70 leading-[1.8] max-w-[60ch]">
-              Mármol con vetas doradas, madera cálida, luz tenue y cero distracciones. Diseñado para que solo tengas que pensar en respirar.
+              Espejos amplios, luz suave, aparatos cuidados y coach atentas. Un espacio sencillo y lindo para entrenar con disciplina, higiene y calma.
             </p>
           </div>
 
           {/* Asymmetric mosaic */}
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-12 gap-3 sm:gap-4">
-            {/* Hero — muro mármol */}
             <figure className="col-span-12 lg:col-span-8 relative rounded-[1.75rem] overflow-hidden aspect-[16/10] group">
-              <img src={muroFrontal} alt="Muro de mármol del estudio Tu Espacio Pilates" loading="lazy" style={{ filter: "saturate(0.85)" }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
-              <div className="absolute inset-0 bg-gradient-to-t from-valiance-plum/70 via-transparent to-transparent" />
+              <img src={coachGuidance} alt="Coach guiando una clase en reformer" loading="lazy" style={{ filter: "saturate(0.86)" }} className="absolute inset-0 w-full h-full object-cover object-[center_42%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <div className="absolute inset-0 bg-gradient-to-t from-valiance-charcoal/72 via-transparent to-transparent" />
               <figcaption className="absolute bottom-6 left-6 right-6">
                 <span className="inline-flex items-center text-[0.6rem] tracking-[0.22em] uppercase text-valiance-gold mb-2 font-medium">
                   <span className="inline-block w-6 h-px bg-valiance-gold mr-2" />
-                  Lobby principal
+                  Acompañamiento
                 </span>
-                <h3 className="font-display text-valiance-nude text-[1.8rem] sm:text-[2.4rem] leading-[1.05]">Mármol, oro y silencio.</h3>
+                <h3 className="font-display text-valiance-nude text-[1.8rem] sm:text-[2.4rem] leading-[1.05]">Corrección cercana, clase con intención.</h3>
               </figcaption>
             </figure>
 
-            {/* Sala arcos */}
             <figure className="col-span-6 lg:col-span-4 relative rounded-[1.75rem] overflow-hidden aspect-[3/4] group">
-              <img src={salaArcos1} alt="Sala con arcos iluminados y reformers" loading="lazy" style={{ filter: "saturate(0.85)" }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
-              <div className="absolute inset-0 bg-gradient-to-t from-valiance-plum/55 to-transparent" />
+              <img src={studioMirrorLine} alt="Espejo del estudio reflejando reformers" loading="lazy" style={{ filter: "saturate(0.86)" }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <div className="absolute inset-0 bg-gradient-to-t from-valiance-charcoal/45 to-transparent" />
               <figcaption className="absolute bottom-5 left-5">
                 <span className="text-valiance-nude/95 text-[0.66rem] tracking-[0.18em] uppercase font-medium">Sala Reformer</span>
               </figcaption>
             </figure>
 
-            {/* Detalle vela */}
             <figure className="col-span-6 lg:col-span-3 relative rounded-[1.75rem] overflow-hidden aspect-[3/4] group">
-              <img src={detalleVela} alt="Detalle ambient, vela y accesorios" loading="lazy" style={{ filter: "saturate(0.85)" }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <img src={heartMirrorDetail} alt="Detalle del estudio con espejo y movimiento en reformer" loading="lazy" style={{ filter: "saturate(0.84)" }} className="absolute inset-0 w-full h-full object-cover object-[center_38%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
             </figure>
 
-            {/* Sala mat */}
             <figure className="col-span-6 lg:col-span-5 relative rounded-[1.75rem] overflow-hidden aspect-[16/10] group">
-              <img src={salaMatBarre} alt="Sala de Mat y tower" loading="lazy" style={{ filter: "saturate(0.85)" }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
-              <div className="absolute inset-0 bg-gradient-to-t from-valiance-plum/60 to-transparent" />
+              <img src={reformerPlank} alt="Alumna en plancha sobre reformer" loading="lazy" style={{ filter: "saturate(0.86)" }} className="absolute inset-0 w-full h-full object-cover object-[center_46%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <div className="absolute inset-0 bg-gradient-to-t from-valiance-charcoal/58 to-transparent" />
               <figcaption className="absolute bottom-5 left-5">
-                <span className="text-valiance-nude/95 text-[0.66rem] tracking-[0.18em] uppercase font-medium">Sala Mat & Tower</span>
+                <span className="text-valiance-nude/95 text-[0.66rem] tracking-[0.18em] uppercase font-medium">Fuerza y control</span>
               </figcaption>
             </figure>
 
-            {/* Sala arcos 2 */}
             <figure className="col-span-12 lg:col-span-4 relative rounded-[1.75rem] overflow-hidden aspect-[16/10] lg:aspect-[3/4] group">
-              <img src={salaArcos2} alt="Vista lateral sala reformer" loading="lazy" style={{ filter: "saturate(0.85)" }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
-            </figure>
-
-            {/* Detalles */}
-            <figure className="col-span-6 lg:col-span-3 relative rounded-[1.75rem] overflow-hidden aspect-square group">
-              <img src={detalleBalones} alt="Balones ucan en estante" loading="lazy" style={{ filter: "saturate(0.85)" }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <img src={towerInversion} alt="Trabajo de control en torre de pilates" loading="lazy" style={{ filter: "saturate(0.86)" }} className="absolute inset-0 w-full h-full object-cover object-[center_44%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
             </figure>
 
             <figure className="col-span-6 lg:col-span-3 relative rounded-[1.75rem] overflow-hidden aspect-square group">
-              <img src={salaArcos3} alt="Detalle reformer" loading="lazy" style={{ filter: "saturate(0.85)" }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <img src={mirrorStrapDetail} alt="Detalle de straps y espejo en reformer" loading="lazy" style={{ filter: "saturate(0.84)" }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+            </figure>
+
+            <figure className="col-span-6 lg:col-span-3 relative rounded-[1.75rem] overflow-hidden aspect-square group">
+              <img src={reformerSideStretch} alt="Estiramiento lateral sobre reformer" loading="lazy" style={{ filter: "saturate(0.86)" }} className="absolute inset-0 w-full h-full object-cover object-[center_44%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
             </figure>
 
             <figure className="col-span-12 lg:col-span-6 relative rounded-[1.75rem] overflow-hidden aspect-[21/9] group">
-              <img src={muroLateral} alt="Muro mármol vista lateral" loading="lazy" style={{ filter: "saturate(0.85)" }} className="absolute inset-0 w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
-              <div className="absolute inset-0 bg-gradient-to-t from-valiance-plum/55 to-transparent" />
+              <img src={towerControl} alt="Alumna trabajando con tower y reformer" loading="lazy" style={{ filter: "saturate(0.86)" }} className="absolute inset-0 w-full h-full object-cover object-[center_42%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <div className="absolute inset-0 bg-gradient-to-t from-valiance-charcoal/55 to-transparent" />
               <figcaption className="absolute bottom-5 right-6 text-right">
-                <span className="text-valiance-nude/95 text-[0.66rem] tracking-[0.18em] uppercase font-medium">Detalles que importan</span>
+                <span className="text-valiance-nude/95 text-[0.66rem] tracking-[0.18em] uppercase font-medium">Aparatos cuidados</span>
               </figcaption>
             </figure>
           </div>

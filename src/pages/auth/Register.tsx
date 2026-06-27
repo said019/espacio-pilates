@@ -7,7 +7,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Eye, EyeOff, Check, ArrowRight } from "lucide-react";
 import { COUNTRIES } from "@/components/ui/phone-input";
-import heroPhoto from "@/assets/valiance-pilates-images/1000452523.jpg";
+import heroPhoto from "@/assets/tu-espacio-studio/reformer-inversion.webp";
 import valianceLogo from "@/assets/valiance-pilates-logo.png";
 
 const schema = z.object({

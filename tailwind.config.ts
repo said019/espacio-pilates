@@ -47,37 +47,48 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        /* ── Tu Espacio Pilates VM — paleta de marca (hex = fuente de verdad) ── */
+        /* Tu Espacio Pilates — paleta actual (hex = fuente de verdad) */
         tep: {
-          blush:     "#C9ADA3",  /* primario — rosa empolvado */
-          nude:      "#FBF6F4",  /* fondo principal — tinte suave */
-          rose:      "#E8D3CE",  /* hover / tinte rosado */
-          lavender:  "#C0AAD6",  /* acento lila — secundario */
-          lilacSoft: "#E7DEF1",  /* tinte lila suave */
-          gray:      "#E3E7E9",  /* neutro frío — bordes / muted */
-          ink:       "#1A1A1A",  /* tinta — texto principal */
-          gold:      "#B8915A",  /* acento dorado premium */
+          pebble: "#444444",
+          olive:  "#716D64",
+          fern:   "#9B997B",
+          dusk:   "#D1B9B4",
+          ivory:  "#FAF8F6",
+          oat:    "#DFD1C9",
+          blush:     "#D1B9B4",
+          nude:      "#FAF8F6",
+          rose:      "#DFD1C9",
+          lavender:  "#DFD1C9",
+          lilacSoft: "#FAF8F6",
+          gray:      "#DFD1C9",
+          ink:       "#444444",
+          gold:      "#9B997B",
         },
-        /* ── Alias backwards-compat `valiance-*` → mapeado a la paleta VM.
-             Mantiene TODAS las claves heredadas (charcoal/mauve/plum/dusty/
-             cream/wood) para no romper ~500 referencias en componentes. ── */
+        /* Alias backwards-compat `valiance-*` para no romper componentes existentes. */
         valiance: {
-          blush:    "#C9ADA3",  /* → tep.blush (primario) */
-          nude:     "#FBF6F4",  /* → tep.nude (fondo) */
-          rose:     "#E8D3CE",  /* → tep.rose (hover suave) */
-          dusty:    "#C0AAD6",  /* → tep.lavender (acento medio) */
-          mauve:    "#8B7785",  /* texto secundario — lila desaturado */
-          plum:     "#5A4A57",  /* headers — lila profundo */
-          charcoal: "#1A1A1A",  /* → tep.ink (texto principal) */
-          cream:    "#FBF6F4",  /* → tep.nude (fondo cálido) */
-          gold:     "#B8915A",  /* → tep.gold (acento premium) */
-          wood:     "#A8794F",  /* acento cálido — dorado profundo */
+          pebble:   "#444444",
+          olive:    "#716D64",
+          fern:     "#9B997B",
+          dusk:     "#D1B9B4",
+          ivory:    "#FAF8F6",
+          oat:      "#DFD1C9",
+          blush:    "#D1B9B4",
+          nude:     "#FAF8F6",
+          rose:     "#DFD1C9",
+          lavender: "#DFD1C9",
+          dusty:    "#D1B9B4",
+          mauve:    "#716D64",
+          plum:     "#444444",
+          charcoal: "#444444",
+          cream:    "#FAF8F6",
+          gold:     "#9B997B",
+          wood:     "#716D64",
         },
         /* ── Backwards-compat alias para no romper código heredado ── */
         punto: {
-          cream:       "#FBF6F4",  /* → tep.nude */
-          green:       "#C9ADA3",  /* → tep.blush */
-          taupe:       "#8B7785",  /* lila desaturado (mauve) */
+          cream: "#FAF8F6",
+          green: "#9B997B",
+          taupe: "#716D64",
         },
       },
       borderRadius: {
@@ -86,22 +97,19 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        /* ── Valiance Pilates — tipografías oficiales ── */
         display:  ['"Cormorant Garamond"', '"Playfair Display"', 'serif'],
-        body:     ['"Inter"', 'system-ui', 'sans-serif'],
-        /* ── Aliases backwards-compat ── */
+        body:     ['"Outfit"', 'system-ui', 'sans-serif'],
         gulfs:    ['"Cormorant Garamond"', '"Playfair Display"', 'serif'],
-        alilato:  ['"Inter"', 'system-ui', 'sans-serif'],
+        alilato:  ['"Outfit"', 'system-ui', 'sans-serif'],
         bebas:    ['"Cormorant Garamond"', '"Playfair Display"', 'serif'],
-        syne:     ['"Inter"', 'system-ui', 'sans-serif'],
-        dm:       ['"Inter"', 'system-ui', 'sans-serif'],
+        syne:     ['"Outfit"', 'system-ui', 'sans-serif'],
+        dm:       ['"Outfit"', 'system-ui', 'sans-serif'],
       },
       boxShadow: {
-        /* tinted shadows — Tu Espacio Pilates VM (lavender / ink / gold) */
-        "valiance-soft": "0 12px 40px -16px rgba(192,170,214,0.20)",
-        "valiance-card": "0 20px 50px -25px rgba(201,173,163,0.24)",
-        "valiance-deep": "0 30px 60px -25px rgba(26,26,26,0.45)",
-        "valiance-gold": "0 15px 40px -20px rgba(184,145,90,0.45)",
+        "valiance-soft": "0 18px 45px -28px rgba(68,68,68,0.26)",
+        "valiance-card": "0 24px 56px -34px rgba(113,109,100,0.28)",
+        "valiance-deep": "0 30px 70px -30px rgba(68,68,68,0.42)",
+        "valiance-gold": "0 18px 42px -26px rgba(155,153,123,0.46)",
       },
       keyframes: {
         "accordion-down": {

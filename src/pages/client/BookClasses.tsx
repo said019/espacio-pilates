@@ -267,6 +267,12 @@ const BookClasses = () => {
                           // Bookable only when not past, not full (unless already booked).
                           const disabled = !isBooked && (isPast || isFull);
 
+                          // Apparatus — 'reformer' | 'tower'; default reformer.
+                          const rawApparatus =
+                            typeof cls.apparatus === "string" ? cls.apparatus.toLowerCase() : "reformer";
+                          const isTower = rawApparatus === "tower";
+                          const apparatusLabel = isTower ? "Tower" : "Reformer";
+
                           return (
                             <button
                               key={cls.id as string}
@@ -305,6 +311,24 @@ const BookClasses = () => {
                               <p className="font-display text-[0.95rem] leading-tight text-valiance-charcoal/80 mt-1.5">
                                 Pilates
                               </p>
+
+                              {/* Apparatus — Reformer (default) / Tower (lavender·gold accent) */}
+                              <span
+                                className={cn(
+                                  "mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.56rem] tracking-[0.12em] uppercase font-medium",
+                                  isTower
+                                    ? "bg-valiance-lavender/25 text-valiance-plum ring-1 ring-valiance-gold/30"
+                                    : "bg-valiance-charcoal/[0.05] text-valiance-mauve ring-1 ring-valiance-charcoal/8"
+                                )}
+                              >
+                                <span
+                                  className={cn(
+                                    "w-1 h-1 rounded-full",
+                                    isTower ? "bg-valiance-gold" : "bg-valiance-mauve/60"
+                                  )}
+                                />
+                                {apparatusLabel}
+                              </span>
 
                               {/* Status line: booked / availability / waitlist */}
                               {isBooked ? (

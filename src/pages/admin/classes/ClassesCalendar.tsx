@@ -30,14 +30,12 @@ import { useDebounce } from "@/hooks/use-debounce";
 
 /* ── Palette ── */
 const PALETTE_COLORS = [
-  { label: "Taupe", value: "#8C6B6F" },
-  { label: "Sage", value: "#D9B5BA" },
-  { label: "Crema", value: "#FDF7F8" },
-  { label: "Azul", value: "#3B82F6" },
-  { label: "Esmeralda", value: "#10B981" },
-  { label: "Naranja", value: "#F97316" },
-  { label: "Rosa", value: "#EC4899" },
-  { label: "Índigo", value: "#6366F1" },
+  { label: "Olive", value: "#716D64" },
+  { label: "Dusk", value: "#D1B9B4" },
+  { label: "Fern", value: "#9B997B" },
+  { label: "Oat", value: "#DFD1C9" },
+  { label: "Pebble", value: "#444444" },
+  { label: "Ivory", value: "#FAF8F6" },
 ];
 
 /* ── Types ── */
@@ -103,7 +101,7 @@ type ClassFormData = z.infer<typeof classSchema>;
 
 const typeSchema = z.object({
   name: z.string().min(1),
-  color: z.string().default("#D9B5BA"),
+  color: z.string().default("#D1B9B4"),
   category: z.enum(["reformer", "barre", "pilates", "bienestar"]).default("reformer"),
   defaultDuration: z.coerce.number().min(1),
   maxCapacity: z.coerce.number().min(1),
@@ -196,7 +194,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  confirmed: "bg-[#8C6B6F]/15 text-[#8C6B6F]",
+  confirmed: "bg-[#716D64]/15 text-[#716D64]",
   checked_in: "bg-emerald-500/15 text-emerald-600",
   waitlist: "bg-amber-500/15 text-amber-600",
   no_show: "bg-red-500/15 text-red-600",
@@ -397,7 +395,7 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
                     type="button"
                     disabled={assignMutation.isPending}
                     onClick={() => assignMutation.mutate(u.id)}
-                    className="w-full px-3 py-2.5 text-left hover:bg-[#8C6B6F]/[0.06] border-b last:border-b-0 border-border disabled:opacity-60"
+                    className="w-full px-3 py-2.5 text-left hover:bg-[#716D64]/[0.06] border-b last:border-b-0 border-border disabled:opacity-60"
                   >
                     <p className="text-sm font-medium">{u.displayName}</p>
                     <p className="text-xs text-muted-foreground">
@@ -553,7 +551,7 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
                     </Button>
                   )}
                   {canCancelMember && (
-                    <Button variant="ghost" size="icon" className="h-6 w-6 text-[#8C6B6F] hover:bg-[#8C6B6F]/10"
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-[#716D64] hover:bg-[#716D64]/10"
                       title="Cancelar reserva (devuelve crédito)"
                       onClick={() => {
                         if (window.confirm(`¿Cancelar la reserva de ${name}? Se devolverá el crédito y se promoverá la lista de espera si hay.`)) {
@@ -604,22 +602,23 @@ const ClassesCalendar = () => {
     <AuthGuard>
       <AdminLayout>
         <div className="admin-page max-w-6xl">
-          <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-valiance-oat bg-valiance-ivory p-4 shadow-valiance-soft sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <h1 className="admin-title font-bold text-[#1A1A1A]">Clases</h1>
-              <p className="mt-1 text-xs text-[#1A1A1A]/45 sm:text-sm">Gestiona calendario, tipos, generación semanal e instructoras.</p>
+              <p className="mb-1 text-[0.62rem] font-semibold uppercase tracking-[0.2em] text-valiance-mauve/70">Calendario</p>
+              <h1 className="admin-title font-display text-valiance-charcoal">Clases</h1>
+              <p className="mt-1 text-xs text-valiance-charcoal/50 sm:text-sm">Gestiona calendario, tipos, generación semanal e instructoras.</p>
             </div>
-            <div className="w-full sm:w-auto overflow-x-auto">
-              <div className="flex min-w-max gap-1 rounded-xl bg-secondary p-1">
+            <div className="w-full sm:w-auto">
+              <div className="grid grid-cols-2 gap-1 rounded-2xl border border-valiance-oat bg-valiance-oat/30 p-1 sm:flex">
               {TABS.map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
                   onClick={() => setTab(key)}
                   className={
-                    "flex min-h-[44px] items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium whitespace-nowrap transition-all sm:px-4 sm:text-sm " +
+                    "flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium whitespace-nowrap transition-all sm:px-4 sm:text-sm " +
                     (tab === key
-                      ? "bg-gradient-to-r from-[#D9B5BA] to-[#8C6B6F] text-white shadow-md shadow-[#8C6B6F]/25"
-                      : "text-white/75 hover:text-white hover:bg-white/10")
+                      ? "bg-valiance-charcoal text-valiance-nude shadow-valiance-soft"
+                      : "text-valiance-mauve hover:bg-valiance-ivory hover:text-valiance-charcoal")
                   }
                 >
                   <Icon size={15} />
@@ -628,7 +627,9 @@ const ClassesCalendar = () => {
                       ? "Tipos"
                       : key === "generate"
                         ? "Generar"
-                        : label
+                        : key === "instructors"
+                          ? "Equipo"
+                          : label
                     : label}
                 </button>
               ))}
@@ -801,7 +802,7 @@ function CalendarTab({
 
       {isMobile ? (
         <div className="space-y-3">
-          <div className="overflow-x-auto rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-2">
+          <div className="overflow-x-auto rounded-xl border border-[#716D64]/15 bg-[#716D64]/[0.04] p-2">
             <div className="flex min-w-max gap-2">
               {days.map((day) => {
                 const dayKey = format(day, "yyyy-MM-dd");
@@ -815,24 +816,24 @@ function CalendarTab({
                     className={cn(
                       "flex min-h-[52px] min-w-[76px] flex-col items-center justify-center rounded-xl border px-2 text-xs transition-colors",
                       isActive
-                        ? "border-[#8C6B6F]/60 bg-gradient-to-r from-[#8C6B6F]/20 to-[#D9B5BA]/20 text-[#1A1A1A]"
-                        : "border-[#8C6B6F]/15 bg-[#8C6B6F]/10 text-[#1A1A1A]/70",
+                        ? "border-[#716D64]/60 bg-gradient-to-r from-[#716D64]/20 to-[#D1B9B4]/20 text-[#444444]"
+                        : "border-[#716D64]/15 bg-[#716D64]/10 text-[#444444]/70",
                     )}
                   >
                     <span className="text-[10px] uppercase">{DAYS_ES[day.getDay()]}</span>
                     <span className="text-base font-bold leading-none">{format(day, "d")}</span>
-                    <span className="mt-0.5 text-[10px] text-[#1A1A1A]/55">{count} cls</span>
+                    <span className="mt-0.5 text-[10px] text-[#444444]/55">{count} cls</span>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <div className="rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-3">
+          <div className="rounded-xl border border-[#716D64]/15 bg-[#716D64]/[0.04] p-3">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div>
-                <p className="text-xs uppercase tracking-widest text-[#1A1A1A]/45">{DAYS_ES[mobileDayDate.getDay()]}</p>
-                <p className="text-sm font-semibold text-[#1A1A1A]">{format(mobileDayDate, "d 'de' MMMM", { locale: es })}</p>
+                <p className="text-xs uppercase tracking-widest text-[#444444]/45">{DAYS_ES[mobileDayDate.getDay()]}</p>
+                <p className="text-sm font-semibold text-[#444444]">{format(mobileDayDate, "d 'de' MMMM", { locale: es })}</p>
               </div>
               <Button size="sm" className="h-9" onClick={() => openCreate(mobileDay)}>
                 <Plus size={14} className="mr-1" /> Nueva
@@ -840,7 +841,7 @@ function CalendarTab({
             </div>
 
             {mobileClasses.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-[#8C6B6F]/15 p-6 text-center text-xs text-[#1A1A1A]/45">
+              <div className="rounded-lg border border-dashed border-[#716D64]/15 p-6 text-center text-xs text-[#444444]/45">
                 Sin clases programadas para este día.
               </div>
             ) : (
@@ -850,13 +851,13 @@ function CalendarTab({
                     key={c.id}
                     type="button"
                     onClick={() => { setSelectedClass(c); setSheetOpen(true); }}
-                    className="w-full rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/10 p-3 text-left"
-                    style={{ borderLeftColor: c.classTypeColor ?? "#D9B5BA", borderLeftWidth: 3 }}
+                    className="w-full rounded-xl border border-[#716D64]/15 bg-[#716D64]/10 p-3 text-left"
+                    style={{ borderLeftColor: c.classTypeColor ?? "#D1B9B4", borderLeftWidth: 3 }}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-[#1A1A1A]">{c.classTypeName ?? "Clase"}</p>
-                        <p className="text-xs text-[#1A1A1A]/60">
+                        <p className="truncate text-sm font-semibold text-[#444444]">{c.classTypeName ?? "Clase"}</p>
+                        <p className="text-xs text-[#444444]/60">
                           {c.startTime ? format(parseISO(c.startTime), "HH:mm") : "—"}
                           {" - "}
                           {c.endTime ? format(parseISO(c.endTime), "HH:mm") : "—"}
@@ -875,14 +876,14 @@ function CalendarTab({
                         />
                       ) : (
                         <span
-                          className="flex h-6 w-6 items-center justify-center rounded-full text-[0.6rem] font-bold text-[#1A1A1A]"
-                          style={{ background: c.classTypeColor ?? "#D9B5BA" }}
+                          className="flex h-6 w-6 items-center justify-center rounded-full text-[0.6rem] font-bold text-[#444444]"
+                          style={{ background: c.classTypeColor ?? "#D1B9B4" }}
                         >
                           {(c.instructorName ?? "?")[0].toUpperCase()}
                         </span>
                       )}
-                      <span className="truncate text-xs text-[#1A1A1A]/60">{c.instructorName ?? "—"}</span>
-                      <span className="ml-auto text-xs text-[#1A1A1A]/55">
+                      <span className="truncate text-xs text-[#444444]/60">{c.instructorName ?? "—"}</span>
+                      <span className="ml-auto text-xs text-[#444444]/55">
                         {(c.bookedCount ?? c.currentBookings ?? 0)}/{c.maxCapacity ?? c.capacity ?? "?"}
                       </span>
                     </div>
@@ -893,61 +894,97 @@ function CalendarTab({
           </div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <div className="grid min-w-[980px] grid-cols-7 gap-2">
-            {days.map((day, i) => {
-              const dayClasses = classesForDay(day);
+        <div className="overflow-x-auto rounded-2xl border border-valiance-oat bg-valiance-ivory p-3 shadow-valiance-soft">
+          <div className="grid min-w-[1060px] grid-cols-7 gap-3">
+            {days.map((day) => {
+              const dayKey = format(day, "yyyy-MM-dd");
+              const dayClasses = classesForDay(day).sort((a, b) => (a.startTime ?? "").localeCompare(b.startTime ?? ""));
               return (
-                <div key={i} className="min-h-[320px]">
-                  <div
-                    className="mb-2 cursor-pointer text-center text-xs font-medium text-muted-foreground hover:text-foreground"
-                    onClick={() => openCreate(format(day, "yyyy-MM-dd"))}
+                <div key={dayKey} className="min-h-[420px] rounded-2xl border border-valiance-oat bg-valiance-oat/18 p-3">
+                  <button
+                    type="button"
+                    className="mb-3 flex w-full items-center justify-between rounded-xl px-1 py-1 text-left transition-colors hover:bg-valiance-ivory/70"
+                    onClick={() => openCreate(dayKey)}
                   >
-                    <div>{DAYS_ES[day.getDay()]}</div>
-                    <div className="text-lg font-bold text-foreground">{format(day, "d")}</div>
-                  </div>
-                  <div className="space-y-1">
-                    {dayClasses.map((c) => (
-                      <div
-                        key={c.id}
-                        onClick={() => { setSelectedClass(c); setSheetOpen(true); }}
-                        className="cursor-pointer rounded-lg px-2 py-1.5 text-xs transition-all hover:scale-[1.02] hover:shadow-md"
-                        style={{
-                          backgroundColor: c.classTypeColor ? c.classTypeColor + "55" : "hsl(var(--primary)/0.35)",
-                          borderLeft: "4px solid " + (c.classTypeColor ?? "hsl(var(--primary))"),
-                          boxShadow: `0 1px 4px ${(c.classTypeColor ?? "#8C6B6F")}30`,
-                        }}
-                      >
-                        <div className="truncate font-semibold text-[#1A1A1A]">{c.classTypeName ?? "Clase"}</div>
-                        <div className="font-medium text-[#1A1A1A]/70">{c.startTime ? format(parseISO(c.startTime), "HH:mm") : ""}</div>
-                        <div className="mt-1 flex items-center gap-1">
-                          {c.instructorPhoto ? (
-                            <img
-                              src={c.instructorPhoto}
-                              alt={c.instructorName ?? ""}
-                              className="h-4 w-4 rounded-full object-cover ring-1 ring-[#8C6B6F]/20"
-                            />
-                          ) : (
-                            <span
-                              className="flex h-4 w-4 items-center justify-center rounded-full text-[0.5rem] font-bold text-white ring-1 ring-[#8C6B6F]/20"
-                              style={{ background: c.classTypeColor ?? "#D9B5BA" }}
-                            >
-                              {(c.instructorName ?? "?")[0].toUpperCase()}
-                            </span>
+                    <div>
+                      <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-valiance-mauve/65">
+                        {DAYS_ES[day.getDay()]}
+                      </p>
+                      <p className="font-display text-2xl leading-none text-valiance-charcoal">{format(day, "d")}</p>
+                    </div>
+                    <span className="rounded-full bg-valiance-ivory px-2.5 py-1 text-[0.65rem] font-medium text-valiance-mauve ring-1 ring-valiance-oat">
+                      {dayClasses.length}
+                    </span>
+                  </button>
+
+                  <div className="space-y-2">
+                    {dayClasses.map((c) => {
+                      const booked = c.bookedCount ?? c.currentBookings ?? 0;
+                      const capacity = c.maxCapacity ?? c.capacity ?? 0;
+                      const ratio = capacity > 0 ? Math.min(100, Math.round((booked / capacity) * 100)) : 0;
+                      const accent = c.classTypeColor ?? "#716D64";
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => { setSelectedClass(c); setSheetOpen(true); }}
+                          className={cn(
+                            "w-full rounded-2xl border bg-valiance-ivory p-3 text-left shadow-[0_10px_24px_-22px_rgba(68,68,68,0.4)] transition-all hover:-translate-y-0.5 hover:shadow-valiance-card",
+                            c.isCancelled ? "border-destructive/25 opacity-60" : "border-valiance-oat hover:border-valiance-fern/45"
                           )}
-                          <span className="truncate text-[0.65rem] text-[#1A1A1A]/60">{c.instructorName ?? "—"}</span>
-                        </div>
-                        <div className="mt-0.5 text-[#1A1A1A]/55 font-medium">
-                          {(c.bookedCount ?? c.currentBookings ?? 0)}/{c.maxCapacity ?? c.capacity ?? "?"}
-                        </div>
-                        {c.isCancelled && <Badge variant="destructive" className="mt-1 px-1 text-[0.6rem]">Cancelada</Badge>}
-                      </div>
-                    ))}
+                        >
+                          <div className="mb-2 flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-valiance-charcoal">{c.classTypeName ?? "Clase"}</p>
+                              <p className="mt-0.5 text-xs font-medium tabular-nums text-valiance-mauve">
+                                {c.startTime ? format(parseISO(c.startTime), "HH:mm") : "—"} - {c.endTime ? format(parseISO(c.endTime), "HH:mm") : "—"}
+                              </p>
+                            </div>
+                            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: accent }} />
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {c.instructorPhoto ? (
+                              <img
+                                src={c.instructorPhoto}
+                                alt={c.instructorName ?? ""}
+                                className="h-6 w-6 rounded-full object-cover ring-1 ring-valiance-oat"
+                              />
+                            ) : (
+                              <span
+                                className="flex h-6 w-6 items-center justify-center rounded-full text-[0.62rem] font-bold text-valiance-charcoal"
+                                style={{ backgroundColor: `${accent}38` }}
+                              >
+                                {(c.instructorName ?? "?")[0].toUpperCase()}
+                              </span>
+                            )}
+                            <span className="min-w-0 truncate text-xs text-valiance-charcoal/65">{c.instructorName ?? "—"}</span>
+                          </div>
+
+                          <div className="mt-3">
+                            <div className="mb-1.5 flex items-center justify-between text-[0.66rem] font-medium text-valiance-mauve">
+                              <span>Cupo</span>
+                              <span className="tabular-nums">{booked}/{capacity || "?"}</span>
+                            </div>
+                            <div className="h-1.5 overflow-hidden rounded-full bg-valiance-oat">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{ width: `${ratio}%`, backgroundColor: ratio >= 90 ? "#D1B9B4" : accent }}
+                              />
+                            </div>
+                          </div>
+
+                          {c.isCancelled && <Badge variant="destructive" className="mt-3 rounded-full px-2 text-[0.6rem]">Cancelada</Badge>}
+                        </button>
+                      );
+                    })}
                     <button
-                      onClick={() => openCreate(format(day, "yyyy-MM-dd"))}
-                      className="w-full py-1 text-center text-lg text-muted-foreground/40 transition-colors hover:text-muted-foreground"
+                      type="button"
+                      onClick={() => openCreate(dayKey)}
+                      className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed border-valiance-oat bg-valiance-ivory/50 text-valiance-mauve transition-colors hover:border-valiance-fern/45 hover:bg-valiance-ivory"
+                      aria-label={`Crear clase para ${format(day, "d MMM", { locale: es })}`}
                     >
-                      <Plus size={12} className="mx-auto" />
+                      <Plus size={15} />
                     </button>
                   </div>
                 </div>
@@ -997,7 +1034,7 @@ function CalendarTab({
             <div className="space-y-1"><Label>Notas</Label><Input {...form.register("notes")} /></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={createMutation.isPending} className="bg-gradient-to-r from-[#D9B5BA] to-[#8C6B6F] text-white">Crear</Button>
+              <Button type="submit" disabled={createMutation.isPending} className="bg-gradient-to-r from-[#D1B9B4] to-[#716D64] text-white">Crear</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -1012,9 +1049,9 @@ function CalendarTab({
               {/* Instructor with avatar */}
               <div className="flex items-center gap-3">
                 {selectedClass.instructorPhoto ? (
-                  <img src={selectedClass.instructorPhoto} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-offset-1" style={{ outline: `2px solid ${selectedClass.classTypeColor ?? "#D9B5BA"}` }} />
+                  <img src={selectedClass.instructorPhoto} alt="" className="w-8 h-8 rounded-full object-cover ring-2 ring-offset-1" style={{ outline: `2px solid ${selectedClass.classTypeColor ?? "#D1B9B4"}` }} />
                 ) : (
-                  <span className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-[#1A1A1A] text-sm" style={{ background: selectedClass.classTypeColor ?? "#D9B5BA" }}>
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-[#444444] text-sm" style={{ background: selectedClass.classTypeColor ?? "#D1B9B4" }}>
                     {(selectedClass.instructorName ?? "?")[0].toUpperCase()}
                   </span>
                 )}
@@ -1055,7 +1092,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
   const [editing, setEditing] = useState<ClassType | null>(null);
   const form = useForm<TypeFormData>({
     resolver: zodResolver(typeSchema),
-    defaultValues: { color: "#D9B5BA", category: "reformer", defaultDuration: 50, maxCapacity: 5, isActive: true },
+    defaultValues: { color: "#D1B9B4", category: "reformer", defaultDuration: 50, maxCapacity: 5, isActive: true },
   });
 
   const createMutation = useMutation({
@@ -1097,7 +1134,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
     setOpen(true);
   };
   const openCreate = () => {
-    form.reset({ color: "#D9B5BA", category: "reformer", defaultDuration: 50, maxCapacity: 5, isActive: true });
+    form.reset({ color: "#D1B9B4", category: "reformer", defaultDuration: 50, maxCapacity: 5, isActive: true });
     setEditing(null);
     setOpen(true);
   };
@@ -1106,7 +1143,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
     <>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <p className="text-sm text-muted-foreground">{types.length} tipos registrados</p>
-        <Button size="sm" onClick={openCreate} className="bg-gradient-to-r from-[#D9B5BA] to-[#8C6B6F] text-white">
+        <Button size="sm" onClick={openCreate} className="bg-gradient-to-r from-[#D1B9B4] to-[#716D64] text-white">
           <Plus size={14} className="mr-1" />Nuevo tipo
         </Button>
       </div>
@@ -1114,23 +1151,23 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
       {isMobile ? (
         <div className="space-y-2">
           {types.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-[#8C6B6F]/15 p-6 text-center text-xs text-[#1A1A1A]/45">
+            <div className="rounded-lg border border-dashed border-[#716D64]/15 p-6 text-center text-xs text-[#444444]/45">
               Sin tipos registrados.
             </div>
           ) : (
             types.map((t) => (
-              <div key={t.id} className="rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/10 p-3">
+              <div key={t.id} className="rounded-xl border border-[#716D64]/15 bg-[#716D64]/10 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: t.color }} />
-                      <p className="truncate text-sm font-semibold text-[#1A1A1A]">{t.name}</p>
+                      <p className="truncate text-sm font-semibold text-[#444444]">{t.name}</p>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      {t.category === "reformer" && <Badge className="bg-[#D9B5BA]/20 text-[#8C6B6F] border border-[#D9B5BA]/30">Reformer</Badge>}
-                      {t.category === "barre" && <Badge className="bg-[#8C6B6F]/15 text-[#8C6B6F] border border-[#8C6B6F]/25">Barre</Badge>}
-                      {t.category === "bienestar" && <Badge className="bg-[#8C6B6F]/20 text-[#8C6B6F] border border-[#8C6B6F]/30">Bienestar</Badge>}
-                      {t.category === "pilates" && <Badge className="bg-[#D9B5BA]/20 text-[#8C6B6F] border border-[#D9B5BA]/30">Pilates</Badge>}
+                      {t.category === "reformer" && <Badge className="bg-[#D1B9B4]/20 text-[#716D64] border border-[#D1B9B4]/30">Reformer</Badge>}
+                      {t.category === "barre" && <Badge className="bg-[#716D64]/15 text-[#716D64] border border-[#716D64]/25">Barre</Badge>}
+                      {t.category === "bienestar" && <Badge className="bg-[#716D64]/20 text-[#716D64] border border-[#716D64]/30">Bienestar</Badge>}
+                      {t.category === "pilates" && <Badge className="bg-[#D1B9B4]/20 text-[#716D64] border border-[#D1B9B4]/30">Pilates</Badge>}
                       {!t.category && <Badge variant="secondary">—</Badge>}
                       <Badge variant="outline">{(t.defaultDuration ?? t.durationMin ?? "—") + " min"}</Badge>
                       <Badge variant="outline">{(t.maxCapacity ?? t.capacity ?? "—") + " cupos"}</Badge>
@@ -1151,7 +1188,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
                 <div className="mt-2">
                   <Badge
                     variant={t.isActive !== false ? "default" : "secondary"}
-                    className={t.isActive !== false ? "bg-[#D9B5BA]/20 text-[#D9B5BA] border border-[#D9B5BA]/30" : ""}
+                    className={t.isActive !== false ? "bg-[#D1B9B4]/20 text-[#D1B9B4] border border-[#D1B9B4]/30" : ""}
                   >
                     {t.isActive !== false ? "Activo" : "Inactivo"}
                   </Badge>
@@ -1180,10 +1217,10 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
                   <TableCell><div className="w-6 h-6 rounded-full shadow-sm" style={{ backgroundColor: t.color }} /></TableCell>
                   <TableCell className="font-medium">{t.name}</TableCell>
                   <TableCell>
-                    {t.category === "reformer" && <Badge className="bg-[#D9B5BA]/20 text-[#8C6B6F] border border-[#D9B5BA]/30">Reformer</Badge>}
-                    {t.category === "barre" && <Badge className="bg-[#8C6B6F]/15 text-[#8C6B6F] border border-[#8C6B6F]/25">Barre</Badge>}
-                    {t.category === "bienestar" && <Badge className="bg-[#8C6B6F]/20 text-[#8C6B6F] border border-[#8C6B6F]/30">Bienestar</Badge>}
-                    {t.category === "pilates" && <Badge className="bg-[#D9B5BA]/20 text-[#8C6B6F] border border-[#D9B5BA]/30">Pilates</Badge>}
+                    {t.category === "reformer" && <Badge className="bg-[#D1B9B4]/20 text-[#716D64] border border-[#D1B9B4]/30">Reformer</Badge>}
+                    {t.category === "barre" && <Badge className="bg-[#716D64]/15 text-[#716D64] border border-[#716D64]/25">Barre</Badge>}
+                    {t.category === "bienestar" && <Badge className="bg-[#716D64]/20 text-[#716D64] border border-[#716D64]/30">Bienestar</Badge>}
+                    {t.category === "pilates" && <Badge className="bg-[#D1B9B4]/20 text-[#716D64] border border-[#D1B9B4]/30">Pilates</Badge>}
                     {!t.category && <Badge variant="secondary">—</Badge>}
                   </TableCell>
                   <TableCell>{(t.defaultDuration ?? t.durationMin ?? "—") + " min"}</TableCell>
@@ -1191,7 +1228,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
                   <TableCell>
                     <Badge
                       variant={t.isActive !== false ? "default" : "secondary"}
-                      className={t.isActive !== false ? "bg-[#D9B5BA]/20 text-[#D9B5BA] border border-[#D9B5BA]/30" : ""}
+                      className={t.isActive !== false ? "bg-[#D1B9B4]/20 text-[#D1B9B4] border border-[#D1B9B4]/30" : ""}
                     >
                       {t.isActive !== false ? "Activo" : "Inactivo"}
                     </Badge>
@@ -1253,7 +1290,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
                     className={
                       "w-8 h-8 rounded-full border-2 transition-all " +
                       (form.watch("color") === c.value
-                        ? "border-foreground scale-110 ring-2 ring-offset-2 ring-offset-background ring-[#D9B5BA]"
+                        ? "border-foreground scale-110 ring-2 ring-offset-2 ring-offset-background ring-[#D1B9B4]"
                         : "border-transparent opacity-70 hover:opacity-100")
                     }
                     style={{ backgroundColor: c.value }}
@@ -1273,7 +1310,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-              <Button type="submit" className="bg-gradient-to-r from-[#D9B5BA] to-[#8C6B6F] text-white">
+              <Button type="submit" className="bg-gradient-to-r from-[#D1B9B4] to-[#716D64] text-white">
                 {editing ? "Actualizar" : "Crear"}
               </Button>
             </DialogFooter>
@@ -1354,25 +1391,25 @@ function GenerateTab({
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Header */}
       <div className="text-center mb-2">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#D9B5BA]/10 to-[#8C6B6F]/10 border border-[#D9B5BA]/20 mb-3">
-          <Sparkles size={14} className="text-[#FDF7F8]" />
-          <span className="text-xs font-semibold text-[#D9B5BA]">Generador de clases</span>
+        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#D1B9B4]/10 to-[#716D64]/10 border border-[#D1B9B4]/20 mb-3">
+          <Sparkles size={14} className="text-[#FAF8F6]" />
+          <span className="text-xs font-semibold text-[#D1B9B4]">Generador de clases</span>
         </div>
-        <h2 className="text-2xl font-bold text-[#1A1A1A]">Generar clases en bloque</h2>
-        <p className="text-sm text-[#1A1A1A]/40 mt-1">Selecciona tipo, instructor, rango de fechas y días</p>
+        <h2 className="text-2xl font-bold text-[#444444]">Generar clases en bloque</h2>
+        <p className="text-sm text-[#444444]/40 mt-1">Selecciona tipo, instructor, rango de fechas y días</p>
       </div>
 
       {/* ── Step 1: Class type + Instructor ── */}
-      <div className="rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-5 space-y-4">
+      <div className="rounded-2xl border border-[#716D64]/15 bg-[#716D64]/[0.04] p-5 space-y-4">
         <div className="flex items-center gap-2 mb-1">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#D9B5BA]/20 text-[#D9B5BA] text-xs font-bold">1</span>
-          <span className="text-xs font-semibold text-[#D9B5BA]/70 uppercase tracking-wider">Clase e instructor</span>
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#D1B9B4]/20 text-[#D1B9B4] text-xs font-bold">1</span>
+          <span className="text-xs font-semibold text-[#D1B9B4]/70 uppercase tracking-wider">Clase e instructor</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label className="text-[#1A1A1A]/60 text-xs">Tipo de clase</Label>
+            <Label className="text-[#444444]/60 text-xs">Tipo de clase</Label>
             <Select onValueChange={setClassTypeId}>
-              <SelectTrigger className="bg-[#8C6B6F]/[0.06] border-[#8C6B6F]/15 text-[#1A1A1A]">
+              <SelectTrigger className="bg-[#716D64]/[0.06] border-[#716D64]/15 text-[#444444]">
                 <SelectValue placeholder="Seleccionar tipo" />
               </SelectTrigger>
               <SelectContent>
@@ -1388,9 +1425,9 @@ function GenerateTab({
             </Select>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[#1A1A1A]/60 text-xs">Instructor</Label>
+            <Label className="text-[#444444]/60 text-xs">Instructor</Label>
             <Select onValueChange={setInstructorId}>
-              <SelectTrigger className="bg-[#8C6B6F]/[0.06] border-[#8C6B6F]/15 text-[#1A1A1A]">
+              <SelectTrigger className="bg-[#716D64]/[0.06] border-[#716D64]/15 text-[#444444]">
                 <SelectValue placeholder="Seleccionar instructor" />
               </SelectTrigger>
               <SelectContent>
@@ -1404,28 +1441,28 @@ function GenerateTab({
       </div>
 
       {/* ── Step 2: Date range ── */}
-      <div className="rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-5 space-y-4">
+      <div className="rounded-2xl border border-[#716D64]/15 bg-[#716D64]/[0.04] p-5 space-y-4">
         <div className="flex items-center gap-2 mb-1">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#8C6B6F]/20 text-[#8C6B6F] text-xs font-bold">2</span>
-          <span className="text-xs font-semibold text-[#8C6B6F]/70 uppercase tracking-wider">Rango de fechas</span>
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#716D64]/20 text-[#716D64] text-xs font-bold">2</span>
+          <span className="text-xs font-semibold text-[#716D64]/70 uppercase tracking-wider">Rango de fechas</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
-            <Label className="text-[#1A1A1A]/60 text-xs">Fecha inicio</Label>
+            <Label className="text-[#444444]/60 text-xs">Fecha inicio</Label>
             <DatePicker value={startDate} onChange={setStartDate} placeholder="Desde" />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[#1A1A1A]/60 text-xs">Fecha fin</Label>
+            <Label className="text-[#444444]/60 text-xs">Fecha fin</Label>
             <DatePicker value={endDate} onChange={setEndDate} placeholder="Hasta" min={startDate} />
           </div>
         </div>
       </div>
 
       {/* ── Step 3: Days of week ── */}
-      <div className="rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-5 space-y-4">
+      <div className="rounded-2xl border border-[#716D64]/15 bg-[#716D64]/[0.04] p-5 space-y-4">
         <div className="flex items-center gap-2 mb-1">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#FDF7F8]/20 text-[#FDF7F8] text-xs font-bold">3</span>
-          <span className="text-xs font-semibold text-[#FDF7F8]/70 uppercase tracking-wider">Días de la semana</span>
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#FAF8F6]/20 text-[#FAF8F6] text-xs font-bold">3</span>
+          <span className="text-xs font-semibold text-[#FAF8F6]/70 uppercase tracking-wider">Días de la semana</span>
         </div>
         <div className="flex flex-wrap gap-2">
           {GENERATE_DAYS.map((d) => (
@@ -1436,8 +1473,8 @@ function GenerateTab({
               className={
                 "relative px-5 py-2.5 rounded-xl text-sm font-semibold transition-all " +
                 (selectedDays.includes(d.value)
-                  ? "bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] text-white shadow-[0_0_12px_rgba(148,134,122,0.3)]"
-                  : "bg-[#8C6B6F]/[0.06] border border-[#8C6B6F]/15 text-[#1A1A1A]/45 hover:text-[#1A1A1A]/75 hover:border-[#8C6B6F]/25")
+                  ? "bg-gradient-to-r from-[#716D64] to-[#D1B9B4] text-white shadow-[0_0_12px_rgba(148,134,122,0.3)]"
+                  : "bg-[#716D64]/[0.06] border border-[#716D64]/15 text-[#444444]/45 hover:text-[#444444]/75 hover:border-[#716D64]/25")
               }
             >
               {d.label}
@@ -1448,28 +1485,28 @@ function GenerateTab({
           <button
             type="button"
             onClick={() => setSelectedDays([1, 2, 3, 4, 5])}
-            className="text-[10px] text-[#D9B5BA] font-medium hover:underline"
+            className="text-[10px] text-[#D1B9B4] font-medium hover:underline"
           >
             Lun–Vie
           </button>
           <button
             type="button"
             onClick={() => setSelectedDays([1, 2, 3, 4, 5, 6])}
-            className="text-[10px] text-[#D9B5BA] font-medium hover:underline"
+            className="text-[10px] text-[#D1B9B4] font-medium hover:underline"
           >
             Lun–Sáb
           </button>
           <button
             type="button"
             onClick={() => setSelectedDays([0, 1, 2, 3, 4, 5, 6])}
-            className="text-[10px] text-[#D9B5BA] font-medium hover:underline"
+            className="text-[10px] text-[#D1B9B4] font-medium hover:underline"
           >
             Todos
           </button>
           <button
             type="button"
             onClick={() => setSelectedDays([])}
-            className="text-[10px] text-[#1A1A1A]/30 font-medium hover:underline"
+            className="text-[10px] text-[#444444]/30 font-medium hover:underline"
           >
             Limpiar
           </button>
@@ -1477,27 +1514,27 @@ function GenerateTab({
       </div>
 
       {/* ── Step 4: Time + Capacity ── */}
-      <div className="rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-5 space-y-4">
+      <div className="rounded-2xl border border-[#716D64]/15 bg-[#716D64]/[0.04] p-5 space-y-4">
         <div className="flex items-center gap-2 mb-1">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#8C6B6F]/20 text-[#8C6B6F] text-xs font-bold">4</span>
-          <span className="text-xs font-semibold text-[#8C6B6F]/70 uppercase tracking-wider">Horario y capacidad</span>
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-[#716D64]/20 text-[#716D64] text-xs font-bold">4</span>
+          <span className="text-xs font-semibold text-[#716D64]/70 uppercase tracking-wider">Horario y capacidad</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="space-y-1.5">
-            <Label className="text-[#1A1A1A]/60 text-xs">Hora inicio</Label>
+            <Label className="text-[#444444]/60 text-xs">Hora inicio</Label>
             <TimePicker value={startTime} onChange={setStartTime} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[#1A1A1A]/60 text-xs">Hora fin</Label>
+            <Label className="text-[#444444]/60 text-xs">Hora fin</Label>
             <TimePicker value={endTime} onChange={setEndTime} />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-[#1A1A1A]/60 text-xs">Capacidad máx.</Label>
+            <Label className="text-[#444444]/60 text-xs">Capacidad máx.</Label>
             <Input
               type="number"
               value={maxCapacity}
               onChange={(e) => setMaxCapacity(Number(e.target.value))}
-              className="bg-[#8C6B6F]/[0.06] border-[#8C6B6F]/15 text-[#1A1A1A] text-center"
+              className="bg-[#716D64]/[0.06] border-[#716D64]/15 text-[#444444] text-center"
             />
           </div>
         </div>
@@ -1505,20 +1542,20 @@ function GenerateTab({
 
       {/* ── Preview ── */}
       {preview.length > 0 && (
-        <div className="rounded-2xl border border-[#D9B5BA]/20 bg-gradient-to-br from-[#D9B5BA]/5 to-[#8C6B6F]/5 p-5 space-y-3">
+        <div className="rounded-2xl border border-[#D1B9B4]/20 bg-gradient-to-br from-[#D1B9B4]/5 to-[#716D64]/5 p-5 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Calendar size={14} className="text-[#FDF7F8]" />
-              <span className="text-xs font-semibold text-[#1A1A1A]/60 uppercase tracking-wider">Vista previa</span>
+              <Calendar size={14} className="text-[#FAF8F6]" />
+              <span className="text-xs font-semibold text-[#444444]/60 uppercase tracking-wider">Vista previa</span>
             </div>
-            <Badge variant="outline" className="border-[#D9B5BA]/30 text-[#D9B5BA] font-bold">
+            <Badge variant="outline" className="border-[#D1B9B4]/30 text-[#D1B9B4] font-bold">
               {preview.length} {preview.length === 1 ? "clase" : "clases"}
             </Badge>
           </div>
 
           <div className="hidden grid-cols-7 gap-1.5 sm:grid">
             {["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => (
-              <div key={d} className="text-center text-[10px] font-bold text-[#1A1A1A]/25 uppercase">{d}</div>
+              <div key={d} className="text-center text-[10px] font-bold text-[#444444]/25 uppercase">{d}</div>
             ))}
           </div>
 
@@ -1526,15 +1563,15 @@ function GenerateTab({
             {preview.map((d) => (
               <div
                 key={d.toISOString()}
-                className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-lg bg-[#8C6B6F]/[0.05] border border-[#8C6B6F]/12"
+                className="flex flex-col items-center gap-0.5 py-2 px-1 rounded-lg bg-[#716D64]/[0.05] border border-[#716D64]/12"
               >
-                <span className="text-[10px] text-[#1A1A1A]/40">
+                <span className="text-[10px] text-[#444444]/40">
                   {format(d, "MMM", { locale: es })}
                 </span>
-                <span className="text-sm font-bold text-[#1A1A1A]">
+                <span className="text-sm font-bold text-[#444444]">
                   {format(d, "d")}
                 </span>
-                <span className="text-[9px] text-[#FDF7F8]/60 font-medium">
+                <span className="text-[9px] text-[#FAF8F6]/60 font-medium">
                   {startTime}
                 </span>
                 {selectedType && (
@@ -1548,10 +1585,10 @@ function GenerateTab({
           </div>
 
           {selectedType && (
-            <div className="flex items-center gap-3 pt-2 border-t border-[#8C6B6F]/12">
+            <div className="flex items-center gap-3 pt-2 border-t border-[#716D64]/12">
               <span className="w-3 h-3 rounded-full" style={{ backgroundColor: selectedType.color }} />
-              <span className="text-xs text-[#1A1A1A]/60">
-                <strong className="text-[#1A1A1A]/80">{selectedType.name}</strong>
+              <span className="text-xs text-[#444444]/60">
+                <strong className="text-[#444444]/80">{selectedType.name}</strong>
                 {selectedInstructor && <> · {selectedInstructor.displayName}</>}
                 {" · "}{startTime}–{endTime} · {maxCapacity} cupos
               </span>
@@ -1566,10 +1603,10 @@ function GenerateTab({
         disabled={!canGenerate || generateMutation.isPending}
         onClick={() => generateMutation.mutate()}
         className={
-          "w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl font-semibold text-[#1A1A1A] transition-all " +
+          "w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl font-semibold text-[#444444] transition-all " +
           (canGenerate
-            ? "bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 shadow-[0_4px_20px_rgba(148,134,122,0.25)]"
-            : "bg-[#8C6B6F]/[0.06] text-[#1A1A1A]/25 cursor-not-allowed")
+            ? "bg-gradient-to-r from-[#716D64] to-[#D1B9B4] hover:opacity-90 shadow-[0_4px_20px_rgba(148,134,122,0.25)]"
+            : "bg-[#716D64]/[0.06] text-[#444444]/25 cursor-not-allowed")
         }
       >
         {generateMutation.isPending ? (
@@ -1689,7 +1726,7 @@ function InstructorsTab({ toast, qc }: { toast: any; qc: any }) {
         <Button
           size="sm"
           onClick={openCreate}
-          className="bg-gradient-to-r from-[#D9B5BA] to-[#8C6B6F] text-white"
+          className="bg-gradient-to-r from-[#D1B9B4] to-[#716D64] text-white"
         >
           <Plus size={14} className="mr-1" />Nueva instructora
         </Button>
@@ -1714,37 +1751,37 @@ function InstructorsTab({ toast, qc }: { toast: any; qc: any }) {
           {isLoading ? (
             Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-24 w-full rounded-xl" />)
           ) : instructors.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-[#8C6B6F]/15 p-6 text-center text-xs text-[#1A1A1A]/45">
+            <div className="rounded-lg border border-dashed border-[#716D64]/15 p-6 text-center text-xs text-[#444444]/45">
               Sin instructoras registradas.
             </div>
           ) : (
             instructors.map((ins) => (
-              <div key={ins.id} className="rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/10 p-3">
+              <div key={ins.id} className="rounded-xl border border-[#716D64]/15 bg-[#716D64]/10 p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       {ins.photoUrl ? (
                         <img
                           src={ins.photoUrl}
-                          className="h-9 w-9 rounded-full object-cover ring-2 ring-[#D9B5BA]/30"
+                          className="h-9 w-9 rounded-full object-cover ring-2 ring-[#D1B9B4]/30"
                           style={{ objectPosition: `${clampFocus(ins.photoFocusX)}% ${clampFocus(ins.photoFocusY)}%` }}
                           alt=""
                         />
                       ) : (
-                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#D9B5BA] to-[#8C6B6F] text-xs font-bold text-[#1A1A1A]">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-[#D1B9B4] to-[#716D64] text-xs font-bold text-[#444444]">
                           {ins.displayName?.[0]?.toUpperCase()}
                         </div>
                       )}
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-[#1A1A1A]">{ins.displayName}</p>
-                        <p className="truncate text-xs text-[#1A1A1A]/55">{ins.email}</p>
+                        <p className="truncate text-sm font-semibold text-[#444444]">{ins.displayName}</p>
+                        <p className="truncate text-xs text-[#444444]/55">{ins.email}</p>
                       </div>
                     </div>
-                    <p className="mt-2 text-xs text-[#1A1A1A]/55">{normalizeSpecialties(ins.specialties).join(", ") || "Sin especialidades"}</p>
+                    <p className="mt-2 text-xs text-[#444444]/55">{normalizeSpecialties(ins.specialties).join(", ") || "Sin especialidades"}</p>
                     <div className="mt-2">
                       <Badge
                         variant={ins.isActive ? "default" : "secondary"}
-                        className={ins.isActive ? "bg-[#D9B5BA]/20 text-[#D9B5BA] border border-[#D9B5BA]/30" : ""}
+                        className={ins.isActive ? "bg-[#D1B9B4]/20 text-[#D1B9B4] border border-[#D1B9B4]/30" : ""}
                       >
                         {ins.isActive ? "Activa" : "Inactiva"}
                       </Badge>
@@ -1799,12 +1836,12 @@ function InstructorsTab({ toast, qc }: { toast: any; qc: any }) {
                       {ins.photoUrl ? (
                         <img
                           src={ins.photoUrl}
-                          className="w-9 h-9 rounded-full object-cover ring-2 ring-[#D9B5BA]/30"
+                          className="w-9 h-9 rounded-full object-cover ring-2 ring-[#D1B9B4]/30"
                           style={{ objectPosition: `${clampFocus(ins.photoFocusX)}% ${clampFocus(ins.photoFocusY)}%` }}
                           alt=""
                         />
                       ) : (
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#D9B5BA] to-[#8C6B6F] flex items-center justify-center text-xs font-bold text-[#1A1A1A]">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#D1B9B4] to-[#716D64] flex items-center justify-center text-xs font-bold text-[#444444]">
                           {ins.displayName?.[0]?.toUpperCase()}
                         </div>
                       )}
@@ -1815,7 +1852,7 @@ function InstructorsTab({ toast, qc }: { toast: any; qc: any }) {
                     <TableCell>
                       <Badge
                         variant={ins.isActive ? "default" : "secondary"}
-                        className={ins.isActive ? "bg-[#D9B5BA]/20 text-[#D9B5BA] border border-[#D9B5BA]/30" : ""}
+                        className={ins.isActive ? "bg-[#D1B9B4]/20 text-[#D1B9B4] border border-[#D1B9B4]/30" : ""}
                       >
                         {ins.isActive ? "Activa" : "Inactiva"}
                       </Badge>
@@ -1936,7 +1973,7 @@ function InstructorsTab({ toast, qc }: { toast: any; qc: any }) {
                     if (event.buttons !== 1 && event.pointerType !== "touch") return;
                     applyPreviewFocus(event);
                   }}
-                  className="group relative mx-auto block h-[360px] w-full max-w-[300px] touch-none overflow-hidden rounded-[28px] border border-[#8C6B6F]/15 bg-[#8C6B6F]/10 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D9B5BA]"
+                  className="group relative mx-auto block h-[360px] w-full max-w-[300px] touch-none overflow-hidden rounded-[28px] border border-[#716D64]/15 bg-[#716D64]/10 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D1B9B4]"
                   aria-label="Seleccionar enfoque de la foto"
                 >
                   <img
@@ -1947,12 +1984,12 @@ function InstructorsTab({ toast, qc }: { toast: any; qc: any }) {
                   />
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent" />
                   <div
-                    className="pointer-events-none absolute h-8 w-8 rounded-full border border-[#8C6B6F]/20 bg-[#8C6B6F]/10 shadow-[0_0_0_1px_rgba(0,0,0,0.2)] backdrop-blur-sm"
+                    className="pointer-events-none absolute h-8 w-8 rounded-full border border-[#716D64]/20 bg-[#716D64]/10 shadow-[0_0_0_1px_rgba(0,0,0,0.2)] backdrop-blur-sm"
                     style={{ left: `${focusX}%`, top: `${focusY}%`, transform: "translate(-50%, -50%)" }}
                   >
                     <div className="absolute left-1/2 top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white" />
                   </div>
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between px-4 py-3 text-[11px] font-medium text-[#1A1A1A]/80">
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-between px-4 py-3 text-[11px] font-medium text-[#444444]/80">
                     <span>X {focusX}%</span>
                     <span>Y {focusY}%</span>
                   </div>
@@ -1965,7 +2002,7 @@ function InstructorsTab({ toast, qc }: { toast: any; qc: any }) {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={isSaving} className="bg-gradient-to-r from-[#D9B5BA] to-[#8C6B6F] text-white">
+              <Button type="submit" disabled={isSaving} className="bg-gradient-to-r from-[#D1B9B4] to-[#716D64] text-white">
                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {isSaving ? "Guardando..." : editing ? "Actualizar" : "Crear"}
               </Button>
