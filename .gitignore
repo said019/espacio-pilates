@@ -35,3 +35,6 @@ wallet-assets/apple-pass/*.cer
 *.sln
 *.sw?
 .superpowers/
+.agents/
+.claude/skills/
+skills-lock.json
