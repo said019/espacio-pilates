@@ -1,5 +1,5 @@
 /**
- * Valiance Pilates — Email Service (Resend)
+ * Tu Espacio Pilates — Email Service (Resend)
  * Branded HTML templates matching the studio's visual identity.
  */
 
@@ -13,24 +13,24 @@ if (process.env.RESEND_API_KEY) {
   }
 }
 
-const FROM_EMAIL = process.env.EMAIL_FROM || "Valiance Pilates <onboarding@resend.dev>";
-const SITE_URL = String(process.env.SITE_URL || process.env.APP_URL || "https://valiancepilates.com.mx").replace(/\/+$/, "");
-const LOGO_URL = `${SITE_URL}/valiance-logo.png`;
+const FROM_EMAIL = process.env.EMAIL_FROM || "Tu Espacio Pilates <onboarding@resend.dev>";
+const SITE_URL = String(process.env.SITE_URL || process.env.APP_URL || "http://localhost:5173").replace(/\/+$/, "");
+const LOGO_URL = `${SITE_URL}/tep-logo.png`;
 
-// ─── Brand palette Valiance (paleta del sitio) ───────────────────────────────
+// ─── Brand palette Tu Espacio Pilates VM (paleta del sitio) ──────────────────
 const B = {
-  bg:      "#FBF7F4",   // page background — cream cálido
+  bg:      "#FBF6F4",   // page background — nude cálido
   card:    "#FFFFFF",   // card background
-  border:  "#FAE5E7",   // subtle blush border
-  brown:   "#1A1A1A",   // primary accent — charcoal (CTA bg)
-  green:   "#FAE5E7",   // secondary accent — blush
+  border:  "#E8D3CE",   // subtle blush border
+  brown:   "#1A1A1A",   // primary accent — tinta (CTA bg)
+  green:   "#E8D3CE",   // secondary accent — soft blush
   dark:    "#1A1A1A",   // main text
   body:    "#404040",   // body text
   muted:   "#8C6B6F",   // mauve — muted text
-  cream:   "#FDF7F8",   // nude
-  sage10:  "#FAE5E7",   // very light blush for backgrounds
+  cream:   "#FBF6F4",   // nude
+  sage10:  "#F3E7E3",   // light blush for backgrounds
   amber:   "#B45309",   // warning/alert
-  gold:    "#C9A96E",   // gold accent (mármol premium)
+  gold:    "#B8915A",   // gold accent (cálido premium)
 };
 
 // ─── Base layout ──────────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Valiance Pilates</title>
+  <title>Tu Espacio Pilates</title>
   <!--[if mso]><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
 </head>
 <body style="margin:0;padding:0;background-color:${B.bg};">
@@ -78,7 +78,7 @@ function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } 
         <!-- Logo -->
         <tr><td align="center" style="padding:32px 40px 4px;">
           <a href="${SITE_URL}" style="text-decoration:none;">
-            <img src="${LOGO_URL}" alt="Valiance Pilates" width="180" height="auto"
+            <img src="${LOGO_URL}" alt="Tu Espacio Pilates" width="180" height="auto"
                  style="display:block;max-width:180px;" />
           </a>
         </td></tr>
@@ -108,8 +108,8 @@ function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } 
         <tr><td align="center" style="padding:20px 40px 28px;">
           <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:11px;
                     color:${B.muted};margin:0;line-height:1.7;">
-            © ${new Date().getFullYear()} Valiance Pilates<br>
-            <a href="${SITE_URL}" style="color:${B.dark};text-decoration:none;font-weight:600;">valiancepilates.com.mx</a>
+            © ${new Date().getFullYear()} Tu Espacio Pilates VM<br>
+            <a href="https://www.instagram.com/_espaciopilatesvm/" style="color:${B.dark};text-decoration:none;font-weight:600;">@_espaciopilatesvm</a>
           </p>
         </td></tr>
 
@@ -217,7 +217,7 @@ async function sendMembershipActivated(opts) {
   const classesText = classLimit ? `${classLimit} clases` : "Ilimitadas";
   const content = `
     ${h1(`¡Bienvenida, ${name.split(" ")[0]}!`)}
-    ${p("Tu membresía en Valiance Pilates ha sido activada. Es momento de moverte con propósito.")}
+    ${p("Tu membresía en Tu Espacio Pilates ha sido activada. Es momento de moverte con propósito.")}
     ${infoTable([
       infoRow("Plan", planName),
       infoRow("Clases incluidas", classesText),
@@ -232,7 +232,7 @@ async function sendMembershipActivated(opts) {
     ctaUrl: `${SITE_URL}/app/classes`,
     ctaText: "Reservar clases",
   });
-  await sendEmail({ to, subject: `Tu membresía está activa — Valiance Pilates`, html });
+  await sendEmail({ to, subject: `Tu membresía está activa — Tu Espacio Pilates`, html });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -333,7 +333,7 @@ async function sendWeeklyReminder(opts) {
 
   const content = `
     ${h1(`¡Hola ${name.split(" ")[0]}! ¿Ya programaste tu semana?`)}
-    ${p("Nueva semana, nuevas oportunidades para moverte. Estos son los horarios disponibles en Valiance Pilates.")}
+    ${p("Nueva semana, nuevas oportunidades para moverte. Estos son los horarios disponibles en Tu Espacio Pilates.")}
     ${p(classesText)}
     ${expiryNote}
     ${h2("Tu cuerpo te lo agradece")}
@@ -345,7 +345,7 @@ async function sendWeeklyReminder(opts) {
     ctaUrl: `${SITE_URL}/app/classes`,
     ctaText: "Programar mi semana",
   });
-  await sendEmail({ to, subject: `Programa tu semana — Valiance Pilates`, html });
+  await sendEmail({ to, subject: `Programa tu semana — Tu Espacio Pilates`, html });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -384,7 +384,7 @@ async function sendRenewalReminder(opts) {
     to,
     subject: isLastClass
       ? `Te queda 1 clase — Renueva tu membresía`
-      : `Tu membresía vence pronto — Valiance Pilates`,
+      : `Tu membresía vence pronto — Tu Espacio Pilates`,
     html,
   });
 }
@@ -400,18 +400,18 @@ async function sendPasswordResetEmail(opts) {
   );
   const content = `
     ${h1(`Recupera tu contraseña, ${firstName}`)}
-    ${p("Recibimos una solicitud para cambiar la contraseña de tu cuenta en Valiance Pilates.")}
+    ${p("Recibimos una solicitud para cambiar la contraseña de tu cuenta en Tu Espacio Pilates.")}
     ${p("Si fuiste tú, haz clic en el botón de abajo para crear una contraseña nueva. Este enlace expira en <strong>2 horas</strong>.")}
     ${alertBox("Si no solicitaste este cambio, puedes ignorar este correo. Tu cuenta seguirá segura.", "info")}
     ${small(`Si el botón no funciona, copia y pega este enlace en tu navegador:<br><a href="${resolvedResetUrl}" style="color:${B.brown};word-break:break-all;">${resolvedResetUrl}</a>`)}
   `;
   const html = baseLayout({
-    preheader: "Recupera el acceso a tu cuenta de Valiance Pilates",
+    preheader: "Recupera el acceso a tu cuenta de Tu Espacio Pilates",
     content,
     ctaUrl: resolvedResetUrl,
     ctaText: "Restablecer contraseña",
   });
-  await sendEmail({ to, subject: "Restablecer contraseña — Valiance Pilates", html });
+  await sendEmail({ to, subject: "Restablecer contraseña — Tu Espacio Pilates", html });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -426,12 +426,12 @@ async function sendOrderRejected(opts) {
     ${p("Si crees que hubo un error, contáctanos por WhatsApp o acércate al estudio. ¡Estamos para ayudarte!")}
   `;
   const html = baseLayout({
-    preheader: "Tu comprobante de pago fue revisado — Valiance Pilates",
+    preheader: "Tu comprobante de pago fue revisado — Tu Espacio Pilates",
     content,
     ctaUrl: `${SITE_URL}/app/checkout`,
     ctaText: "Reintentar pago",
   });
-  await sendEmail({ to, subject: "Comprobante no aprobado — Valiance Pilates", html });
+  await sendEmail({ to, subject: "Comprobante no aprobado — Tu Espacio Pilates", html });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -455,7 +455,7 @@ async function sendClientWelcomeWithCredentials(opts) {
   `;
   const planLine = planName ? p(`Tu plan <strong>${planName}</strong> ya está activo.`) : "";
   const content = `
-    ${h1(`Bienvenida a Valiance Pilates, ${firstName}`)}
+    ${h1(`Bienvenida a Tu Espacio Pilates, ${firstName}`)}
     ${p("Creamos tu cuenta para que puedas reservar clases, ver tu membresía y consultar tus pagos desde la app.")}
     ${planLine}
     ${credBox}
@@ -463,12 +463,12 @@ async function sendClientWelcomeWithCredentials(opts) {
     ${small(`Si tienes dudas, escríbenos por WhatsApp o responde a este correo. Estamos para apoyarte.`)}
   `;
   const html = baseLayout({
-    preheader: "Tus credenciales para acceder a Valiance Pilates",
+    preheader: "Tus credenciales para acceder a Tu Espacio Pilates",
     content,
     ctaUrl: `${SITE_URL}/auth/login`,
     ctaText: "Iniciar sesión",
   });
-  await sendEmail({ to, subject: "Tu cuenta en Valiance Pilates está lista", html });
+  await sendEmail({ to, subject: "Tu cuenta en Tu Espacio Pilates está lista", html });
 }
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
