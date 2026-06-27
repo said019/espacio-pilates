@@ -226,6 +226,15 @@ const Checkout = () => {
   });
   const cardEnabled: boolean = Boolean(paymentsConfig?.data?.cardEnabled);
 
+  // One-time inscription status (auth). Auto-added server-side to class-package orders.
+  const { data: inscriptionData } = useQuery({
+    queryKey: ["inscription-status"],
+    queryFn: async () => (await api.get("/inscription-status")).data,
+  });
+  const inscriptionInfo = inscriptionData?.data ?? inscriptionData;
+  const needsInscription: boolean = Boolean(inscriptionInfo?.needsInscription);
+  const inscriptionPrice: number = Number(inscriptionInfo?.price ?? 500) || 500;
+
   const rawPlans: any[] = Array.isArray(plansData?.data) ? plansData.data : Array.isArray(plansData) ? plansData : [];
   const allPlans = rawPlans
     .filter((p) => (p.isActive ?? p.is_active) !== false)
@@ -235,12 +244,27 @@ const Checkout = () => {
   const trialPlan = allPlans.find((p) => (p.name ?? "").toLowerCase().includes("muestra"));
   const plans = allPlans.filter((p) => p !== trialPlan);
 
-  // Compute price
-  const basePrice = selectedPlan?.price ?? 0;
+  // Compute price (price arrives as a string from the API → coerce to number to avoid string concatenation in totals)
+  const basePrice = Number(selectedPlan?.price ?? 0);
   const individualDiscount = getPlanDiscountPrice(selectedPlan);
   const effectivePrice = (paymentMethod === "transfer" || paymentMethod === "cash") && individualDiscount
     ? individualDiscount : basePrice;
   const finalAmount = discountResult ? effectivePrice - (discountResult.discount_amount ?? 0) : effectivePrice;
+
+  // Is the selected plan a multi-class package? (Backend auto-adds inscription to these.)
+  // Detect via class count (class_limit >= 2) OR by name matching /paquete/i.
+  // Excludes "Clase Extra" / "Clase Suelta / Visita" (class_limit < 2) and the trial.
+  const selectedClassLimit = Number(selectedPlan?.classLimit ?? selectedPlan?.class_limit ?? 0);
+  const selectedName = String(selectedPlan?.name ?? "");
+  const isPackage = Boolean(
+    selectedPlan && (selectedClassLimit >= 2 || /paquete/i.test(selectedName))
+  );
+  // Inscription applies to packages when the client still needs it. Display-only mirror
+  // of the backend rule; loading/absent status -> needsInscription=false -> no line.
+  const showInscription = isPackage && needsInscription;
+  const inscriptionAmount = showInscription ? inscriptionPrice : 0;
+  // Plan price after any discount + inscription = what the backend charges.
+  const totalWithInscription = finalAmount + inscriptionAmount;
 
   const validateCodeMutation = useMutation({
     mutationFn: () => api.post("/discount-codes/validate", { code: discountCode, planId: selectedPlan?.id }),
@@ -427,14 +451,31 @@ const Checkout = () => {
                     </div>
                   )}
 
+                  {/* Inscription line (packages only, when the client needs it) */}
+                  {showInscription && (
+                    <div className="space-y-1.5 pt-3 border-t border-[#8C6B6F]/15">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-[#1A1A1A]/60">Plan</span>
+                        <span className="font-semibold text-[#1A1A1A]/80">${basePrice.toLocaleString("es-MX")} MXN</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-[#1A1A1A]/60">Inscripción (pago único)</span>
+                        <span className="font-semibold text-[#1A1A1A]/80">${inscriptionAmount.toLocaleString("es-MX")} MXN</span>
+                      </div>
+                      <p className="text-[10px] text-[#1A1A1A]/40 leading-snug pt-0.5">
+                        Pago único de inscripción — se cobra solo al inscribirte (o tras 6 meses de inactividad).
+                      </p>
+                    </div>
+                  )}
+
                   {/* Total */}
-                  <div className="flex items-center justify-between py-3 border-t border-[#8C6B6F]/15">
+                  <div className={cn("flex items-center justify-between py-3", showInscription ? "" : "border-t border-[#8C6B6F]/15")}>
                     <span className="text-sm text-[#1A1A1A]/60">Total a pagar</span>
                     <div className="text-right">
-                      <span className="text-2xl font-bold text-[#1A1A1A]">${basePrice.toLocaleString("es-MX")} <span className="text-sm font-normal text-[#1A1A1A]/35">MXN</span></span>
+                      <span className="text-2xl font-bold text-[#1A1A1A]">${(basePrice + inscriptionAmount).toLocaleString("es-MX")} <span className="text-sm font-normal text-[#1A1A1A]/35">MXN</span></span>
                       {individualDiscount && individualDiscount < basePrice && (
                         <p className="text-[11px] text-[#6B4F53] font-bold mt-0.5">
-                          💰 Efectivo/transf: ${individualDiscount.toLocaleString("es-MX")}
+                          💰 Efectivo/transf: ${(individualDiscount + inscriptionAmount).toLocaleString("es-MX")}
                         </p>
                       )}
                     </div>
@@ -464,14 +505,29 @@ const Checkout = () => {
                   <div className="text-right">
                     {individualDiscount && individualDiscount < basePrice && paymentMethod !== "card" ? (
                       <>
-                        <span className="text-xs text-[#1A1A1A]/30 line-through mr-2">${basePrice.toLocaleString("es-MX")}</span>
-                        <span className="text-lg font-bold text-[#6B4F53]">${finalAmount.toLocaleString("es-MX")} MXN</span>
+                        <span className="text-xs text-[#1A1A1A]/30 line-through mr-2">${(basePrice + inscriptionAmount).toLocaleString("es-MX")}</span>
+                        <span className="text-lg font-bold text-[#6B4F53]">${totalWithInscription.toLocaleString("es-MX")} MXN</span>
                       </>
                     ) : (
-                      <span className="text-lg font-bold text-[#1A1A1A]">${finalAmount.toLocaleString("es-MX")} MXN</span>
+                      <span className="text-lg font-bold text-[#1A1A1A]">${totalWithInscription.toLocaleString("es-MX")} MXN</span>
                     )}
                   </div>
                 </div>
+                {showInscription && (
+                  <div className="mt-2 pt-2 border-t border-[#8C6B6F]/10 space-y-1">
+                    <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
+                      <span>Plan</span>
+                      <span>${finalAmount.toLocaleString("es-MX")} MXN</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
+                      <span>Inscripción (pago único)</span>
+                      <span>${inscriptionAmount.toLocaleString("es-MX")} MXN</span>
+                    </div>
+                    <p className="text-[10px] text-[#1A1A1A]/40 leading-snug">
+                      Pago único de inscripción — se cobra solo al inscribirte (o tras 6 meses de inactividad).
+                    </p>
+                  </div>
+                )}
                 {individualDiscount && individualDiscount < basePrice && paymentMethod !== "card" && (
                   <p className="text-[11px] text-[#6B4F53] font-bold mt-1.5 flex items-center gap-1">
                     💰 Ahorras ${(basePrice - individualDiscount).toLocaleString("es-MX")} con efectivo/transferencia

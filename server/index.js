@@ -814,7 +814,7 @@ async function ensureSchema() {
       { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence al fin del mes de compra.", price: 1400, dur: 30,   cl: 14, so: 3, feat: ["14 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
       { name: "Clase Extra",           desc: "Clase adicional para alumnas ya inscritas.",        price: 130,  dur: 30,   cl: 1,  so: 4, feat: ["1 clase extra", "Solo para inscritas"] },
       { name: "Clase Suelta / Visita", desc: "Clase individual sin inscripción.",                 price: 250,  dur: 7,    cl: 1,  so: 5, feat: ["1 clase", "Sin inscripción", "Si te inscribes se toma a cuenta"] },
-      { name: "Inscripción",           desc: "Pago único de inscripción. Se re-paga tras ausencia mayor a 3 meses.", price: 500, dur: 3650, cl: 0, so: 6, feat: ["Pago único", "Requerida para paquetes"] },
+      { name: "Inscripción",           desc: "Pago único de inscripción. Se re-paga tras ausencia mayor a 6 meses.", price: 500, dur: 3650, cl: 0, so: 6, feat: ["Pago único", "Requerida para paquetes"] },
     ];
     // (1) Desactivar todo antes de upsertar los planes VM. TotalPass 154 se
     //     re-activa en su propio bloque (que corre después de éste).
@@ -1234,6 +1234,13 @@ async function ensureSchema() {
     } catch (e) {
       console.warn("[seed] TotalPass 154 failed:", e.message);
     }
+    // ── orders: one-time inscription (enrollment) fee charged with a package ──
+    // Idempotent column. Defaults to 0 so existing/non-package orders are unaffected.
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS inscription_amount DECIMAL(10,2) DEFAULT 0`).catch(() => { });
+    // ── plans: hide standalone "Inscripción" from the public catalog. It is no
+    //    longer buyable on its own — it's auto-added to package orders. Row stays
+    //    active so its price remains readable for the auto-add + landing fallback.
+    await pool.query(`UPDATE plans SET is_admin_only = true, updated_at = NOW() WHERE name = 'Inscripción'`).catch(() => { });
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_orders_discount_code_id ON orders(discount_code_id)`).catch(() => { });
     // Make plan_id nullable (POS orders don't always have a plan)
     await pool.query(`ALTER TABLE orders ALTER COLUMN plan_id DROP NOT NULL`).catch(() => { });
@@ -2632,6 +2639,49 @@ async function findNonRepeatablePlanConflict({
   }
 
   return null;
+}
+
+// ─── Inscription (one-time enrollment fee) helpers ──────────────────────────
+// The studio charges a one-time $500 inscription to enroll. It is charged again
+// ONLY after 6 months of inactivity. A client NEEDS inscription when they have
+// NO membership that is currently `active` OR whose `end_date` falls within the
+// last 6 months (covers "never enrolled" and "inactive > 6 months"). Any recent
+// or active membership → no inscription.
+const INSCRIPTION_PLAN_NAME = "Inscripción";
+const INSCRIPTION_FALLBACK_PRICE = 500;
+
+async function clientNeedsInscription(userId) {
+  if (!userId) return false;
+  try {
+    const r = await pool.query(
+      `SELECT 1 FROM memberships
+        WHERE user_id = $1
+          AND (status = 'active' OR (end_date IS NOT NULL AND end_date >= (CURRENT_DATE - INTERVAL '6 months')))
+        LIMIT 1`,
+      [userId]
+    );
+    return r.rows.length === 0;
+  } catch (err) {
+    // Money-path safety: never block checkout on a query failure. Default to
+    // NOT charging inscription (false) and log a warning for visibility.
+    console.warn("[inscription] clientNeedsInscription query failed, defaulting to false:", err?.message || err);
+    return false;
+  }
+}
+
+// Reads the active "Inscripción" plan price; falls back to 500 if unavailable.
+async function getInscriptionPrice(dbClient = pool) {
+  try {
+    const r = await dbClient.query(
+      `SELECT price FROM plans WHERE name = $1 LIMIT 1`,
+      [INSCRIPTION_PLAN_NAME]
+    );
+    const price = r.rows.length ? Number(r.rows[0].price) : NaN;
+    return Number.isFinite(price) && price > 0 ? price : INSCRIPTION_FALLBACK_PRICE;
+  } catch (err) {
+    console.warn("[inscription] getInscriptionPrice query failed, using fallback:", err?.message || err);
+    return INSCRIPTION_FALLBACK_PRICE;
+  }
 }
 
 function serializeSpecialtiesForDb(value) {
@@ -4155,6 +4205,21 @@ app.get("/api/orders/:id", authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/inscription-status — does the authenticated client owe the one-time
+// inscription (enrollment) fee on their next package purchase?
+app.get("/api/inscription-status", authMiddleware, async (req, res) => {
+  try {
+    const [needsInscription, price] = await Promise.all([
+      clientNeedsInscription(req.userId),
+      getInscriptionPrice(),
+    ]);
+    return res.json({ data: { needsInscription, price } });
+  } catch (err) {
+    console.error("GET inscription-status error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // POST /api/orders
 app.post("/api/orders", authMiddleware, async (req, res) => {
   const { planId, discountCode, paymentMethod: rawPM = "transfer", complementId, complementType } = req.body;
@@ -4233,6 +4298,23 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       appliedDiscountCode = discountResult.code;
     }
 
+    // ── One-time inscription (enrollment) fee ──────────────────────────────
+    // Auto-add the $500 inscription when the ordered plan is a CLASS PACKAGE
+    // (class_limit >= 2 → the 7/9/14 packages; excludes Clase Extra/Suelta
+    // which have limit 1, and Inscripción itself which has limit 0) AND the
+    // client needs it (no active/recent membership). Applied here, BEFORE the
+    // INSERT and BEFORE any MercadoPago preference, so EVERY payment method
+    // (transfer, cash, card) charges it. It is a fee — no extra membership is
+    // created; the package membership is still created on approval as today.
+    // The discount code (computed above) intentionally applies only to the
+    // base plan subtotal, never to the inscription fee.
+    let inscriptionAmount = 0;
+    const isClassPackage = Number(plan.class_limit) >= 2;
+    if (isClassPackage && (await clientNeedsInscription(req.userId))) {
+      inscriptionAmount = await getInscriptionPrice(client);
+      subtotal += inscriptionAmount;
+    }
+
     const total = subtotal - discount;
     const bankInfo = await getConfiguredBankInfo(client);
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h
@@ -4254,6 +4336,10 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       vals.push(activeComplement);
       cols.push("notes");
       vals.push(`Complemento: ${activeComplement}`);
+    }
+    if (inscriptionAmount > 0) {
+      cols.push("inscription_amount");
+      vals.push(inscriptionAmount);
     }
     const placeholders = vals.map((_, i) => {
       const col = cols[i];
@@ -4305,6 +4391,7 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
         ...order,
         plan_name: plan.name,
         mp_checkout_url,
+        inscriptionAmount,
         bank_details: { ...bankInfo, amount: total, currency: "MXN" },
       }
     });
