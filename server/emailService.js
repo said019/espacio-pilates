@@ -87,7 +87,7 @@ function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } 
         <tr><td align="center" style="padding:0 40px 20px;">
           <p style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:10px;
                     letter-spacing:2.5px;text-transform:uppercase;color:${B.muted};margin:0;">
-            Pilates Reformer &middot; Barre &middot; Bienestar
+            Pilates &middot; Villa Magna &middot; Comunidad
           </p>
         </td></tr>
 
