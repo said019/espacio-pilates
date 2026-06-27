@@ -15,6 +15,7 @@ import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
 import { endOfPurchaseMonth, canCancel, canReschedule } from "./lib/bookingPolicy.js";
+import { createPreference, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -1649,6 +1650,31 @@ async function ensureSchema() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_event_passes_event ON event_passes(event_id)`).catch(() => { });
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_event_passes_status ON event_passes(status)`).catch(() => { });
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_event_passes_registration_unique ON event_passes(registration_id) WHERE registration_id IS NOT NULL`).catch(() => { });
+
+    // ── MercadoPago: columnas de pago en orders + idempotencia de webhooks ──
+    await pool.query(`
+      ALTER TABLE orders
+        ADD COLUMN IF NOT EXISTS payment_provider   VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS payment_intent_id  VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS mp_checkout_url    TEXT,
+        ADD COLUMN IF NOT EXISTS mp_payment_id      VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS mp_payment_status  VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS mp_status_detail   VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS provider_synced_at TIMESTAMP WITH TIME ZONE;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payment_webhook_events (
+        id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        provider     VARCHAR(50) NOT NULL,
+        event_key    VARCHAR(255) NOT NULL,
+        event_type   VARCHAR(50),
+        payload      JSONB DEFAULT '{}'::jsonb,
+        processed_at TIMESTAMP WITH TIME ZONE,
+        created_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE (provider, event_key)
+      );
+    `);
+    console.log("✅ MercadoPago: columnas orders + payment_webhook_events listas");
 
     console.log("✅ Schema ensured");
   } catch (err) {
@@ -4226,10 +4252,37 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     await client.query("COMMIT");
 
     const order = orderRes.rows[0];
+
+    // ── Tarjeta: generar checkout de MercadoPago (fuera de la transacción) ──
+    let mp_checkout_url = null;
+    if (paymentMethod === "card") {
+      try {
+        const u = await pool.query("SELECT email FROM users WHERE id = $1", [req.userId]);
+        const pref = await createPreference({
+          orderId: order.id,
+          orderNumber: order.order_number,
+          planName: plan.name,
+          amount: Number(order.total_amount),
+          userEmail: u.rows[0]?.email || "",
+        });
+        mp_checkout_url = pref.checkout_url;
+        await pool.query(
+          `UPDATE orders SET payment_provider = 'mercadopago',
+                             payment_intent_id = $1, mp_checkout_url = $2, updated_at = NOW()
+             WHERE id = $3`,
+          [pref.preference_id, pref.checkout_url, order.id]
+        );
+      } catch (mpErr) {
+        console.error("MercadoPago preference error:", mpErr.message);
+        // La orden ya existe (pending_payment); el cliente reintenta con pay-with-card.
+      }
+    }
+
     return res.status(201).json({
       data: {
         ...order,
         plan_name: plan.name,
+        mp_checkout_url,
         bank_details: { ...bankInfo, amount: total, currency: "MXN" },
       }
     });
@@ -4291,6 +4344,262 @@ app.post("/api/orders/:id/proof", authMiddleware, upload.any(), async (req, res)
     return res.status(500).json({ message: "Error interno", detail: err.message });
   }
 });
+
+// POST /api/orders/:id/pay-with-card — generar/reutilizar checkout de MP para una orden pendiente
+app.post("/api/orders/:id/pay-with-card", authMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT o.*, p.name AS plan_name, u.email AS user_email
+         FROM orders o
+         JOIN plans p ON o.plan_id = p.id
+         JOIN users u ON o.user_id = u.id
+        WHERE o.id = $1 AND o.user_id = $2`,
+      [req.params.id, req.userId]
+    );
+    if (!r.rows.length) return res.status(404).json({ message: "Orden no encontrada" });
+    const order = r.rows[0];
+    if (order.status !== "pending_payment") {
+      return res.status(400).json({ message: "Esta orden ya no acepta pagos" });
+    }
+    if (order.mp_checkout_url) {
+      return res.json({ data: { mp_checkout_url: order.mp_checkout_url } });
+    }
+    const pref = await createPreference({
+      orderId: order.id,
+      orderNumber: order.order_number,
+      planName: order.plan_name,
+      amount: Number(order.total_amount),
+      userEmail: order.user_email || "",
+    });
+    await pool.query(
+      `UPDATE orders SET payment_method = 'card'::payment_method,
+                         payment_provider = 'mercadopago',
+                         payment_intent_id = $1, mp_checkout_url = $2, updated_at = NOW()
+         WHERE id = $3`,
+      [pref.preference_id, pref.checkout_url, order.id]
+    );
+    return res.json({ data: { mp_checkout_url: pref.checkout_url } });
+  } catch (err) {
+    console.error("pay-with-card error:", err.message);
+    return res.status(500).json({ message: "No se pudo generar el checkout" });
+  }
+});
+
+// GET /api/payments/config — el frontend decide si muestra "Tarjeta"
+app.get("/api/payments/config", (req, res) => {
+  return res.json({ data: { cardEnabled: Boolean(process.env.MP_ACCESS_TOKEN) } });
+});
+
+// POST /webhooks/mercadopago — fuente de verdad de los pagos con tarjeta (server-to-server)
+// OJO: fuera de /api, debe coincidir con notification_url. El catch-all app.get("*") es GET, no lo intercepta.
+app.post("/webhooks/mercadopago", express.json({ limit: "1mb" }), async (req, res) => {
+  // 1) Responder 200 de inmediato (MP reintenta si tardamos)
+  res.status(200).end();
+
+  try {
+    const body = req.body || {};
+    const type = body.type || body.topic || null;
+    const action = body.action || "";
+    const mpPaymentId = (body.data?.id || req.query["data.id"] || req.query.id || "").toString();
+    if (!mpPaymentId) return;
+
+    // 2) Verificar firma
+    const ok = verifyWebhookSignature({
+      signatureHeader: req.headers["x-signature"] || "",
+      requestId: req.headers["x-request-id"] || "",
+      dataId: mpPaymentId,
+      secret: process.env.MP_WEBHOOK_SECRET || "",
+    });
+    if (!ok) {
+      console.warn(`[MP webhook] firma inválida para pago ${mpPaymentId}`);
+      return;
+    }
+
+    const eventType = type || (action.includes("payment") ? "payment" : null);
+    const eventKey = `${eventType || "payment"}:${mpPaymentId}`;
+
+    // 3) Idempotencia: insertar el evento; si ya existe (23505), salir
+    try {
+      await pool.query(
+        `INSERT INTO payment_webhook_events (provider, event_key, event_type, payload)
+         VALUES ('mercadopago', $1, $2, $3)`,
+        [eventKey, eventType || "payment", JSON.stringify(body)]
+      );
+    } catch (e) {
+      if (e.code === "23505") return; // ya procesado
+      console.error("[MP webhook] idempotency insert error:", e.message);
+      return;
+    }
+
+    // 4) Procesar
+    if (eventType === "payment") {
+      await handlePaymentWebhook(mpPaymentId);
+    }
+    await pool.query(
+      `UPDATE payment_webhook_events SET processed_at = NOW()
+        WHERE provider = 'mercadopago' AND event_key = $1`,
+      [eventKey]
+    );
+  } catch (err) {
+    console.error("[MP webhook] processing error:", err.message);
+    // El evento queda sin processed_at → se puede reprocesar manualmente (sync-mp).
+  }
+});
+
+async function handlePaymentWebhook(mpPaymentId) {
+  const payment = await syncPayment(mpPaymentId);
+  const { status, status_detail, external_reference } = payment;
+  if (!external_reference) {
+    console.warn("[MP webhook] pago sin external_reference:", mpPaymentId);
+    return;
+  }
+  // Guardar el estado del pago en la orden (sea cual sea)
+  await pool.query(
+    `UPDATE orders SET mp_payment_id = $1, mp_payment_status = $2, mp_status_detail = $3,
+                       provider_synced_at = NOW(), updated_at = NOW()
+       WHERE id = $4`,
+    [mpPaymentId, status, status_detail, external_reference]
+  );
+  if (status === "approved") {
+    await approveOrderFromMP(external_reference, mpPaymentId);
+  } else if (status === "rejected" || status === "cancelled") {
+    await pool.query(
+      `UPDATE orders SET rejected_at = COALESCE(rejected_at, NOW()), updated_at = NOW()
+         WHERE id = $1 AND status = 'pending_payment'`,
+      [external_reference]
+    );
+  }
+}
+
+// Activa la membresía cuando MP aprueba el pago. Mirror de PUT /api/admin/orders/:id/verify.
+async function approveOrderFromMP(orderId, mpPaymentId) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const orderRes = await client.query("SELECT * FROM orders WHERE id = $1 FOR UPDATE", [orderId]);
+    if (!orderRes.rows.length) { await client.query("ROLLBACK"); console.warn("[MP] orden no encontrada", orderId); return; }
+    let order = orderRes.rows[0];
+    if (order.status === "approved") { await client.query("ROLLBACK"); return; } // idempotente
+
+    let plan = null;
+    if (order.plan_id) {
+      const planRes = await client.query("SELECT * FROM plans WHERE id = $1", [order.plan_id]);
+      if (planRes.rows.length) {
+        plan = planRes.rows[0];
+        const conflict = await findNonRepeatablePlanConflict({ userId: order.user_id, plan, excludeOrderId: order.id, client });
+        if (conflict) { await client.query("ROLLBACK"); console.warn("[MP] conflicto plan no repetible:", conflict.message); return; }
+      }
+    }
+
+    const approvedRes = await client.query(
+      `UPDATE orders SET status = 'approved',
+                         approved_at = COALESCE(approved_at, NOW()),
+                         paid_at     = COALESCE(paid_at, NOW()),
+                         mp_payment_id = $2, mp_payment_status = 'approved', updated_at = NOW()
+         WHERE id = $1 RETURNING *`,
+      [orderId, mpPaymentId]
+    );
+    order = approvedRes.rows[0];
+
+    if (order.plan_id && plan && order.user_id) {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const endStr = calcMembershipEndDate(todayStr, plan);
+      const existingMem = await client.query("SELECT id FROM memberships WHERE order_id = $1", [order.id]);
+      let membershipId;
+      if (existingMem.rows.length) {
+        membershipId = existingMem.rows[0].id;
+        await client.query("UPDATE memberships SET status = 'active' WHERE order_id = $1", [order.id]);
+      } else {
+        await client.query(
+          `UPDATE orders SET status = 'cancelled', notes = COALESCE(notes,'') || ' [auto-cancelada: otra orden del mismo plan fue aprobada]'
+             WHERE user_id = $1 AND plan_id = $2 AND id != $3 AND status IN ('pending_payment','pending_verification')`,
+          [order.user_id, order.plan_id, order.id]
+        );
+        const memRes = await client.query(
+          `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, order_id)
+           VALUES ($1,$2,'active','card',$3,$4,$5,$6) RETURNING id`,
+          [order.user_id, order.plan_id, todayStr, endStr, plan.class_limit === 0 ? null : (plan.class_limit ?? null), order.id]
+        );
+        membershipId = memRes.rows[0].id;
+      }
+
+      // Registro contable
+      await client.query(
+        `INSERT INTO payments (user_id, membership_id, amount, currency, payment_method, reference, notes, status)
+         VALUES ($1,$2,$3,$4,'card',$5,$6,'completed')`,
+        [order.user_id, membershipId, order.total_amount, order.currency || "MXN", mpPaymentId, `MercadoPago ${mpPaymentId}`]
+      );
+
+      // Consulta de complemento (igual que verify)
+      const compType = order.complement_type || null;
+      if (compType) {
+        const compInfo = COMPLEMENT_MAP[compType] || null;
+        if (compInfo) {
+          try {
+            await client.query(
+              `INSERT INTO consultations (membership_id, user_id, complement_type, complement_name, specialist, status)
+               VALUES ($1,$2,$3,$4,$5,'pending')`,
+              [membershipId, order.user_id, compType, compInfo.name, compInfo.specialist]
+            );
+          } catch (compErr) { console.error("[MP] consultations insert:", compErr.message); }
+        }
+      }
+    }
+
+    if (order.discount_code_id) {
+      try {
+        await incrementDiscountUsage(order.discount_code_id, client);
+      } catch (discErr) {
+        // El pago ya se cobró en MercadoPago: no abortar la activación si el código
+        // alcanzó su límite entre la compra y la aprobación del webhook.
+        console.error("[MP] incrementDiscountUsage (no bloquea activación):", discErr.message);
+      }
+    }
+
+    await client.query("COMMIT");
+
+    // Post-commit: notificaciones fire-and-forget
+    try {
+      if (order.plan_id) {
+        const planRes = await pool.query("SELECT * FROM plans WHERE id = $1", [order.plan_id]);
+        const planRow = planRes.rows[0];
+        const uRes = await pool.query("SELECT email, display_name, phone FROM users WHERE id = $1", [order.user_id]);
+        const u = uRes.rows[0];
+        if (planRow && u) {
+          const emailEndStr = calcMembershipEndDate(new Date().toISOString().slice(0, 10), planRow);
+          if (await areEmailNotificationsEnabled()) {
+            sendMembershipActivated({
+              to: u.email, name: u.display_name || "Alumna", planName: planRow.name,
+              startDate: new Date().toISOString().slice(0, 10), endDate: emailEndStr,
+              classLimit: planRow.class_limit ?? null,
+            }).catch((e) => console.error("[Email] MP approve:", e.message));
+          }
+          sendConfiguredWhatsAppTemplate({
+            templateKey: "membership_activated", phone: u.phone,
+            vars: {
+              name: u.display_name || "Alumna", plan: planRow.name || "tu plan",
+              startDate: new Date().toLocaleDateString("es-MX"),
+              endDate: new Date(emailEndStr).toLocaleDateString("es-MX"),
+            },
+            fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${planRow.name || ""} ya está activa.`,
+          }).catch((e) => console.error("[WA] MP approve:", e.message));
+        }
+      }
+      if (order.user_id) triggerWalletPassSync(order.user_id, "mp_payment_approved");
+    } catch (notifyErr) {
+      console.error("[MP] post-commit notify error:", notifyErr.message);
+    }
+
+    console.log(`[MP] pago ${mpPaymentId} aprobado → orden ${orderId}`);
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch (_) {}
+    console.error("[MP] approveOrderFromMP error:", err.message);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
 // ─── Routes: /api/discount-codes ────────────────────────────────────────────
 
@@ -11797,6 +12106,24 @@ app.put("/api/admin/orders/:id/reject", adminMiddleware, async (req, res) => {
     return res.json({ data: order });
   } catch (err) {
     return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/admin/orders/:id/sync-mp — forzar reconciliación contra MercadoPago si el webhook no llegó
+app.post("/api/admin/orders/:id/sync-mp", adminMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query("SELECT id, mp_payment_id FROM orders WHERE id = $1", [req.params.id]);
+    if (!r.rows.length) return res.status(404).json({ message: "Orden no encontrada" });
+    const mpPaymentId = r.rows[0].mp_payment_id;
+    if (!mpPaymentId) {
+      return res.status(400).json({ message: "La orden no tiene un pago de MercadoPago asociado todavía" });
+    }
+    await handlePaymentWebhook(mpPaymentId);
+    const after = await pool.query("SELECT status, mp_payment_status FROM orders WHERE id = $1", [req.params.id]);
+    return res.json({ data: after.rows[0] });
+  } catch (err) {
+    console.error("sync-mp error:", err.message);
+    return res.status(500).json({ message: "No se pudo sincronizar con MercadoPago" });
   }
 });
 

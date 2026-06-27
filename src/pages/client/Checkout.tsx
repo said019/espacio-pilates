@@ -14,7 +14,7 @@ import {
 import imgPilates from "@/assets/pilates_2320695.png";
 
 type Step = "select" | "method" | "bank" | "cash" | "upload" | "done";
-type PaymentMethod = "transfer" | "cash";
+type PaymentMethod = "transfer" | "cash" | "card";
 
 function compressImage(file: File, maxWidth = 1400, quality = 0.82): Promise<File> {
   return new Promise((resolve) => {
@@ -220,6 +220,12 @@ const Checkout = () => {
     queryFn: async () => (await api.get("/plans")).data,
   });
 
+  const { data: paymentsConfig } = useQuery({
+    queryKey: ["payments-config"],
+    queryFn: async () => (await api.get("/payments/config")).data,
+  });
+  const cardEnabled: boolean = Boolean(paymentsConfig?.data?.cardEnabled);
+
   const rawPlans: any[] = Array.isArray(plansData?.data) ? plansData.data : Array.isArray(plansData) ? plansData : [];
   const allPlans = rawPlans
     .filter((p) => (p.isActive ?? p.is_active) !== false)
@@ -254,6 +260,15 @@ const Checkout = () => {
       setOrderUuid(data.id);
       setOrderId(data.order_number ?? data.orderNumber ?? data.orderId ?? data.id);
       setBankDetails(data.bankDetails ?? data.bank_details);
+      if (paymentMethod === "card") {
+        if (data.mp_checkout_url) {
+          window.location.href = data.mp_checkout_url;
+        } else {
+          toast({ title: "No se pudo iniciar el pago con tarjeta", description: "Reintenta desde Mis órdenes.", variant: "destructive" });
+          window.location.assign("/app/orders");
+        }
+        return;
+      }
       if (paymentMethod === "transfer") setStep("bank");
       else setStep("cash");
     },
@@ -447,7 +462,7 @@ const Checkout = () => {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-[#1A1A1A]/70">{selectedPlan?.name}</span>
                   <div className="text-right">
-                    {individualDiscount && individualDiscount < basePrice ? (
+                    {individualDiscount && individualDiscount < basePrice && paymentMethod !== "card" ? (
                       <>
                         <span className="text-xs text-[#1A1A1A]/30 line-through mr-2">${basePrice.toLocaleString("es-MX")}</span>
                         <span className="text-lg font-bold text-[#6B4F53]">${finalAmount.toLocaleString("es-MX")} MXN</span>
@@ -457,7 +472,7 @@ const Checkout = () => {
                     )}
                   </div>
                 </div>
-                {individualDiscount && individualDiscount < basePrice && (
+                {individualDiscount && individualDiscount < basePrice && paymentMethod !== "card" && (
                   <p className="text-[11px] text-[#6B4F53] font-bold mt-1.5 flex items-center gap-1">
                     💰 Ahorras ${(basePrice - individualDiscount).toLocaleString("es-MX")} con efectivo/transferencia
                   </p>
@@ -466,7 +481,7 @@ const Checkout = () => {
 
               <p className="text-sm font-semibold text-[#1A1A1A]/80">¿Cómo quieres pagar?</p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className={cn("grid grid-cols-1 gap-3", cardEnabled ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
                 <button
                   type="button"
                   onClick={() => setPaymentMethod("transfer")}
@@ -514,6 +529,32 @@ const Checkout = () => {
                     </span>
                   )}
                 </button>
+
+                {cardEnabled && (
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod("card")}
+                    className={cn(
+                      "flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all",
+                      paymentMethod === "card"
+                        ? "border-[#B8915A]/50 bg-[#B8915A]/10 shadow-[0_0_16px_rgba(184,145,90,0.15)]"
+                        : "border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] hover:border-[#8C6B6F]/25"
+                    )}
+                  >
+                    <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", paymentMethod === "card" ? "bg-[#B8915A]/20 text-[#B8915A]" : "bg-[#8C6B6F]/[0.06] text-[#1A1A1A]/40")}>
+                      <CreditCard size={22} />
+                    </div>
+                    <div className="text-center">
+                      <p className={cn("text-sm font-semibold", paymentMethod === "card" ? "text-[#B8915A]" : "text-[#1A1A1A]/60")}>Tarjeta</p>
+                      <p className="text-[10px] text-[#1A1A1A]/30 mt-0.5">Débito / crédito</p>
+                    </div>
+                    {paymentMethod === "card" && (
+                      <span className="w-5 h-5 rounded-full bg-gradient-to-br from-[#B8915A] to-[#D9B5BA] flex items-center justify-center">
+                        <Check size={10} className="text-white" />
+                      </span>
+                    )}
+                  </button>
+                )}
               </div>
 
               <button
@@ -522,7 +563,7 @@ const Checkout = () => {
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 transition-opacity disabled:opacity-50"
               >
                 {createOrderMutation.isPending ? <Loader2 className="animate-spin" size={16} /> : <CreditCard size={16} />}
-                {createOrderMutation.isPending ? "Procesando…" : "Confirmar"}
+                {createOrderMutation.isPending ? "Procesando…" : (paymentMethod === "card" ? "Pagar con tarjeta" : "Confirmar")}
               </button>
             </div>
           )}
