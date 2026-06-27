@@ -4548,7 +4548,13 @@ async function approveOrderFromMP(orderId, mpPaymentId) {
     }
 
     if (order.discount_code_id) {
-      await incrementDiscountUsage(order.discount_code_id, client);
+      try {
+        await incrementDiscountUsage(order.discount_code_id, client);
+      } catch (discErr) {
+        // El pago ya se cobró en MercadoPago: no abortar la activación si el código
+        // alcanzó su límite entre la compra y la aprobación del webhook.
+        console.error("[MP] incrementDiscountUsage (no bloquea activación):", discErr.message);
+      }
     }
 
     await client.query("COMMIT");

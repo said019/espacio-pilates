@@ -481,7 +481,7 @@ const Checkout = () => {
 
               <p className="text-sm font-semibold text-[#1A1A1A]/80">¿Cómo quieres pagar?</p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className={cn("grid grid-cols-1 gap-3", cardEnabled ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
                 <button
                   type="button"
                   onClick={() => setPaymentMethod("transfer")}
