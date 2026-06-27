@@ -480,6 +480,148 @@ pool.on("error", (err) => {
   console.error("[pg pool] idle client error:", err.message);
 });
 
+// ─── Canonical weekly schedule (Tu Espacio Pilates VM) ──────────────────────
+// day_of_week: 1=Lun … 6=Sáb. Cada clase es apparatus='reformer' EXCEPTO
+// Viernes (5) 8:30 pm que es 'tower'. 23 slots en total. Esta es la ÚNICA
+// fuente de verdad del horario: el seed inicial, el RESYNC versionado y la
+// generación de clases bookables leen de aquí.
+const SCHEDULE_SLOTS = [
+  // Lunes (1)
+  { time_slot: "7:00 am", day_of_week: 1, apparatus: "reformer" },
+  { time_slot: "8:00 am", day_of_week: 1, apparatus: "reformer" },
+  { time_slot: "5:30 pm", day_of_week: 1, apparatus: "reformer" },
+  { time_slot: "6:30 pm", day_of_week: 1, apparatus: "reformer" },
+  { time_slot: "8:30 pm", day_of_week: 1, apparatus: "reformer" },
+  // Martes (2)
+  { time_slot: "7:30 pm", day_of_week: 2, apparatus: "reformer" },
+  // Miércoles (3)
+  { time_slot: "7:00 am", day_of_week: 3, apparatus: "reformer" },
+  { time_slot: "8:00 am", day_of_week: 3, apparatus: "reformer" },
+  { time_slot: "9:00 am", day_of_week: 3, apparatus: "reformer" },
+  { time_slot: "5:30 pm", day_of_week: 3, apparatus: "reformer" },
+  { time_slot: "6:30 pm", day_of_week: 3, apparatus: "reformer" },
+  { time_slot: "7:30 pm", day_of_week: 3, apparatus: "reformer" },
+  { time_slot: "8:30 pm", day_of_week: 3, apparatus: "reformer" },
+  // Jueves (4)
+  { time_slot: "5:30 pm", day_of_week: 4, apparatus: "reformer" },
+  { time_slot: "7:30 pm", day_of_week: 4, apparatus: "reformer" },
+  // Viernes (5) — 8:30 pm = TOWER
+  { time_slot: "7:00 am", day_of_week: 5, apparatus: "reformer" },
+  { time_slot: "8:00 am", day_of_week: 5, apparatus: "reformer" },
+  { time_slot: "9:00 am", day_of_week: 5, apparatus: "reformer" },
+  { time_slot: "5:30 pm", day_of_week: 5, apparatus: "reformer" },
+  { time_slot: "6:30 pm", day_of_week: 5, apparatus: "reformer" },
+  { time_slot: "7:30 pm", day_of_week: 5, apparatus: "reformer" },
+  { time_slot: "8:30 pm", day_of_week: 5, apparatus: "tower" },
+  // Sábado (6)
+  { time_slot: "9:00 am", day_of_week: 6, apparatus: "reformer" },
+];
+
+// Insert the canonical 23 slots (class_type_name='Pilates') into schedule_slots.
+// Idempotent via ON CONFLICT DO NOTHING on the (time_slot, day_of_week) partial
+// unique index. Pass a pool or a client (within a txn) as `q`.
+async function buildScheduleSlotsInsert(q) {
+  const values = [];
+  const params = [];
+  SCHEDULE_SLOTS.forEach((s, i) => {
+    const b = i * 4;
+    values.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4})`);
+    params.push(s.time_slot, s.day_of_week, "Pilates", s.apparatus);
+  });
+  await q.query(
+    `INSERT INTO schedule_slots (time_slot, day_of_week, class_type_name, apparatus)
+     VALUES ${values.join(", ")}
+     ON CONFLICT DO NOTHING`,
+    params,
+  );
+}
+
+// Parse a time_slot string like '7:00 am' / '5:30 pm' → 24h "HH:MM".
+function parseScheduleSlot(raw) {
+  const m = String(raw).trim().toLowerCase().match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/);
+  if (!m) return null;
+  let hour = parseInt(m[1], 10) % 12;          // 12 → 0
+  const min = parseInt(m[2], 10);
+  if (m[3] === "pm") hour += 12;               // pm: hour%12 + 12 (12pm→12)
+  return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+// Add 60 minutes to a "HH:MM" string, returned as "HH:MM".
+function addScheduleHour(hhmm) {
+  const [h, mn] = hhmm.split(":").map((n) => parseInt(n, 10));
+  const total = h * 60 + mn + 60;
+  const eh = Math.floor(total / 60) % 24;
+  const em = total % 60;
+  return `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+}
+
+// Generate bookable classes from the ACTIVE schedule_slots for the next `weeks`
+// weeks. Idempotent: a class for a given (date, start_time) is only inserted if
+// one does not already exist (classes has no unique constraint on those cols,
+// so we can't rely on ON CONFLICT — we SELECT-then-skip instead). Each class
+// copies its slot's `apparatus`. Capacity is fixed at 8. Used by both the
+// empty-DB seed and the versioned RESYNC.
+async function generateClassesFromSchedule({ weeks = 4 } = {}) {
+  const typeRes = await pool.query(
+    "SELECT id FROM class_types WHERE is_active = true ORDER BY sort_order ASC LIMIT 1"
+  );
+  const instRes = await pool.query(
+    "SELECT id FROM instructors WHERE is_active = true ORDER BY created_at ASC LIMIT 1"
+  );
+  const slotsRes = await pool.query(
+    "SELECT time_slot, day_of_week, apparatus FROM schedule_slots WHERE is_active = true"
+  );
+  if (typeRes.rows.length === 0 || instRes.rows.length === 0 || slotsRes.rows.length === 0) {
+    return 0;
+  }
+  const classTypeId = typeRes.rows[0].id;
+  const instructorId = instRes.rows[0].id;
+
+  // Monday of the current week (day_of_week: 1=Mon … 6=Sat, no Sunday).
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dow = today.getDay();                  // 0=Sun … 6=Sat
+  const diffToMon = dow === 0 ? -6 : 1 - dow;
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + diffToMon);
+
+  const planned = [];
+  for (let week = 0; week < weeks; week++) {
+    for (const slot of slotsRes.rows) {
+      const start = parseScheduleSlot(slot.time_slot);
+      if (!start) continue;
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + week * 7 + (slot.day_of_week - 1));
+      if (date < today) continue;              // skip past dates this week
+      const dateStr = date.toISOString().slice(0, 10);
+      planned.push({
+        date: dateStr,
+        start,
+        end: addScheduleHour(start),
+        apparatus: slot.apparatus || "reformer",
+      });
+    }
+  }
+
+  let inserted = 0;
+  for (const c of planned) {
+    // Skip if a class already exists for this (date, start_time) — keeps the
+    // function idempotent and never duplicates an already-bookable slot.
+    const exists = await pool.query(
+      "SELECT 1 FROM classes WHERE date = $1 AND start_time = $2 LIMIT 1",
+      [c.date, c.start]
+    );
+    if (exists.rows.length > 0) continue;
+    await pool.query(
+      `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status, apparatus)
+       VALUES ($1,$2,$3,$4,$5,8,'scheduled',$6)`,
+      [classTypeId, instructorId, c.date, c.start, c.end, c.apparatus]
+    );
+    inserted++;
+  }
+  return inserted;
+}
+
 // Ensure users table has password_hash column (idempotent migration)
 async function ensureSchema() {
   try {
@@ -612,6 +754,10 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS class_type_name VARCHAR(100)`).catch(() => { });
     await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS instructor_name VARCHAR(100)`).catch(() => { });
     await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
+    // apparatus: 'reformer' (default) | 'tower'. Per-slot; copied onto each
+    // generated class so the front-end can label the equipment.
+    await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS apparatus VARCHAR(20) DEFAULT 'reformer'`).catch(() => { });
+    await pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS apparatus VARCHAR(20) DEFAULT 'reformer'`).catch(() => { });
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_slots_slot ON schedule_slots(time_slot, day_of_week) WHERE is_active = true`).catch(() => { });
     // ── schedule_templates (plantilla simple con class_label) ───────────────
     await pool.query(`
@@ -683,21 +829,14 @@ async function ensureSchema() {
       console.log("✅ Ensured single Tu Espacio Pilates VM class type 'Pilates'");
     }
     // ── Seed schedule_slots si la tabla está vacía ─────────────────────────
+    // Horario semanal canónico (day_of_week: 1=Lun … 6=Sáb). Todas las clases
+    // son apparatus='reformer' EXCEPTO Viernes (5) 8:30 pm que es 'tower'.
+    // 23 slots en total. Esta misma lista alimenta el seed inicial y el RESYNC
+    // versionado de más abajo, vía buildScheduleSlotsInsert().
+    const insertSeedSlots = async () => buildScheduleSlotsInsert(pool);
     const ssCount = await pool.query("SELECT COUNT(*) FROM schedule_slots");
     if (parseInt(ssCount.rows[0].count) === 0) {
-      await pool.query(`
-        INSERT INTO schedule_slots (time_slot, day_of_week, class_type_name) VALUES
-          ('7:00 am', 1, 'Pilates'), ('8:00 am', 1, 'Pilates'), ('9:00 am', 1, 'Pilates'),
-          ('5:30 pm', 1, 'Pilates'), ('6:30 pm', 1, 'Pilates'), ('7:30 pm', 1, 'Pilates'), ('8:30 pm', 1, 'Pilates'),
-          ('5:30 pm', 2, 'Pilates'), ('6:30 pm', 2, 'Pilates'), ('7:30 pm', 2, 'Pilates'),
-          ('7:00 am', 3, 'Pilates'), ('8:00 am', 3, 'Pilates'), ('9:00 am', 3, 'Pilates'),
-          ('5:30 pm', 3, 'Pilates'), ('6:30 pm', 3, 'Pilates'), ('7:30 pm', 3, 'Pilates'), ('8:30 pm', 3, 'Pilates'),
-          ('5:30 pm', 4, 'Pilates'), ('6:30 pm', 4, 'Pilates'), ('7:30 pm', 4, 'Pilates'),
-          ('7:00 am', 5, 'Pilates'), ('8:00 am', 5, 'Pilates'), ('9:00 am', 5, 'Pilates'),
-          ('5:30 pm', 5, 'Pilates'), ('6:30 pm', 5, 'Pilates'), ('7:30 pm', 5, 'Pilates'), ('8:30 pm', 5, 'Pilates'),
-          ('9:00 am', 6, 'Pilates')
-        ON CONFLICT DO NOTHING;
-      `);
+      await insertSeedSlots();
     }
     // ── Ensure plans columns exist ───────────────────────────────────────
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS description TEXT`).catch(() => { });
@@ -1728,75 +1867,66 @@ async function ensureSchema() {
       console.log("✅ Seeded Tu Espacio Pilates coach");
     }
 
-    // 2) Generate bookable classes from schedule_slots (cup 8), next 4 weeks.
+    // 2) Generate bookable classes from schedule_slots (cap 8), next 4 weeks.
+    //    Only on a fresh DB (classes empty); the versioned RESYNC below handles
+    //    regeneration for already-seeded live DBs. generateClassesFromSchedule
+    //    is idempotent and copies each slot's apparatus onto the class.
     const classCount = await pool.query("SELECT COUNT(*) FROM classes");
     if (parseInt(classCount.rows[0].count) === 0) {
-      const typeRes = await pool.query(
-        "SELECT id FROM class_types WHERE is_active = true ORDER BY sort_order ASC LIMIT 1"
-      );
-      const instRes = await pool.query(
-        "SELECT id FROM instructors WHERE is_active = true ORDER BY created_at ASC LIMIT 1"
-      );
-      const slotsRes = await pool.query(
-        "SELECT time_slot, day_of_week FROM schedule_slots WHERE is_active = true"
-      );
-
-      if (typeRes.rows.length > 0 && instRes.rows.length > 0 && slotsRes.rows.length > 0) {
-        const classTypeId = typeRes.rows[0].id;
-        const instructorId = instRes.rows[0].id;
-
-        // Parse a time_slot string like '7:00 am' / '5:30 pm' → 24h "HH:MM".
-        const parseSlot = (raw) => {
-          const m = String(raw).trim().toLowerCase().match(/^(\d{1,2}):(\d{2})\s*(am|pm)$/);
-          if (!m) return null;
-          let hour = parseInt(m[1], 10) % 12;        // 12 → 0
-          const min = parseInt(m[2], 10);
-          if (m[3] === "pm") hour += 12;             // pm: hour%12 + 12 (12pm→12)
-          return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-        };
-
-        // Add 60 minutes to a "HH:MM" string, returned as "HH:MM".
-        const addHour = (hhmm) => {
-          const [h, mn] = hhmm.split(":").map((n) => parseInt(n, 10));
-          const total = h * 60 + mn + 60;
-          const eh = Math.floor(total / 60) % 24;
-          const em = total % 60;
-          return `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
-        };
-
-        // Monday of the current week (day_of_week: 1=Mon … 6=Sat, no Sunday).
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const dow = today.getDay();                  // 0=Sun … 6=Sat
-        const diffToMon = dow === 0 ? -6 : 1 - dow;
-        const monday = new Date(today);
-        monday.setDate(today.getDate() + diffToMon);
-
-        const inserts = [];
-        for (let week = 0; week < 4; week++) {
-          for (const slot of slotsRes.rows) {
-            const start = parseSlot(slot.time_slot);
-            if (!start) continue;
-            const date = new Date(monday);
-            date.setDate(monday.getDate() + week * 7 + (slot.day_of_week - 1));
-            if (date < today) continue;              // skip past dates this week
-            const dateStr = date.toISOString().slice(0, 10);
-            inserts.push({ date: dateStr, start, end: addHour(start) });
-          }
-        }
-
-        for (const c of inserts) {
-          await pool.query(
-            `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status)
-             VALUES ($1,$2,$3,$4,$5,8,'scheduled') ON CONFLICT DO NOTHING`,
-            [classTypeId, instructorId, c.date, c.start, c.end]
-          );
-        }
-        console.log(`✅ Seeded ${inserts.length} classes (VM schedule, próximas 4 semanas)`);
-      }
+      const inserted = await generateClassesFromSchedule({ weeks: 4 });
+      console.log(`✅ Seeded ${inserted} classes (VM schedule, próximas 4 semanas)`);
     }
   } catch (err) {
     console.error("Demo classes seed warning:", err.message);
+  }
+
+  // ── One-time versioned RESYNC of schedule_slots + future classes ──────────
+  // The live DB (tep_vm) already holds the OLD schedule + classes, so the
+  // empty-table guards above never fire for it. This block runs ONCE per
+  // deploy of SCHEDULE_VERSION (tracked via the `schedule_version` settings
+  // key) to: (a) replace schedule_slots with the canonical 23 slots, (b) drop
+  // ONLY future un-booked classes, and (c) regenerate from the new schedule.
+  // It NEVER deletes a class that has a non-cancelled booking, and is wrapped
+  // so a failure logs and continues rather than crashing boot.
+  try {
+    const SCHEDULE_VERSION = "vm-2026-06-27-tower";
+    const markerRes = await pool.query(
+      "SELECT value FROM settings WHERE key = 'schedule_version' LIMIT 1"
+    );
+    // value is JSONB (e.g. "vm-2026-06-27-tower"); pg already parses it to a JS string.
+    const storedVersion = markerRes.rows[0]?.value ?? null;
+    if (storedVersion !== SCHEDULE_VERSION) {
+      console.log(
+        `↻ Schedule RESYNC: stored=${JSON.stringify(storedVersion)} → ${SCHEDULE_VERSION}`
+      );
+      // a) Replace schedule_slots with the canonical 23 slots (with apparatus).
+      await pool.query("DELETE FROM schedule_slots");
+      await buildScheduleSlotsInsert(pool);
+      // b) Delete ONLY future classes with no non-cancelled booking. A class
+      //    referenced by any confirmed/checked-in/waitlisted booking is kept.
+      const del = await pool.query(`
+        DELETE FROM classes
+        WHERE date >= CURRENT_DATE
+          AND id NOT IN (
+            SELECT DISTINCT class_id FROM bookings
+            WHERE status <> 'cancelled' AND class_id IS NOT NULL
+          )
+        RETURNING id
+      `);
+      // c) Regenerate bookable classes from the new schedule (next 4 weeks).
+      const regen = await generateClassesFromSchedule({ weeks: 4 });
+      // d) Persist the version marker so this block runs once per deploy.
+      await pool.query(
+        `INSERT INTO settings (key, value) VALUES ('schedule_version', $1)
+         ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+        [JSON.stringify(SCHEDULE_VERSION)]
+      );
+      console.log(
+        `✅ Schedule RESYNC done: deleted ${del.rowCount} future un-booked classes, regenerated ${regen}, marker=${SCHEDULE_VERSION}`
+      );
+    }
+  } catch (err) {
+    console.error("Schedule RESYNC warning (continuing):", err.message);
   }
 
 
@@ -3224,6 +3354,7 @@ app.get("/api/classes", async (req, res) => {
              COALESCE(b_agg.cnt, 0)::int                      AS current_bookings,
              (c.date || 'T' || c.start_time || '-06:00')      AS start_time_full,
              (c.date || 'T' || c.end_time   || '-06:00')      AS end_time_full,
+             c.apparatus,
              ct.name  AS class_type_name,
              ct.color AS class_type_color,
              ct.icon  AS class_type_icon,
@@ -3258,6 +3389,7 @@ app.get("/api/classes", async (req, res) => {
         : (typeof row.date === "string" ? row.date.slice(0, 10) : row.date),
       start_time: row.start_time_full ?? row.start_time,
       end_time: row.end_time_full ?? row.end_time,
+      apparatus: row.apparatus ?? "reformer",
     }));
     return res.json({ data: rows });
   } catch (err) {
@@ -3273,6 +3405,7 @@ app.get("/api/classes/:id", async (req, res) => {
       `SELECT c.*,
               (c.date || 'T' || c.start_time || '-06:00') AS start_time,
               (c.date || 'T' || c.end_time   || '-06:00') AS end_time,
+              c.apparatus,
               ct.name  AS class_type_name,
               ct.color AS class_type_color,
               ct.icon  AS class_type_icon,
@@ -3313,6 +3446,7 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
               (c.date || 'T' || c.start_time || '-06:00') AS start_time,
               (c.date || 'T' || c.end_time   || '-06:00') AS end_time,
               c.status AS class_status,
+              c.apparatus,
               ct.name  AS class_type_name,
               ct.color AS class_color,
               i.display_name AS instructor_name,
