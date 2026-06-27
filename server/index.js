@@ -3676,6 +3676,22 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
     try {
       await client.query("BEGIN");
 
+      // Re-load + lock the booking row to guard against a concurrent cancel/move
+      // slipping in between the pre-transaction status read and the seat-move.
+      const bRow = await client.query(
+        "SELECT status, class_id FROM bookings WHERE id = $1 FOR UPDATE",
+        [req.params.id]
+      );
+      if (!bRow.rows.length || bRow.rows[0].status !== "confirmed") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          code: "BOOKING_NOT_CONFIRMED",
+          message: "La reserva cambió de estado. Recarga e intenta de nuevo.",
+        });
+      }
+      // Authoritative old class id (in case it changed under us).
+      const oldClassId = bRow.rows[0].class_id;
+
       // Lock the target class row to avoid overbooking in concurrent requests
       const newClassRes = await client.query(
         `SELECT id, max_capacity, current_bookings, status, date,
@@ -3710,10 +3726,25 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
         });
       }
 
-      // Free old spot
+      // Guard against an existing (different) booking on the TARGET class for this
+      // user — otherwise we'd over-count the target's seat / leave two confirmed
+      // bookings on it (mirrors the POST /api/bookings duplicate guard).
+      const dup = await client.query(
+        "SELECT 1 FROM bookings WHERE class_id = $1 AND user_id = $2 AND status <> 'cancelled' AND id <> $3 LIMIT 1",
+        [newClassId, req.userId, req.params.id]
+      );
+      if (dup.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          code: "ALREADY_BOOKED",
+          message: "Ya tienes una reserva para esa clase.",
+        });
+      }
+
+      // Free old spot (use the locked booking's authoritative class id)
       await client.query(
         "UPDATE classes SET current_bookings = GREATEST(current_bookings - 1, 0) WHERE id = $1",
-        [booking.class_id]
+        [oldClassId]
       );
       // Take new spot
       await client.query(
