@@ -13,14 +13,14 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Clock, User, CalendarDays, CheckCircle2 } from "lucide-react";
+import { Loader2, Clock, CalendarDays, CheckCircle2 } from "lucide-react";
 
 export interface ClassItem {
   id: string;
   time: string;       // 'HH:MM'
   type: string;
-  instructor: string;
-  spots: number;
+  instructor?: string;
+  spots: number;      // solo para detectar "lleno" — no se muestra
   duration: string;   // '50 min'
   date?: Date;
   color?: string;
@@ -99,21 +99,11 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
                 <Clock size={15} className="text-muted-foreground shrink-0" />
                 <span>{classData.time} · {classData.duration}</span>
               </div>
-              <div className="flex items-center gap-3 text-sm">
-                <User size={15} className="text-muted-foreground shrink-0" />
-                <span>{classData.instructor}</span>
-              </div>
-              <div className="rounded-lg px-4 py-3 text-sm mt-2"
-                style={{ background: `${accentColor}18`, border: `1px solid ${accentColor}33` }}>
-                <span style={{ color: accentColor }} className="font-semibold">
-                  {classData.spots} lugar{classData.spots !== 1 ? "es" : ""} disponible{classData.spots !== 1 ? "s" : ""}
-                </span>
-              </div>
             </div>
 
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-[11px] text-amber-800 leading-relaxed">
               <p className="font-semibold mb-0.5">Política de cancelación</p>
-              <p>Para cancelar tu reserva se tiene como mínimo <strong>8 horas de anticipación</strong>. De no hacerlo se perderá la clase y <strong>no habrá reposición</strong>.</p>
+              <p>Cancela con al menos <strong>12 horas de anticipación</strong> para recuperar tu crédito. También puedes <strong>reagendar el mismo día</strong> hasta 3 horas antes de la clase.</p>
             </div>
 
             {!user && (

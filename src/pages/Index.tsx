@@ -65,25 +65,6 @@ const FALLBACK_CLASS_TYPES: ClassTypeRow[] = [
   },
 ];
 
-/* Temas musculares por día — cupo 8 por clase */
-const TEMAS_SEMANA = [
-  { dia: "Lunes", tema: "Pierna & glúteo" },
-  { dia: "Martes", tema: "Full body" },
-  { dia: "Miércoles", tema: "Tren superior" },
-  { dia: "Jueves", tema: "Pierna & glúteo" },
-  { dia: "Viernes", tema: "Full body" },
-  { dia: "Sábado", tema: "Core" },
-] as const;
-
-/* Horarios por bloque — cupo 8. Todo Reformer; Vie 8:30 pm en Tower. */
-const HORARIOS = [
-  { dias: "Lunes", horas: ["7:00", "8:00 am", "5:30", "6:30", "8:30 pm"] },
-  { dias: "Martes", horas: ["7:30 pm"] },
-  { dias: "Miércoles · Viernes", horas: ["7:00", "8:00", "9:00 am", "5:30", "6:30", "7:30", "8:30 pm"] },
-  { dias: "Jueves", horas: ["5:30", "7:30 pm"] },
-  { dias: "Sábado", horas: ["9:00 am"] },
-] as const;
-
 /* Paquetes mensuales — no acumulables, vencen al fin del mes de compra */
 const PAQUETES = [
   { id: "p1", name: "7 clases", plan: "Paquete 7 Clases", classes: 7, price: 880, hint: "1 a 2 por semana" },
@@ -598,61 +579,6 @@ const Index = () => {
               );
             })}
           </div>
-        </div>
-      </section>
-
-      {/* ────────── TEMA MUSCULAR POR DÍA + HORARIOS ────────── */}
-      <section id="horario" className="py-28 lg:py-40 px-6 sm:px-10 border-t border-valiance-charcoal/8">
-        <div className="max-w-[1200px] mx-auto">
-          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 max-w-[720px] mb-12">
-            <h2
-              className="font-display font-normal text-[clamp(2.4rem,5vw,3.9rem)] leading-[1.02] tracking-[-0.015em] text-valiance-charcoal"
-              style={{ textWrap: "balance" } as React.CSSProperties}
-            >
-              Cada día, un enfoque distinto.
-            </h2>
-            <span className="block h-px w-16 bg-valiance-gold/50 origin-left mt-6 mb-6 reveal scale-x-0 transition-transform duration-700" />
-            <p className="font-body text-[1.02rem] text-valiance-charcoal/70 leading-[1.8] max-w-[60ch]">
-              Trabajamos el cuerpo completo a lo largo de la semana. Tú eliges cuándo, nosotras marcamos el tema. Cupo de 8 por clase.
-            </p>
-          </div>
-
-          {/* Strip semanal de temas — lavanda como acento frío puntual */}
-          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-x divide-y sm:divide-y-0 lg:divide-y-0 divide-valiance-lavender/30 rounded-[1.75rem] overflow-hidden ring-1 ring-valiance-charcoal/8 mb-14">
-            {TEMAS_SEMANA.map((d) => (
-              <div key={d.dia} className="bg-valiance-lavender/20 p-6 flex flex-col gap-2">
-                <div className="text-[0.62rem] tracking-[0.18em] uppercase text-valiance-mauve font-medium">{d.dia}</div>
-                <div className="font-display text-[1.45rem] leading-[1.1] text-valiance-charcoal">{d.tema}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Bloques de horarios */}
-          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {HORARIOS.map((b) => (
-              <div key={b.dias} className="rounded-[1.75rem] bg-valiance-nude ring-1 ring-valiance-charcoal/8 border-t-2 border-valiance-gold/30 p-8 flex flex-col gap-4">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-9 h-9 rounded-full bg-valiance-nude ring-1 ring-valiance-charcoal/8 flex items-center justify-center text-valiance-mauve flex-shrink-0">
-                    <Clock size={16} strokeWidth={1.6} />
-                  </span>
-                  <span className="font-display text-[1.4rem] text-valiance-charcoal leading-tight">{b.dias}</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {b.horas.map((h) => (
-                    <span key={h} className="px-3 py-1.5 rounded-full border border-valiance-charcoal/12 bg-transparent text-[0.8rem] text-valiance-charcoal/80 font-body tabular-nums">
-                      {h}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="text-[0.84rem] text-valiance-mauve mt-6 font-body">
-            Todas las clases en Reformer · Viernes 8:30 pm en Tower.
-          </p>
-          <p className="text-[0.84rem] text-valiance-mauve mt-1.5 font-body">
-            Cupo de 8 personas por clase. Reserva tu lugar con anticipación.
-          </p>
         </div>
       </section>
 
