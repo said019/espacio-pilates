@@ -22,6 +22,11 @@ export interface Order {
   bank_account_holder?: string;
   proof_url?: string;
   admin_notes?: string;
+  rejection_reason?: string;
+  payment_provider?: string | null;
+  mp_checkout_url?: string | null;
+  mp_payment_id?: string | null;
+  mp_payment_status?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -29,5 +34,5 @@ export interface Order {
 export interface CreateOrderRequest {
   planId: string;
   discountCode?: string;
-  paymentMethod: "transfer";
+  paymentMethod: "transfer" | "cash" | "card";
 }
