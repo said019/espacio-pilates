@@ -1650,6 +1650,31 @@ async function ensureSchema() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_event_passes_status ON event_passes(status)`).catch(() => { });
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_event_passes_registration_unique ON event_passes(registration_id) WHERE registration_id IS NOT NULL`).catch(() => { });
 
+    // ── MercadoPago: columnas de pago en orders + idempotencia de webhooks ──
+    await pool.query(`
+      ALTER TABLE orders
+        ADD COLUMN IF NOT EXISTS payment_provider   VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS payment_intent_id  VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS mp_checkout_url    TEXT,
+        ADD COLUMN IF NOT EXISTS mp_payment_id      VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS mp_payment_status  VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS mp_status_detail   VARCHAR(100),
+        ADD COLUMN IF NOT EXISTS provider_synced_at TIMESTAMP WITH TIME ZONE;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payment_webhook_events (
+        id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        provider     VARCHAR(50) NOT NULL,
+        event_key    VARCHAR(255) NOT NULL,
+        event_type   VARCHAR(50),
+        payload      JSONB DEFAULT '{}'::jsonb,
+        processed_at TIMESTAMP WITH TIME ZONE,
+        created_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE (provider, event_key)
+      );
+    `);
+    console.log("✅ MercadoPago: columnas orders + payment_webhook_events listas");
+
     console.log("✅ Schema ensured");
   } catch (err) {
     console.error("Schema migration warning:", err.message);
