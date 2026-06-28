@@ -655,6 +655,11 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_weekly_summary BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10)`).catch(() => { });
+    // ── Auth por teléfono: correo opcional, teléfono único entre clientes ──
+    await pool.query(`ALTER TABLE users ALTER COLUMN email DROP NOT NULL`).catch(() => { });
+    await pool.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS uq_users_phone_client ON users (phone) WHERE role = 'client'`
+    ).catch(() => { });
     // ── Password reset tokens ───────────────────────────────────────────────
     await pool.query(`
       CREATE TABLE IF NOT EXISTS password_reset_tokens (
