@@ -659,6 +659,21 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_reminders BOOLEAN DEFAULT true`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_promotions BOOLEAN DEFAULT false`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS receive_weekly_summary BOOLEAN DEFAULT false`).catch(() => { });
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS push_reminders BOOLEAN DEFAULT true`).catch(() => { });
+    // ── Web Push: suscripciones por dispositivo ──────────────────────────────
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        endpoint     TEXT NOT NULL UNIQUE,
+        p256dh       TEXT NOT NULL,
+        auth         TEXT NOT NULL,
+        user_agent   TEXT,
+        created_at   TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TIMESTAMP WITH TIME ZONE
+      );
+    `).catch((e) => console.error("[schema] push_subscriptions:", e.message));
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_push_subs_user ON push_subscriptions(user_id)`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gender VARCHAR(10)`).catch(() => { });
     // ── Auth por teléfono: correo opcional, teléfono único entre clientes ──
@@ -2968,6 +2983,7 @@ function mapUser(u) {
     receiveReminders: u.receive_reminders ?? true,
     receivePromotions: u.receive_promotions ?? false,
     receiveWeeklySummary: u.receive_weekly_summary ?? false,
+    pushReminders: u.push_reminders ?? true,
     createdAt: u.created_at,
   };
 }
@@ -7701,6 +7717,7 @@ app.put("/api/users/:id", authMiddleware, async (req, res) => {
       emergencyContactName, emergencyContactPhone, healthNotes,
       receiveReminders, receivePromotions, receiveWeeklySummary,
       acceptsCommunications,
+      pushReminders,
       role,
     } = req.body;
     // Non-admins cannot change role
@@ -7718,16 +7735,18 @@ app.put("/api/users/:id", authMiddleware, async (req, res) => {
          receive_promotions        = COALESCE($8, receive_promotions),
          receive_weekly_summary    = COALESCE($9, receive_weekly_summary),
          accepts_communications    = COALESCE($10, accepts_communications),
-         role                      = COALESCE($11, role),
-         gender                    = COALESCE($12, gender),
+         push_reminders            = COALESCE($11, push_reminders),
+         role                      = COALESCE($12, role),
+         gender                    = COALESCE($13, gender),
          updated_at                = NOW()
-       WHERE id = $13
+       WHERE id = $14
        RETURNING *`,
       [
         displayName || null, normalizePhoneForStorage(phone), dateOfBirth || null,
         emergencyContactName || null, emergencyContactPhone || null, healthNotes || null,
         receiveReminders ?? null, receivePromotions ?? null, receiveWeeklySummary ?? null,
         acceptsCommunications ?? null,
+        pushReminders ?? null,
         newRole,
         gender || null,
         targetId,
