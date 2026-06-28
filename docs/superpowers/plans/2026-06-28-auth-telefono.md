@@ -528,13 +528,19 @@ git commit -m "feat(auth): tipos identifier/email-opcional en frontend"
 
 ---
 
-## Task 7: Login.tsx — campo "Teléfono o correo"
+## Task 7: Login.tsx — campo "Teléfono o correo" + layout de una sola pantalla
 
 **Files:**
-- Modify: `src/pages/auth/Login.tsx:13-17` (schema/tipo) y `:160-173` (campo email)
+- Modify: `src/pages/auth/Login.tsx` (schema/tipo, campo de identifier, y layout/responsive en todo el archivo)
 
 **Interfaces:**
 - Consumes: `login` de `useAuthStore` (envía `{ identifier, password }`).
+
+**Requisito de diseño (NUEVO, pedido por el usuario):** la página debe **caber en una sola pantalla sin scroll vertical**, en desktop **y** móvil, con la **imagen adaptada**. Usar el skill `frontend-design` para esta tarea. Objetivos:
+- Contenedor a `min-h-[100dvh]` y que el contenido del formulario quepa sin overflow en viewports comunes (desktop ~1280×800, móvil ~390×844). En móvil, **el aside de la imagen (`hidden lg:flex`) ya se oculta** — mantener eso; el formulario debe ocupar el alto disponible y centrarse sin desbordar.
+- Compactar espaciados (paddings/`gap`) lo necesario para que todo (logo, encabezado, campos, botón Entrar, "Crear cuenta") sea visible de un vistazo. Los bloques de instalación PWA pueden quedar como están (aparecen condicionalmente y no en el flujo normal), pero no deben empujar el formulario fuera de vista cuando se muestran — limitarlos o hacerlos compactos.
+- Conservar la estética VM (paleta `valiance-*`, serif display) y la imagen hero del aside; sólo ajustar tamaño/encaje (`object-cover`, escala) para que se vea bien sin forzar scroll.
+- No romper accesibilidad: labels asociados, foco visible, targets táctiles cómodos.
 
 - [ ] **Step 1: Cambiar schema y tipo**
 
@@ -576,22 +582,34 @@ Reemplazar el bloque del campo email (`src/pages/auth/Login.tsx:160-173`) por:
 Run: `npm run build`
 Expected: sin errores en `Login.tsx`.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Verificar que cabe en una pantalla (desktop + móvil)**
+
+Levantar `npm run dev` y, con Playwright (MCP disponible) o el navegador, abrir `/auth/login` en 1280×800 y 390×844. Confirmar que NO hay scroll vertical en el flujo normal (sin teclado abierto) y que el botón "Entrar" y el enlace "Crear cuenta" son visibles sin desplazarse. Tomar screenshot en ambos tamaños y adjuntar al reporte.
+Expected: sin scroll vertical; todo el formulario visible en ambos tamaños.
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/pages/auth/Login.tsx
-git commit -m "feat(auth): Login con campo Teléfono o correo"
+git commit -m "feat(auth): Login con campo Teléfono o correo + una sola pantalla responsive"
 ```
 
 ---
 
-## Task 8: Register.tsx — correo opcional
+## Task 8: Register.tsx — correo opcional + layout de una sola pantalla
 
 **Files:**
-- Modify: `src/pages/auth/Register.tsx:14-33` (schema), `:71-90` (onSubmit), `:225-230` (campo email)
+- Modify: `src/pages/auth/Register.tsx` (schema, onSubmit, campo email, y layout/responsive en todo el archivo)
 
 **Interfaces:**
 - Consumes: `registerUser` de `useAuthStore` (envía `email` sólo si se llenó).
+
+**Requisito de diseño (NUEVO, pedido por el usuario):** la página de registro debe **caber en una sola pantalla sin tener que subir/bajar**, en desktop **y** móvil, con la **imagen adaptada**. Usar el skill `frontend-design`. Es la página más densa (nombre, teléfono, sexo, email opcional, contraseña, confirmar, 2 checkboxes, botón). Objetivos:
+- Contenedor a `min-h-[100dvh]`; **quitar el `overflow-y-auto`** del `<main>` y, en su lugar, **compactar** para que quepa: agrupar campos en filas de 2 columnas donde tenga sentido (ya hay grids `sm:grid-cols-2` para Nombre/Teléfono y Contraseña/Confirmar — extender el patrón, p.ej. Sexo + Email en una fila), reducir paddings/`gap`, encoger el logo superior y márgenes del encabezado.
+- Como el **correo ahora es opcional**, considerar que ocupe menos (campo más corto o en fila con Sexo). El objetivo es que en móvil (~390×844) el formulario completo y el botón "Crear mi cuenta" se vean con scroll mínimo o nulo; en desktop, sin scroll.
+- Adaptar la imagen del aside (`hidden lg:flex` ya la oculta en móvil — mantener). En desktop, asegurar que el aside y el formulario llenen el alto sin desbordar.
+- Conservar estética VM (paleta `valiance-*`, serif, lista de PERKS en el aside). No eliminar campos requeridos; sólo reorganizar/compactar. Reducir o quitar el footer "©" si estorba para que quepa.
+- Mantener accesibilidad (labels, foco, targets táctiles).
 
 - [ ] **Step 1: Hacer `email` opcional en el schema**
 
@@ -646,11 +664,16 @@ Reemplazar el bloque del campo email (`src/pages/auth/Register.tsx:225-230`) por
 Run: `npm run build`
 Expected: sin errores. (Los errores de tipo de la Tarea 6 deben quedar resueltos aquí.)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Verificar que cabe en una pantalla (desktop + móvil)**
+
+Levantar `npm run dev` y abrir `/auth/register` en 1280×800 y 390×844 (Playwright MCP o navegador). Confirmar que el formulario completo y el botón "Crear mi cuenta" se ven con scroll mínimo o nulo. Tomar screenshot en ambos tamaños y adjuntar al reporte.
+Expected: en desktop sin scroll; en móvil scroll mínimo o nulo, con el botón de envío alcanzable sin búsqueda.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/pages/auth/Register.tsx
-git commit -m "feat(auth): Registro con correo opcional, teléfono principal"
+git commit -m "feat(auth): Registro con correo opcional, teléfono principal + una sola pantalla responsive"
 ```
 
 ---
