@@ -285,7 +285,7 @@ const Register = () => {
                   onClick={() => setValue("acceptsTerms", !acceptsTerms)}
                   aria-pressed={acceptsTerms}
                   aria-label="Aceptar términos"
-                  className={`mt-0.5 w-4.5 h-4.5 min-w-[18px] min-h-[18px] rounded border flex-shrink-0 flex items-center justify-center transition-all ${
+                  className={`mt-0.5 min-w-[18px] min-h-[18px] rounded border flex-shrink-0 flex items-center justify-center transition-all ${
                     acceptsTerms
                       ? "bg-valiance-charcoal border-valiance-charcoal"
                       : "border-valiance-mauve/30 group-hover:border-valiance-mauve"
