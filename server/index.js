@@ -14755,7 +14755,7 @@ async function runClassReminderCron(mode = "morning") {
       sendConfiguredPushTemplate({
         templateKey: "class_reminder",
         userId: row.user_id,
-        vars: { name: row.name, class: row.class_name, time: timeKey },
+        vars: { name: row.name, class: row.class_name, date: dateStr, time: timeKey },
       }).catch((e) => console.error("[Push] class reminder:", e.message));
 
       await pool.query(
