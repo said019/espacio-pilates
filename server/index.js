@@ -14,7 +14,7 @@ import crypto from "crypto";
 import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
-import { endOfPurchaseMonth, canCancel, canReschedule } from "./lib/bookingPolicy.js";
+import { canCancel, canReschedule } from "./lib/bookingPolicy.js";
 import { createPreference, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
 import { isEmailIdentifier } from "./lib/authIdentity.js";
 import {
@@ -958,9 +958,9 @@ async function ensureSchema() {
     // activos (más TotalPass 154 admin-only, que se re-activa en su propio
     // bloque idempotente más abajo). No requiere UNIQUE(name).
     const VM_PLANS = [
-      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence al fin del mes de compra.",  price: 860,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence al fin del mes de compra.", price: 1400, dur: 30,   cl: 14, so: 2, feat: ["14 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 20 Clases",     desc: "20 clases al mes. Vence al fin del mes de compra.", price: 2200, dur: 30,   cl: 20, so: 3, feat: ["20 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence 30 días después de la compra.",  price: 860,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence 30 días después de la compra.", price: 1400, dur: 30,   cl: 14, so: 2, feat: ["14 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 20 Clases",     desc: "20 clases al mes. Vence 30 días después de la compra.", price: 2200, dur: 30,   cl: 20, so: 3, feat: ["20 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
       { name: "Clase Extra",           desc: "Clase adicional para alumnas ya inscritas.",        price: 130,  dur: 30,   cl: 1,  so: 4, feat: ["1 clase extra", "Solo para inscritas"] },
       { name: "Clase Suelta / Visita", desc: "Clase individual sin inscripción.",                 price: 250,  dur: 7,    cl: 1,  so: 5, feat: ["1 clase", "Sin inscripción", "Si te inscribes se toma a cuenta"] },
       { name: "Inscripción",           desc: "Pago único de inscripción. Se re-paga tras ausencia mayor a 6 meses.", price: 500, dur: 3650, cl: 0, so: 6, feat: ["Pago único", "Requerida para paquetes"] },
@@ -2323,7 +2323,7 @@ async function selectMembershipForClass({ userId, classCategory, classDate = nul
        LEFT JOIN plans p ON p.id = m.plan_id
       WHERE m.user_id = $1
         AND m.status = 'active'
-        AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+        AND (m.end_date IS NULL OR m.end_date >= COALESCE($3::date, CURRENT_DATE))
         AND (
           COALESCE(p.class_category, 'all') IN ('all', 'mixto')
           OR COALESCE(p.class_category, 'all') = $2
@@ -2344,7 +2344,7 @@ async function selectMembershipForClass({ userId, classCategory, classDate = nul
         m.end_date ASC,
         CASE WHEN m.classes_remaining IS NULL OR m.classes_remaining >= 9999 THEN 1 ELSE 0 END ASC,
         m.created_at ASC`,
-    [userId, clsCat]
+    [userId, clsCat, classDate]
   );
   const candidates = r.rows;
   if (!candidates.length) return null;
@@ -4016,6 +4016,21 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
       if (newStart && newStart.getTime() < now.getTime()) {
         await client.query("ROLLBACK");
         return res.status(400).json({ message: "No puedes reagendar a una clase que ya pasó." });
+      }
+
+      // ── Vigencia: la nueva clase debe caer dentro de la vigencia del paquete ──
+      if (booking.membership_id) {
+        const vig = await client.query(
+          "SELECT 1 FROM memberships WHERE id = $1 AND (end_date IS NULL OR end_date >= $2::date)",
+          [booking.membership_id, newCls.date]
+        );
+        if (vig.rows.length === 0) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({
+            code: "OUT_OF_VALIDITY",
+            message: "Esa clase está fuera de la vigencia de tu paquete. Elige una dentro de tu periodo vigente.",
+          });
+        }
       }
 
       if (Number(newCls.current_bookings) >= Number(newCls.max_capacity)) {
@@ -9095,21 +9110,19 @@ function addMonths(dateStr, months) {
   return d.toISOString().slice(0, 10);
 }
 
-// Calculates membership end date: plans with duration_days <= 7 use days, otherwise 1 calendar month
+// Calcula la fecha de fin de vigencia de la membresía.
+// Paquetes / clase suelta / clase extra (duration_days <= 31) → VIGENCIA POR
+// DÍAS CORRIDOS desde la compra (decidido 2026-06-28): p.ej. un paquete de 30
+// días comprado el 30-jun vence el 30-jul. No acumulable. La reserva se valida
+// contra esta fecha (selectMembershipForClass + reschedule).
+// Planes de largo plazo (p.ej. Inscripción 3650d) → meses de calendario.
 function calcMembershipEndDate(startStr, plan) {
   const days = plan.duration_days || 30;
-  if (days <= 7) {
-    // drop-in / visita → days-based
+  if (days <= 31) {
     const d = new Date(startStr + "T12:00:00");
     d.setDate(d.getDate() + days);
     return d.toISOString().slice(0, 10);
   }
-  if (days <= 31) {
-    // monthly packages (7/9/14, Clase Extra) → fin del mes de compra
-    return endOfPurchaseMonth(startStr);
-  }
-  // Calendar month: 30 days = 1 month, 60 = 2, etc.
-  // long-term (e.g. Inscripción 3650d) → calendar months
   const months = Math.max(1, Math.round(days / 30));
   return addMonths(startStr, months);
 }
