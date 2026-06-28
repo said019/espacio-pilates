@@ -442,13 +442,13 @@ const Index = () => {
         </div>
       </section>
 
-      {/* ────────── FILOSOFÍA / MANIFIESTO ────────── */}
+      {/* ────────── FILOSOFÍA / EL MÉTODO ────────── */}
       <section id="filosofia" className="py-32 lg:py-44 px-6 sm:px-10 border-t border-valiance-charcoal/8">
         <div className="max-w-[1200px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-20 items-start">
-          <div className="lg:col-span-5 reveal opacity-0 translate-y-6 transition-all duration-700">
+          <div className="lg:col-span-6 reveal opacity-0 translate-y-6 transition-all duration-700">
             <p className="flex items-center text-[0.7rem] tracking-[0.28em] uppercase text-valiance-mauve font-body mb-6">
               <span className="inline-block w-7 h-px bg-valiance-gold mr-3" />
-              Tu espacio
+              El método
             </p>
             <h2
               className="font-display font-normal text-[clamp(2.4rem,5vw,3.9rem)] leading-[1.02] tracking-[-0.015em] text-valiance-charcoal"
@@ -458,25 +458,44 @@ const Index = () => {
               Una <em className="italic text-valiance-gold leading-[1.1]">comunidad</em> que te acompaña.
             </h2>
             <span className="block h-px w-16 bg-valiance-gold/50 origin-left mt-7 mb-7 reveal scale-x-0 transition-transform duration-700" />
-            <p className="font-body text-[1.02rem] text-valiance-charcoal/75 leading-[1.8] max-w-[60ch]">
-              Aquí el pilates es para ti: madres, embarazadas y mujeres que quieren moverse con propósito. Lo que nos distingue es el método y nuestros aparatos. Llegas, te conocen por tu nombre y sales más fuerte cada clase.
-            </p>
+            <div className="space-y-5 font-body text-[1.02rem] text-valiance-charcoal/75 leading-[1.8] max-w-[60ch]">
+              <p>
+                En Espacio Pilates trabajamos con los cuatro principales equipos del método — <strong className="font-medium text-valiance-charcoal">Mat, Reformer, Tower y Wunda Chair</strong> — para que cada clase sea dinámica, completa y retadora.
+              </p>
+              <p>
+                Las clases no están asignadas a un aparato específico por día: la planeación semanal se realiza según los objetivos de entrenamiento y el grupo muscular que se trabajará en cada sesión. Así aprovechamos las ventajas de cada equipo para ofrecer una experiencia integral y un progreso constante.
+              </p>
+              <p>
+                Cada clase está diseñada para desarrollar fuerza, movilidad, estabilidad y control corporal, manteniendo la esencia del método Pilates y brindando variedad en cada entrenamiento.
+              </p>
+            </div>
           </div>
 
-          <div className="lg:col-span-7 reveal opacity-0 translate-y-6 transition-all duration-700 delay-100">
-            <div className="grid grid-cols-1 sm:grid-cols-2 divide-y divide-valiance-lavender/25">
-              {VALORES.map((v, i) => (
-                <div
-                  key={v.label}
-                  className={`group py-8 sm:py-9 sm:px-9 ${i % 2 === 0 ? "sm:pl-0 sm:pr-9 sm:border-r sm:border-valiance-lavender/25" : ""}`}
-                >
-                  <span className="w-11 h-11 rounded-full bg-valiance-nude ring-1 ring-valiance-charcoal/8 flex items-center justify-center text-valiance-mauve mb-4 group-hover:text-valiance-gold transition-colors">
-                    <v.icon size={20} strokeWidth={1.5} />
-                  </span>
-                  <div className="font-display text-[1.5rem] text-valiance-charcoal mb-2 leading-tight">{v.label}</div>
-                  <p className="font-body text-[0.92rem] text-valiance-charcoal/70 leading-[1.7] max-w-[34ch]">{v.text}</p>
-                </div>
-              ))}
+          <div className="lg:col-span-6 reveal opacity-0 translate-y-6 transition-all duration-700 delay-100">
+            <div className="rounded-[1.5rem] border border-valiance-blush/35 bg-valiance-surface2 p-7 sm:p-9 shadow-valiance-soft">
+              <p className="flex items-center text-[0.66rem] tracking-[0.28em] uppercase text-valiance-mauve font-body mb-1.5">
+                <span className="inline-block w-7 h-px bg-valiance-gold mr-3" />
+                Programación semanal
+              </p>
+              <p className="font-display text-[1.7rem] leading-tight text-valiance-charcoal mb-6">Enfoque por grupo muscular</p>
+              <ul className="divide-y divide-valiance-blush/45 border-t border-valiance-blush/45">
+                {[
+                  { day: "Lunes",     focus: "Pierna y glúteo" },
+                  { day: "Martes",    focus: "Full Body" },
+                  { day: "Miércoles", focus: "Tren superior" },
+                  { day: "Jueves",    focus: "Pierna y glúteo" },
+                  { day: "Viernes",   focus: "Full Body" },
+                  { day: "Sábado",    focus: "Core" },
+                ].map((d) => (
+                  <li key={d.day} className="flex items-baseline justify-between gap-4 py-3.5">
+                    <span className="flex items-center gap-3 font-display text-[1.25rem] text-valiance-charcoal">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-valiance-gold/80" />
+                      {d.day}
+                    </span>
+                    <span className="font-body text-[0.8rem] tracking-[0.1em] uppercase text-valiance-mauve text-right">{d.focus}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
         </div>
