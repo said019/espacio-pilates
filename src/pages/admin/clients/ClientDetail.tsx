@@ -55,9 +55,9 @@ const fmtDate = (v: any) =>
 const bookingStatus = (s?: string): { label: string; cls: string } => {
   switch ((s ?? "").toLowerCase()) {
     case "confirmed":  return { label: "Confirmada",      cls: "bg-tep-lilacSoft text-valiance-plum border-tep-lavender/40" };
-    case "checked_in": return { label: "Asistió",         cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
-    case "no_show":    return { label: "No asistió",      cls: "bg-amber-50 text-amber-800 border-amber-200" };
-    case "cancelled":  return { label: "Cancelada",       cls: "bg-rose-50 text-rose-700 border-rose-200" };
+    case "checked_in": return { label: "Asistió",         cls: "bg-[#ECEEDF] text-[#6E7F4F] border-[#CFD4B6]" };
+    case "no_show":    return { label: "No asistió",      cls: "bg-[#F4EAD6] text-[#B5832F] border-[#E5CF9F]" };
+    case "cancelled":  return { label: "Cancelada",       cls: "bg-[#F3DEDA] text-[#A8473F] border-[#E2B7B0]" };
     case "waitlist":   return { label: "Lista de espera", cls: "bg-tep-gray/50 text-valiance-mauve border-border" };
     default:           return { label: s ?? "—",          cls: "bg-tep-gray/50 text-valiance-mauve border-border" };
   }
@@ -87,17 +87,17 @@ const paymentOrigin = (p: any): { label: string; icon: LucideIcon; cls: string }
     if (method === "card" || provider === "mercadopago")
       return { label: "Tarjeta · MercadoPago (app)", icon: CreditCard, cls: "bg-tep-rose/60 text-valiance-plum border-tep-blush/40" };
     if (method === "transfer")
-      return { label: "Transferencia (app cliente)", icon: Smartphone, cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+      return { label: "Transferencia (app cliente)", icon: Smartphone, cls: "bg-[#ECEEDF] text-[#6E7F4F] border-[#CFD4B6]" };
     if (method === "cash")
-      return { label: "Efectivo", icon: Banknote, cls: "bg-amber-50 text-amber-800 border-amber-200" };
+      return { label: "Efectivo", icon: Banknote, cls: "bg-[#F4EAD6] text-[#B5832F] border-[#E5CF9F]" };
   }
   // Fallbacks when source is missing.
   if (method === "card" || provider === "mercadopago")
     return { label: "Tarjeta · MercadoPago", icon: CreditCard, cls: "bg-tep-rose/60 text-valiance-plum border-tep-blush/40" };
   if (method === "transfer")
-    return { label: "Transferencia", icon: Smartphone, cls: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+    return { label: "Transferencia", icon: Smartphone, cls: "bg-[#ECEEDF] text-[#6E7F4F] border-[#CFD4B6]" };
   if (method === "cash")
-    return { label: "Efectivo", icon: Banknote, cls: "bg-amber-50 text-amber-800 border-amber-200" };
+    return { label: "Efectivo", icon: Banknote, cls: "bg-[#F4EAD6] text-[#B5832F] border-[#E5CF9F]" };
   return { label: "Otro", icon: CreditCard, cls: "bg-tep-gray/50 text-valiance-mauve border-border" };
 };
 
@@ -266,7 +266,7 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
                         <DropdownMenuItem onClick={() => openEdit(m)}>Ajustar créditos</DropdownMenuItem>
                         {m.status === "cancelled" && (
                           <DropdownMenuItem
-                            className="text-emerald-600"
+                            className="text-[#6E7F4F]"
                             onClick={() => { if (window.confirm("¿Reactivar esta membresía?")) reactivateMem.mutate(m.id); }}
                           >
                             Reactivar membresía
@@ -296,7 +296,7 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
             <DialogTitle>Corregir créditos</DialogTitle>
           </DialogHeader>
           <p className="text-sm font-medium">{editingMem?.planName}</p>
-          <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+          <div className="rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-3 py-2 text-xs text-[#B5832F]">
             ⚠️ Solo usar para corregir errores. Para registrar asistencia usa la vista de clase → Asignar reserva → Check-in.
           </div>
           <div className="text-center text-xs text-muted-foreground">
@@ -318,7 +318,7 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
           </div>
           {credits !== (editingMem?.classesRemaining ?? 0) && (
             <p className="text-center text-xs text-muted-foreground">
-              Cambio: {editingMem?.classesRemaining ?? "?"} → <strong className={credits < (editingMem?.classesRemaining ?? 0) ? "text-destructive" : "text-emerald-600"}>{credits}</strong>
+              Cambio: {editingMem?.classesRemaining ?? "?"} → <strong className={credits < (editingMem?.classesRemaining ?? 0) ? "text-destructive" : "text-[#6E7F4F]"}>{credits}</strong>
             </p>
           )}
           <DialogFooter>
@@ -670,7 +670,7 @@ const ClientDetail = () => {
                               {bookedAt ? <span className="text-valiance-mauve/70"> · Reservada {fmtDateTime(bookedAt)}</span> : null}
                             </p>
                             {isCancelled && (
-                              <p className="mt-0.5 text-xs text-rose-600">
+                              <p className="mt-0.5 text-xs text-[#A8473F]">
                                 Cancelada {fmtDateTime(cancelledAt)} · {cancelAuthor(cancelledBy)}
                               </p>
                             )}
@@ -710,14 +710,14 @@ const ClientDetail = () => {
                       return (
                         <li key={r.id} className="rounded-xl border border-border/70 bg-card px-4 py-3">
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            <div className="flex-1 rounded-lg bg-rose-50/70 px-3 py-2">
-                              <p className="text-xs uppercase tracking-wide text-rose-500">De</p>
+                            <div className="flex-1 rounded-lg bg-[#F3DEDA] px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-[#A8473F]">De</p>
                               <p className="text-sm font-medium text-valiance-charcoal">{fromClass}</p>
                               <p className="text-xs text-valiance-mauve">{fmtDate(fromDate)} · {fromTime ?? "—"}</p>
                             </div>
                             <ArrowRight size={18} className="mx-auto shrink-0 rotate-90 text-valiance-blush sm:rotate-0" />
-                            <div className="flex-1 rounded-lg bg-emerald-50/70 px-3 py-2">
-                              <p className="text-xs uppercase tracking-wide text-emerald-600">A</p>
+                            <div className="flex-1 rounded-lg bg-[#ECEEDF] px-3 py-2">
+                              <p className="text-xs uppercase tracking-wide text-[#6E7F4F]">A</p>
                               <p className="text-sm font-medium text-valiance-charcoal">{toClass}</p>
                               <p className="text-xs text-valiance-mauve">{fmtDate(toDate)} · {toTime ?? "—"}</p>
                             </div>

@@ -297,8 +297,8 @@ const ReportsPage = () => {
                   <Badge
                     variant="outline"
                     className={Number(growth) >= 0
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : "border-rose-200 bg-rose-50 text-rose-700"}
+                      ? "border-[#CFD4B6] bg-[#ECEEDF] text-[#6E7F4F]"
+                      : "border-[#E2B7B0] bg-[#F3DEDA] text-[#A8473F]"}
                   >
                     {Number(growth) >= 0 ? "↑" : "↓"} {Math.abs(Number(growth))}% vs período ant.
                   </Badge>
@@ -544,7 +544,7 @@ const ReportsPage = () => {
                 <p className="text-xs text-muted-foreground mt-1">Convenio externo · walk-ins linkeados al plan TotalPass</p>
               </div>
               {tp.uniqueClientsMonth > 0 && (
-                <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
+                <Badge variant="outline" className="border-[#E5CF9F] bg-[#F4EAD6] text-[#B5832F]">
                   {tp.uniqueClientsMonth} client{tp.uniqueClientsMonth === 1 ? "a" : "as"} este mes
                 </Badge>
               )}
@@ -601,7 +601,7 @@ const ReportsPage = () => {
                                 )}
                               </p>
                             </div>
-                            <Badge variant="outline" className="shrink-0 border-amber-200 bg-amber-50 text-amber-700 tabular-nums">
+                            <Badge variant="outline" className="shrink-0 border-[#E5CF9F] bg-[#F4EAD6] text-[#B5832F] tabular-nums">
                               {row.bookings} clase{row.bookings !== 1 ? "s" : ""}
                             </Badge>
                           </div>
@@ -635,7 +635,7 @@ const ReportsPage = () => {
                     <p className="text-xs text-muted-foreground mt-2">
                       {totalReviews} reseña{totalReviews !== 1 ? "s" : ""}
                       {pendingReviews > 0 && (
-                        <span className="ml-2 inline-flex items-center gap-1 text-amber-700">
+                        <span className="ml-2 inline-flex items-center gap-1 text-[#B5832F]">
                           <Clock size={11} /> {pendingReviews} por aprobar
                         </span>
                       )}

@@ -227,7 +227,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
             title={isCompact ? "Cerrar sesión" : undefined}
             className={cn(
               "w-full flex items-center gap-3 rounded-2xl px-3.5 py-2.5 transition-all",
-              "text-valiance-charcoal/55 hover:text-red-600 hover:bg-red-50",
+              "text-valiance-charcoal/55 hover:text-[#A8473F] hover:bg-[#F3DEDA]",
               isCompact && "justify-center px-2",
             )}
           >
@@ -263,7 +263,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
 
           <div className="flex items-center gap-3">
             <span className="hidden sm:flex items-center gap-2 font-body text-[0.74rem] text-valiance-charcoal/60">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse-dot" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[#6E7F4F] animate-pulse-dot" />
               En línea
             </span>
             <div className="hidden sm:block w-px h-4 bg-valiance-blush" />

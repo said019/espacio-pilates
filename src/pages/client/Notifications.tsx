@@ -37,10 +37,10 @@ const typeIcon: Record<string, typeof Bell> = {
 };
 
 const typeColor: Record<string, string> = {
-  success: "text-green-600",
-  error: "text-red-500",
-  warning: "text-amber-500",
-  info: "text-blue-500",
+  success: "text-[#6E7F4F]",
+  error: "text-[#A8473F]",
+  warning: "text-[#B5832F]",
+  info: "text-[#6B7480]",
   reminder: "text-[#D9B5BA]",
 };
 

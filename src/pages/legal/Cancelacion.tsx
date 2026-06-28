@@ -62,7 +62,7 @@ const Cancelacion = () => {
 
             <div className="rounded-2xl border border-border bg-secondary/50 p-6 space-y-4">
               <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-xl bg-green-500/15 border border-green-500/30 flex items-center justify-center flex-shrink-0 text-green-400 text-lg">✓</div>
+                <div className="w-10 h-10 rounded-xl bg-[#ECEEDF] border border-[#CFD4B6] flex items-center justify-center flex-shrink-0 text-[#6E7F4F] text-lg">✓</div>
                 <div>
                   <h3 className="font-syne font-bold text-foreground text-sm mb-1">Cancelación con 12 horas o más de anticipación</h3>
                   <p className="text-muted-foreground text-sm leading-relaxed">
@@ -72,7 +72,7 @@ const Cancelacion = () => {
               </div>
               <div className="border-t border-border" />
               <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-xl bg-yellow-500/15 border border-yellow-500/30 flex items-center justify-center flex-shrink-0 text-yellow-400 text-lg">⚠</div>
+                <div className="w-10 h-10 rounded-xl bg-[#F4EAD6] border border-[#E5CF9F] flex items-center justify-center flex-shrink-0 text-[#B5832F] text-lg">⚠</div>
                 <div>
                   <h3 className="font-syne font-bold text-foreground text-sm mb-1">Entre 12 y 3 horas antes de la clase</h3>
                   <p className="text-muted-foreground text-sm leading-relaxed">
@@ -82,7 +82,7 @@ const Cancelacion = () => {
               </div>
               <div className="border-t border-border" />
               <div className="flex items-start gap-4">
-                <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center justify-center flex-shrink-0 text-red-400 text-lg">✗</div>
+                <div className="w-10 h-10 rounded-xl bg-[#F3DEDA] border border-[#E2B7B0] flex items-center justify-center flex-shrink-0 text-[#A8473F] text-lg">✗</div>
                 <div>
                   <h3 className="font-syne font-bold text-foreground text-sm mb-1">Menos de 3 horas o inasistencia (No-show)</h3>
                   <p className="text-muted-foreground text-sm leading-relaxed">
@@ -142,27 +142,27 @@ const Cancelacion = () => {
                 <tbody>
                   <tr className="border-t border-border">
                     <td className="p-4">Cancelación &gt; 2 hrs antes</td>
-                    <td className="p-4 text-green-400">✓ Clase devuelta</td>
+                    <td className="p-4 text-[#6E7F4F]">✓ Clase devuelta</td>
                   </tr>
                   <tr className="border-t border-border">
                     <td className="p-4">Cancelación &lt; 2 hrs antes</td>
-                    <td className="p-4 text-yellow-400">⚠ Clase perdida</td>
+                    <td className="p-4 text-[#B5832F]">⚠ Clase perdida</td>
                   </tr>
                   <tr className="border-t border-border">
                     <td className="p-4">No-show (sin aviso)</td>
-                    <td className="p-4 text-red-400">✗ Clase perdida</td>
+                    <td className="p-4 text-[#A8473F]">✗ Clase perdida</td>
                   </tr>
                   <tr className="border-t border-border">
                     <td className="p-4">Llegada tarde (&gt;5 min)</td>
-                    <td className="p-4 text-red-400">✗ Sin acceso, clase perdida</td>
+                    <td className="p-4 text-[#A8473F]">✗ Sin acceso, clase perdida</td>
                   </tr>
                   <tr className="border-t border-border">
                     <td className="p-4">Reembolso de paquete</td>
-                    <td className="p-4 text-red-400">✗ No aplica</td>
+                    <td className="p-4 text-[#A8473F]">✗ No aplica</td>
                   </tr>
                   <tr className="border-t border-border">
                     <td className="p-4">Emergencia médica comprobable</td>
-                    <td className="p-4 text-yellow-400">⚠ Evaluación caso por caso</td>
+                    <td className="p-4 text-[#B5832F]">⚠ Evaluación caso por caso</td>
                   </tr>
                 </tbody>
               </table>

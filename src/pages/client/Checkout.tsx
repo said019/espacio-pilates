@@ -142,10 +142,10 @@ const PlanCard = ({
           </span>
         )}
         {nonTransferable && (
-          <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">No transferible</span>
+          <span className="text-[10px] text-[#B5832F] bg-[#F4EAD6] border border-[#E5CF9F] rounded-full px-2 py-0.5">No transferible</span>
         )}
         {nonRepeatable && (
-          <span className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5">No repetible</span>
+          <span className="text-[10px] text-[#A8473F] bg-[#F3DEDA] border border-[#E2B7B0] rounded-full px-2 py-0.5">No repetible</span>
         )}
       </div>
     </button>
@@ -380,8 +380,8 @@ const Checkout = () => {
                         </div>
                         <div className="flex flex-wrap gap-2 mt-2">
                           <span className="text-[10px] text-[#6B4F53] bg-[#D9B5BA]/15 border border-[#D9B5BA]/25 rounded-full px-2 py-0.5">1 clase</span>
-                          <span className="text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5">No transferible</span>
-                          <span className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-2 py-0.5">No reembolsable</span>
+                          <span className="text-[10px] text-[#B5832F] bg-[#F4EAD6] border border-[#E5CF9F] rounded-full px-2 py-0.5">No transferible</span>
+                          <span className="text-[10px] text-[#A8473F] bg-[#F3DEDA] border border-[#E2B7B0] rounded-full px-2 py-0.5">No reembolsable</span>
                         </div>
                       </button>
                     </div>
@@ -445,7 +445,7 @@ const Checkout = () => {
                     </button>
                   </div>
                   {discountResult && (
-                    <div className="flex items-center gap-2 text-xs text-emerald-600">
+                    <div className="flex items-center gap-2 text-xs text-[#6E7F4F]">
                       <Check size={12} /> Descuento aplicado: -${discountResult.discount_amount} MXN
                     </div>
                   )}

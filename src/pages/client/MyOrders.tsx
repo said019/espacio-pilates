@@ -12,10 +12,10 @@ import { useToast } from "@/hooks/use-toast";
 import { Upload, Clock, CheckCircle, XCircle, AlertTriangle, ShoppingBag, CreditCard, Loader2 } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; icon: any; className: string }> = {
-  pending_payment:      { label: "Subir comprobante",  icon: Upload,        className: "border-amber-500/50 text-amber-700 bg-amber-50" },
-  pending_verification: { label: "En revisión",        icon: Clock,         className: "border-blue-500/50 text-blue-700 bg-blue-50" },
-  approved:             { label: "Aprobada",           icon: CheckCircle,   className: "border-green-500/50 text-green-700 bg-green-50" },
-  rejected:             { label: "Rechazada",          icon: XCircle,       className: "border-red-500/50 text-red-700 bg-red-50" },
+  pending_payment:      { label: "Subir comprobante",  icon: Upload,        className: "border-[#E5CF9F] text-[#B5832F] bg-[#F4EAD6]" },
+  pending_verification: { label: "En revisión",        icon: Clock,         className: "border-[#CCCFD6] text-[#6B7480] bg-[#E6E8EC]" },
+  approved:             { label: "Aprobada",           icon: CheckCircle,   className: "border-[#CFD4B6] text-[#6E7F4F] bg-[#ECEEDF]" },
+  rejected:             { label: "Rechazada",          icon: XCircle,       className: "border-[#E2B7B0] text-[#A8473F] bg-[#F3DEDA]" },
   expired:              { label: "Expirada",           icon: AlertTriangle, className: "border-gray-400/50 text-gray-500 bg-gray-50" },
   cancelled:            { label: "Cancelada",          icon: XCircle,       className: "border-gray-400/50 text-gray-500 bg-gray-50" },
 };
@@ -65,18 +65,18 @@ const MyOrders = () => {
           </div>
 
           {checkoutResult === "success" && (
-            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 flex items-center gap-2">
+            <div className="rounded-xl border border-[#CCCFD6] bg-[#E6E8EC] px-4 py-3 text-sm text-[#6B7480] flex items-center gap-2">
               <Loader2 size={15} className="animate-spin shrink-0" />
               Estamos confirmando tu pago con el banco. Tu membresía se activará en cuanto se acredite (puede tardar unos segundos).
             </div>
           )}
           {checkoutResult === "failure" && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <div className="rounded-xl border border-[#E2B7B0] bg-[#F3DEDA] px-4 py-3 text-sm text-[#A8473F]">
               El pago no se completó. Puedes reintentar desde la orden pendiente.
             </div>
           )}
           {checkoutResult === "pending" && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="rounded-xl border border-[#E5CF9F] bg-[#F4EAD6] px-4 py-3 text-sm text-[#B5832F]">
               Tu pago quedó en proceso. Te avisaremos cuando se confirme.
             </div>
           )}
@@ -144,7 +144,7 @@ const MyOrders = () => {
                     )}
 
                     {o.status === "pending_verification" && (
-                      <p className="text-xs text-blue-700 mt-3 bg-blue-50 rounded-lg px-3 py-2">
+                      <p className="text-xs text-[#6B7480] mt-3 bg-[#E6E8EC] rounded-lg px-3 py-2">
                         {o.payment_method === "cash"
                           ? "Acércate a recepción para completar tu pago."
                           : "Tu comprobante está siendo revisado. Te notificaremos cuando se apruebe."}
@@ -152,7 +152,7 @@ const MyOrders = () => {
                     )}
 
                     {o.status === "rejected" && o.rejection_reason && (
-                      <p className="text-xs text-red-700 mt-3 bg-red-50 rounded-lg px-3 py-2">
+                      <p className="text-xs text-[#A8473F] mt-3 bg-[#F3DEDA] rounded-lg px-3 py-2">
                         Motivo: {o.rejection_reason}
                       </p>
                     )}

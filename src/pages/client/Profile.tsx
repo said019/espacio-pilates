@@ -16,7 +16,7 @@ const ProfileLink = ({
     className={cn(
       "flex items-center justify-between rounded-2xl border p-4 transition-all duration-200",
       danger
-        ? "border-red-500/20 hover:bg-red-500/10 hover:border-red-500/40"
+        ? "border-[#E2B7B0] hover:bg-[#F3DEDA] hover:border-[#E2B7B0]"
         : "border-[#8C6B6F]/15 hover:border-[#8C6B6F]/30 hover:bg-[#8C6B6F]/[0.05]"
     )}
   >
@@ -32,7 +32,7 @@ const ProfileLink = ({
         <Icon size={17} />
       </div>
       <div>
-        <p className={cn("text-[0.88rem] font-semibold leading-tight", danger ? "text-red-400" : "text-foreground")}>
+        <p className={cn("text-[0.88rem] font-semibold leading-tight", danger ? "text-[#A8473F]" : "text-foreground")}>
           {label}
         </p>
         {description && (
@@ -81,7 +81,7 @@ const Profile = () => {
                     ? <img src={(user?.photoUrl ?? user?.photo_url)!} className="h-20 w-20 rounded-2xl object-cover" alt={name} />
                     : initials}
                 </div>
-                <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-emerald-400 border-2 border-[#FDF7F8]" />
+                <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-[#6E7F4F] border-2 border-[#FDF7F8]" />
               </div>
 
               {/* Info */}
@@ -139,14 +139,14 @@ const Profile = () => {
             </p>
             <button
               onClick={handleLogout}
-              className="w-full flex items-center justify-between rounded-2xl border border-red-500/20 p-4 transition-all duration-200 hover:bg-red-500/10 hover:border-red-500/40"
+              className="w-full flex items-center justify-between rounded-2xl border border-[#E2B7B0] p-4 transition-all duration-200 hover:bg-[#F3DEDA] hover:border-[#E2B7B0]"
             >
               <div className="flex items-center gap-3.5">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#F3DEDA] text-[#A8473F]">
                   <LogOut size={17} />
                 </div>
                 <div className="text-left">
-                  <p className="text-[0.88rem] font-semibold text-red-400 leading-tight">Cerrar sesión</p>
+                  <p className="text-[0.88rem] font-semibold text-[#A8473F] leading-tight">Cerrar sesión</p>
                   <p className="text-[0.74rem] text-muted-foreground mt-0.5">Salir de tu cuenta</p>
                 </div>
               </div>

@@ -330,7 +330,7 @@ const MembershipTable = ({ status, title }: { status?: string; title: string }) 
                           </span>
                         )}
                         {combo && (
-                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border border-amber-300 bg-amber-50 text-amber-700">
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border border-[#E5CF9F] bg-[#F4EAD6] text-[#B5832F]">
                             Bundle · {combo}
                           </span>
                         )}

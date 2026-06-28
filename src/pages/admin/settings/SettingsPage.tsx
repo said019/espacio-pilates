@@ -154,7 +154,7 @@ const WhatsAppSettings = () => {
       <div className="rounded-xl border p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold flex items-center gap-2">
-            {status.connected ? <Wifi size={16} className="text-green-500" /> : <WifiOff size={16} className="text-muted-foreground" />}
+            {status.connected ? <Wifi size={16} className="text-[#6E7F4F]" /> : <WifiOff size={16} className="text-muted-foreground" />}
             Conexión WhatsApp
           </h3>
           <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isFetching}>
@@ -163,7 +163,7 @@ const WhatsAppSettings = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <Badge variant={status.connected ? "default" : "secondary"} className={status.connected ? "bg-green-500" : ""}>
+          <Badge variant={status.connected ? "default" : "secondary"} className={status.connected ? "bg-[#6E7F4F]" : ""}>
             {status.connected ? "Conectado" : status.state === "qr_pending" ? "Esperando QR" : "Desconectado"}
           </Badge>
           {status.number && <span className="text-sm text-muted-foreground">{status.number}</span>}
@@ -346,10 +346,10 @@ const NotificationTemplates = () => {
                     variant="secondary"
                     className={
                       row.status === "ok"
-                        ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                        ? "bg-[#ECEEDF] text-[#6E7F4F] border-[#CFD4B6]"
                         : row.status === "partial"
-                          ? "bg-amber-500/15 text-amber-300 border-amber-500/30"
-                          : "bg-red-500/15 text-red-300 border-red-500/30"
+                          ? "bg-[#F4EAD6] text-[#B5832F] border-[#E5CF9F]"
+                          : "bg-[#F3DEDA] text-[#A8473F] border-[#E2B7B0]"
                     }
                   >
                     {row.status === "ok" ? "OK" : row.status === "partial" ? "Parcial" : "Error"}
@@ -762,7 +762,7 @@ const CancellationSettings = () => {
 
       {/* Live preview */}
       {previewMsg && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-3 text-xs text-amber-900 leading-relaxed">
+        <div className="rounded-xl border border-[#E5CF9F] bg-[#F4EAD6] px-4 py-3 text-xs text-[#B5832F] leading-relaxed">
           <p className="font-semibold mb-1">Vista previa del mensaje:</p>
           <p>{previewMsg}</p>
         </div>
@@ -812,7 +812,7 @@ const SettingsPage = () => (
 
           <TabsContent value="bank">
             <div className="space-y-4 max-w-md">
-              <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 text-xs text-amber-900">
+              <div className="rounded-lg border border-[#E5CF9F] bg-[#F4EAD6] px-4 py-3 text-xs text-[#B5832F]">
                 Estos datos aparecen al cliente en el flujo de checkout cuando elige
                 <strong> transferencia</strong>. Si quedan vacíos, el sistema mostrará
                 "El estudio aún no ha configurado datos bancarios" y el cliente no

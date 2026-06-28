@@ -129,7 +129,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
                 ? <img src={(user?.photoUrl ?? user?.photo_url)!} alt="" className="h-11 w-11 rounded-full object-cover" />
                 : initials}
             </div>
-            <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-400 border-2 border-valiance-nude" />
+            <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-[#6E7F4F] border-2 border-valiance-nude" />
           </div>
 
           <div className="min-w-0 flex-1">
@@ -184,7 +184,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
           </Link>
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 rounded-2xl px-3.5 py-2.5 font-body text-[0.86rem] text-valiance-charcoal/65 hover:bg-red-50 hover:text-red-600 transition-all"
+            className="w-full flex items-center gap-3 rounded-2xl px-3.5 py-2.5 font-body text-[0.86rem] text-valiance-charcoal/65 hover:bg-[#F3DEDA] hover:text-[#A8473F] transition-all"
           >
             <LogOut size={17} strokeWidth={1.6} />
             Cerrar sesión

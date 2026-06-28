@@ -80,7 +80,7 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
 
         {done ? (
           <div className="flex flex-col items-center gap-3 py-8">
-            <CheckCircle2 size={52} className="text-green-500" />
+            <CheckCircle2 size={52} className="text-[#6E7F4F]" />
             <p className="font-semibold text-lg">¡Reserva confirmada!</p>
             <p className="text-sm text-muted-foreground">Te esperamos en el estudio 🎉</p>
           </div>
@@ -101,7 +101,7 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
               </div>
             </div>
 
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-[11px] text-amber-800 leading-relaxed">
+            <div className="rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[11px] text-[#B5832F] leading-relaxed">
               <p className="font-semibold mb-0.5">Política de cancelación</p>
               <p>Cancela con al menos <strong>12 horas de anticipación</strong> para recuperar tu crédito. También puedes <strong>reagendar el mismo día</strong> hasta 3 horas antes de la clase.</p>
             </div>

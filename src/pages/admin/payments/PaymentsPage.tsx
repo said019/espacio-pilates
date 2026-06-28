@@ -451,34 +451,34 @@ const PendingOrders = () => {
             className={cn(
               "rounded-xl border p-4 space-y-3",
               isCash
-                ? "border-blue-500/25 bg-blue-50/40"
-                : "border-amber-600/20 bg-amber-50/50"
+                ? "border-[#CCCFD6] bg-[#E6E8EC]"
+                : "border-[#E5CF9F] bg-[#F4EAD6]"
             )}
           >
             {/* Payment method banner */}
             <div className={cn(
               "flex items-center gap-2.5 rounded-lg px-3 py-2.5 -mx-0.5",
               isCash
-                ? "bg-blue-100/70 border border-blue-200/50"
-                : "bg-amber-100/70 border border-amber-200/50"
+                ? "bg-[#E6E8EC] border border-[#CCCFD6]"
+                : "bg-[#F4EAD6] border border-[#E5CF9F]"
             )}>
               <div className={cn(
                 "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-                isCash ? "bg-blue-500 text-white" : "bg-amber-500 text-white"
+                isCash ? "bg-[#6B7480] text-white" : "bg-[#B5832F] text-white"
               )}>
                 {isCash ? <Banknote size={15} /> : <CreditCard size={15} />}
               </div>
               <div className="flex-1 min-w-0">
-                <p className={cn("text-xs font-bold", isCash ? "text-blue-800" : "text-amber-800")}>
+                <p className={cn("text-xs font-bold", isCash ? "text-[#6B7480]" : "text-[#B5832F]")}>
                   {isCash ? "PAGO EN EFECTIVO — EN ESTUDIO" : isTransfer ? "TRANSFERENCIA / SPEI" : "TARJETA"}
                 </p>
-                <p className={cn("text-[10px]", isCash ? "text-blue-600/70" : "text-amber-600/70")}>
+                <p className={cn("text-[10px]", isCash ? "text-[#6B7480]" : "text-[#B5832F]")}>
                   {isCash ? "La clienta pagará directamente en recepción" : "Comprobante enviado, verificar pago"}
                 </p>
               </div>
               <Badge variant="outline" className={cn(
                 "text-[10px] shrink-0",
-                isCash ? "text-blue-700 border-blue-400/40 bg-blue-50" : "text-amber-700 border-amber-400/40 bg-amber-50"
+                isCash ? "text-[#6B7480] border-[#CCCFD6] bg-[#E6E8EC]" : "text-[#B5832F] border-[#E5CF9F] bg-[#F4EAD6]"
               )}>
                 <Clock size={9} className="mr-1" />
                 {isCash ? "Por cobrar" : "Por verificar"}
@@ -527,7 +527,7 @@ const PendingOrders = () => {
                 className={cn(
                   "flex-1 font-semibold text-xs h-9 text-white hover:opacity-90",
                   isCash
-                    ? "bg-gradient-to-r from-blue-600 to-blue-500 shadow-blue-500/20 shadow-sm"
+                    ? "bg-gradient-to-r from-[#6B7480] to-[#6B7480] shadow-blue-500/20 shadow-sm"
                     : "bg-gradient-to-r from-[#4a7a38] to-[#6b9a52]"
                 )}
                 onClick={() => verifyMutation.mutate(o.id)}
@@ -541,7 +541,7 @@ const PendingOrders = () => {
               <Button
                 size="sm"
                 variant="outline"
-                className="border-red-400/30 text-red-600 hover:bg-red-50 hover:border-red-400/50 font-semibold text-xs h-9"
+                className="border-[#E2B7B0] text-[#A8473F] hover:bg-[#F3DEDA] hover:border-[#E2B7B0] font-semibold text-xs h-9"
                 onClick={() => rejectMutation.mutate(o.id)}
                 disabled={rejectMutation.isPending}
               >

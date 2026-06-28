@@ -195,9 +195,9 @@ const STATUS_LABEL: Record<string, string> = {
 
 const STATUS_COLOR: Record<string, string> = {
   confirmed: "bg-[#716D64]/15 text-[#716D64]",
-  checked_in: "bg-emerald-500/15 text-emerald-600",
-  waitlist: "bg-amber-500/15 text-amber-600",
-  no_show: "bg-red-500/15 text-red-600",
+  checked_in: "bg-[#ECEEDF] text-[#6E7F4F]",
+  waitlist: "bg-[#F4EAD6] text-[#B5832F]",
+  no_show: "bg-[#F3DEDA] text-[#A8473F]",
   cancelled: "bg-gray-500/15 text-gray-500",
 };
 
@@ -450,13 +450,13 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
                 </SelectContent>
               </Select>
               {!walkInPlans.some((p: any) => /totalpass/i.test(String(p.name))) && (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5">
-                  <p className="text-[10px] text-amber-700">⚠️ TotalPass 154 no detectado.</p>
+                <div className="flex items-center justify-between gap-2 rounded-md border border-[#E5CF9F] bg-[#F4EAD6] px-2 py-1.5">
+                  <p className="text-[10px] text-[#B5832F]">⚠️ TotalPass 154 no detectado.</p>
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="h-6 text-[10px] border-amber-400 text-amber-700 hover:bg-amber-100"
+                    className="h-6 text-[10px] border-[#E5CF9F] text-[#B5832F] hover:bg-[#F4EAD6]"
                     disabled={seedTotalPassMutation.isPending}
                     onClick={() => seedTotalPassMutation.mutate()}
                   >
@@ -527,7 +527,7 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
                     </p>
                   </div>
                   {isWalkIn && (
-                    <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-amber-400/60 text-amber-600">Invitado</Badge>
+                    <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-[#E5CF9F] text-[#B5832F]">Invitado</Badge>
                   )}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
@@ -535,7 +535,7 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
                     {STATUS_LABEL[status] ?? status}
                   </span>
                   {canCheckin && (
-                    <Button variant="ghost" size="icon" className="h-6 w-6 text-emerald-600 hover:bg-emerald-500/10"
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-[#6E7F4F] hover:bg-[#ECEEDF]"
                       title="Check-in"
                       onClick={() => checkinMutation.mutate(bookingId)}
                       disabled={anyMutating}>
@@ -543,7 +543,7 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
                     </Button>
                   )}
                   {canNoShow && (
-                    <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:bg-red-500/10"
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-[#A8473F] hover:bg-[#F3DEDA]"
                       title="No asistió"
                       onClick={() => noShowMutation.mutate(bookingId)}
                       disabled={anyMutating}>

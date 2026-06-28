@@ -238,7 +238,7 @@ const Dashboard = () => {
                         <Badge
                           variant="outline"
                           className={o.status === "pending_payment"
-                            ? "rounded-full border-amber-500/40 bg-amber-50 text-amber-700"
+                            ? "rounded-full border-[#E5CF9F] bg-[#F4EAD6] text-[#B5832F]"
                             : "rounded-full border-valiance-mauve/40 bg-valiance-blush/25 text-valiance-mauve"
                           }
                         >

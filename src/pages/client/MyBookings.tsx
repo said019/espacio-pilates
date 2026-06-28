@@ -119,7 +119,7 @@ const BookingCard = ({
           hasReview ? (
             <Badge
               variant="outline"
-              className="border-emerald-300 bg-emerald-50 text-emerald-700"
+              className="border-[#CFD4B6] bg-[#ECEEDF] text-[#6E7F4F]"
             >
               Reseña enviada
             </Badge>
@@ -341,7 +341,7 @@ const MyBookings = () => {
               <AlertDialogDescription className="space-y-3">
                 <span className="block">Esta acción no se puede deshacer.</span>
                 {cancelConfig.min_hours > 0 && (
-                  <span className="block rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-amber-800 text-xs leading-relaxed">
+                  <span className="block rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[#B5832F] text-xs leading-relaxed">
                     <strong>Importante:</strong>{" "}
                     {cancelConfig.late_cancel_message
                       ? cancelConfig.late_cancel_message.replace("{hours}", String(cancelConfig.min_hours))
@@ -349,7 +349,7 @@ const MyBookings = () => {
                   </span>
                 )}
                 {!cancelConfig.refund_credit_on_cancel && (
-                  <span className="block rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-amber-800 text-xs leading-relaxed">
+                  <span className="block rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[#B5832F] text-xs leading-relaxed">
                     <strong>Nota:</strong> La clase no será devuelta a tu paquete al cancelar.
                   </span>
                 )}
@@ -381,7 +381,7 @@ const MyBookings = () => {
                     <button key={s} onClick={() => setRating(s)}>
                       <Star
                         size={24}
-                        className={s <= rating ? "text-yellow-400 fill-yellow-400" : "text-muted-foreground"}
+                        className={s <= rating ? "text-[#B5832F] fill-yellow-400" : "text-muted-foreground"}
                       />
                     </button>
                   ))}
