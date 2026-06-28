@@ -3737,6 +3737,11 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
             ? waitlistJoinFallback(waName, waClass, waDate, waTime)
             : `Hola ${waName}, tu reserva para ${waClass} (${waDate} ${waTime}) está confirmada.`,
         }).catch((e) => console.error("[WA] booking confirmed:", e.message));
+        sendConfiguredPushTemplate({
+          templateKey: isWaitlist ? "booking_waitlist" : "booking_confirmed",
+          userId: req.userId,
+          vars: { name: waName, class: waClass, date: waDate, time: waTime },
+        }).catch((e) => console.error("[Push] booking confirmed:", e.message));
       }
     } catch (emailErr) {
       console.error("[Email] booking confirmed query error:", emailErr.message);
@@ -3941,6 +3946,17 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
             ? `Hola ${u.display_name || "Alumna"}, cancelaste tu reserva de ${booking.class_type_name || "tu clase"}. Tu crédito fue devuelto.`
             : `Hola ${u.display_name || "Alumna"}, cancelaste tu reserva de ${booking.class_type_name || "tu clase"}. La clase no fue devuelta.`,
         }).catch((e) => console.error("[WA] booking cancelled:", e.message));
+        sendConfiguredPushTemplate({
+          templateKey: "booking_cancelled",
+          userId: req.userId,
+          vars: {
+            name: u.display_name || "Alumna",
+            class: booking.class_type_name || "tu clase",
+            date: booking.date ? new Date(booking.date).toLocaleDateString("es-MX") : "",
+            time: booking.start_time ? String(booking.start_time).slice(0, 5) : "",
+            creditRestored: shouldRefund ? "Sí" : "No",
+          },
+        }).catch((e) => console.error("[Push] booking cancelled:", e.message));
       }
     } catch (emailErr) {
       console.error("[Email] cancelled query:", emailErr.message);
@@ -4955,6 +4971,15 @@ async function approveOrderFromMP(orderId, mpPaymentId) {
             },
             fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${planRow.name || ""} ya está activa.`,
           }).catch((e) => console.error("[WA] MP approve:", e.message));
+          sendConfiguredPushTemplate({
+            templateKey: "membership_activated",
+            userId: order.user_id,
+            vars: {
+              name: u.display_name || "Alumna", plan: planRow.name || "tu plan",
+              startDate: new Date().toLocaleDateString("es-MX"),
+              endDate: new Date(emailEndStr).toLocaleDateString("es-MX"),
+            },
+          }).catch((e) => console.error("[Push] MP approve:", e.message));
         }
       }
       if (order.user_id) triggerWalletPassSync(order.user_id, "mp_payment_approved");
@@ -9315,6 +9340,72 @@ async function sendConfiguredWhatsAppTemplate({ templateKey, phone, vars = {}, f
   return { sent: true };
 }
 
+// URL a abrir al tocar la notificación, por tipo de evento.
+const PUSH_TEMPLATE_URLS = {
+  booking_confirmed: "/app/bookings",
+  booking_waitlist: "/app/bookings",
+  booking_waitlist_promoted: "/app/bookings",
+  booking_cancelled: "/app/bookings",
+  class_reminder: "/app/bookings",
+  membership_activated: "/app",
+  renewal_reminder: "/app",
+  last_class_reminder: "/app",
+};
+
+// Fan-out a todas las suscripciones de una alumna. Best-effort: poda muertas,
+// nunca lanza (no debe romper reserva/pago/cron).
+async function sendPushToUser(userId, { title, body, url = "/", tag, respectPrefs = true } = {}) {
+  if (!isPushConfigured() || !userId) return { sent: 0, failed: 0, pruned: 0 };
+  try {
+    if (respectPrefs) {
+      const pref = await pool.query("SELECT push_reminders FROM users WHERE id = $1", [userId]);
+      if (pref.rows[0] && pref.rows[0].push_reminders === false) {
+        return { sent: 0, failed: 0, pruned: 0, reason: "push_disabled" };
+      }
+    }
+    const subs = await pool.query(
+      "SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = $1",
+      [userId]
+    );
+    if (!subs.rows.length) return { sent: 0, failed: 0, pruned: 0 };
+    const payload = buildPushPayload({ title, body, url, tag });
+    let sent = 0, failed = 0, pruned = 0;
+    for (const row of subs.rows) {
+      const subscription = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
+      try {
+        await sendWebPush(subscription, payload);
+        sent++;
+        pool.query("UPDATE push_subscriptions SET last_used_at = NOW() WHERE id = $1", [row.id]).catch(() => { });
+      } catch (err) {
+        if (shouldPruneSubscription(err)) {
+          pruned++;
+          pool.query("DELETE FROM push_subscriptions WHERE id = $1", [row.id]).catch(() => { });
+        } else {
+          failed++;
+          console.error("[Push] send error:", err?.statusCode || err?.message);
+        }
+      }
+    }
+    return { sent, failed, pruned };
+  } catch (e) {
+    console.error("[sendPushToUser]", e.message);
+    return { sent: 0, failed: 0, pruned: 0 };
+  }
+}
+
+// Versión que reutiliza las plantillas de notificación (subject→title, body→body).
+async function sendConfiguredPushTemplate({ templateKey, userId, vars = {}, urlPath } = {}) {
+  if (!isPushConfigured() || !userId) return { sent: 0 };
+  const templates = await getSettingsValue("notification_templates", DEFAULT_NOTIFICATION_TEMPLATES);
+  const tpl = templates?.[templateKey] || DEFAULT_NOTIFICATION_TEMPLATES[templateKey];
+  if (!tpl) return { sent: 0 };
+  const title = renderTemplateVars(tpl.subject || "Tu Espacio Pilates", vars).trim();
+  // Quitar asteriscos de markdown de WhatsApp para texto plano de notificación.
+  const body = renderTemplateVars(tpl.body || "", vars).replace(/\*/g, "").trim();
+  const url = urlPath || PUSH_TEMPLATE_URLS[templateKey] || "/app";
+  return sendPushToUser(userId, { title, body, url, tag: templateKey });
+}
+
 // Mensajes de lista de espera (texto único, reutilizado como fallback en los
 // envíos y dentro de notifyWaitlistPromotion). Mantener alineados con los
 // bodies por defecto de booking_waitlist / booking_waitlist_promoted.
@@ -9363,6 +9454,11 @@ async function notifyWaitlistPromotion(userId, classId) {
       vars: { name, class: className, date: dateStr, time: timeStr },
       fallbackMessage: waitlistPromotedFallback(name, className, dateStr, timeStr),
     }).catch((e) => console.error("[WA] waitlist promoted:", e.message));
+    sendConfiguredPushTemplate({
+      templateKey: "booking_waitlist_promoted",
+      userId,
+      vars: { name, class: className, date: dateStr, time: timeStr },
+    }).catch((e) => console.error("[Push] waitlist promoted:", e.message));
   } catch (e) {
     console.error("[notifyWaitlistPromotion]", e.message);
   }
@@ -10554,6 +10650,16 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
           },
           fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${plan.name || ""} ya está activa. Vigencia: ${new Date(startStr).toLocaleDateString("es-MX")} al ${new Date(endStr).toLocaleDateString("es-MX")}.`,
         }).catch((e) => console.error("[WA] membership activated:", e.message));
+        sendConfiguredPushTemplate({
+          templateKey: "membership_activated",
+          userId,
+          vars: {
+            name: u.display_name || "Alumna",
+            plan: plan.name || "tu plan",
+            startDate: new Date(startStr).toLocaleDateString("es-MX"),
+            endDate: new Date(endStr).toLocaleDateString("es-MX"),
+          },
+        }).catch((e) => console.error("[Push] membership activated:", e.message));
       }
     } catch (emailErr) {
       console.error("[Email] membership create query:", emailErr.message);
@@ -10713,6 +10819,16 @@ app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
           },
           fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${mem.plan_name || mem.plan_name_override || ""} ya está activa.`,
         }).catch((e) => console.error("[WA] membership activate:", e.message));
+        sendConfiguredPushTemplate({
+          templateKey: "membership_activated",
+          userId: mem.user_id,
+          vars: {
+            name: u.display_name || "Alumna",
+            plan: mem.plan_name || mem.plan_name_override || "tu plan",
+            startDate: mem.start_date ? new Date(mem.start_date).toLocaleDateString("es-MX") : "",
+            endDate: mem.end_date ? new Date(mem.end_date).toLocaleDateString("es-MX") : "",
+          },
+        }).catch((e) => console.error("[Push] membership activate:", e.message));
       }
     } catch (emailErr) {
       console.error("[Email] activate query:", emailErr.message);
@@ -12417,6 +12533,16 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
             },
             fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${plan.name || ""} ya está activa.`,
           }).catch((e) => console.error("[WA] admin order verify:", e.message));
+          sendConfiguredPushTemplate({
+            templateKey: "membership_activated",
+            userId: order.user_id,
+            vars: {
+              name: u.display_name || "Alumna",
+              plan: plan.name || "tu plan",
+              startDate: new Date().toLocaleDateString("es-MX"),
+              endDate: new Date(emailEndStr).toLocaleDateString("es-MX"),
+            },
+          }).catch((e) => console.error("[Push] admin order verify:", e.message));
         }
       } catch (emailErr) {
         console.error("[Email] admin order verify query:", emailErr.message);
@@ -14421,6 +14547,7 @@ async function runRenewalReminderCron() {
 
     const res = await pool.query(`
       SELECT m.id AS membership_id,
+             u.id AS user_id,
              u.email, u.phone, COALESCE(u.display_name, 'Alumna') AS name,
              m.classes_remaining, m.end_date,
              COALESCE(m.class_limit_override, p.class_limit) AS effective_class_limit,
@@ -14480,6 +14607,11 @@ async function runRenewalReminderCron() {
         },
         fallbackMessage: `Hola ${row.name} 💜 Te queda *1 clase* en tu plan ${row.plan_name}. Renueva para seguir entrenando sin parar. 🤍`,
       }).catch((e) => console.error("[WA] last-class reminder:", e.message));
+      sendConfiguredPushTemplate({
+        templateKey: "last_class_reminder",
+        userId: row.user_id,
+        vars: { name: row.name, plan: row.plan_name, classesRemaining: row.classes_remaining ?? "" },
+      }).catch((e) => console.error("[Push] last-class reminder:", e.message));
 
       // Mark as sent (best-effort; if it fails we'll retry tomorrow).
       await pool.query(
@@ -14620,6 +14752,11 @@ async function runClassReminderCron(mode = "morning") {
         },
         fallbackMessage: `Hola ${row.name}, te recordamos tu clase de ${row.class_name} ${dayLabel} a las ${timeKey}. ¡Te esperamos!`,
       }).catch((e) => console.error("[WA] class reminder:", e.message));
+      sendConfiguredPushTemplate({
+        templateKey: "class_reminder",
+        userId: row.user_id,
+        vars: { name: row.name, class: row.class_name, time: timeKey },
+      }).catch((e) => console.error("[Push] class reminder:", e.message));
 
       await pool.query(
         `INSERT INTO whatsapp_reminders_sent (booking_id) VALUES ($1) ON CONFLICT DO NOTHING`,
