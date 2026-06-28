@@ -617,7 +617,7 @@ const ClassesCalendar = () => {
                   className={
                     "flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium whitespace-nowrap transition-all sm:px-4 sm:text-sm " +
                     (tab === key
-                      ? "bg-valiance-charcoal text-valiance-nude shadow-valiance-soft"
+                      ? "bg-valiance-mauve text-valiance-nude shadow-valiance-soft"
                       : "text-valiance-mauve hover:bg-valiance-ivory hover:text-valiance-charcoal")
                   }
                 >
