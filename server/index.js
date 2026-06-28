@@ -812,14 +812,14 @@ async function ensureSchema() {
       await pool.query(
         `UPDATE class_types
             SET subtitle = $1, description = $2, category = 'pilates', intensity = 'media',
-                level = 'all', duration_min = 60, capacity = 8, color = '#C9ADA3',
+                level = 'all', duration_min = 55, capacity = 8, color = '#C9ADA3',
                 emoji = '🤍', sort_order = 1, is_active = true
           WHERE name = 'Pilates'`,
         ["Reformer · Tower · Mat · Silla", vmTypeDesc],
       ).catch(() => { });
       await pool.query(
         `INSERT INTO class_types (name, subtitle, description, category, intensity, level, duration_min, capacity, color, emoji, sort_order, is_active)
-         SELECT 'Pilates', $1, $2, 'pilates', 'media', 'all', 60, 8, '#C9ADA3', '🤍', 1, true
+         SELECT 'Pilates', $1, $2, 'pilates', 'media', 'all', 55, 8, '#C9ADA3', '🤍', 1, true
          WHERE NOT EXISTS (SELECT 1 FROM class_types WHERE name = 'Pilates')`,
         ["Reformer · Tower · Mat · Silla", vmTypeDesc],
       ).catch(() => { });

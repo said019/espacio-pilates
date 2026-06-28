@@ -4,7 +4,7 @@ import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import Schedule from "@/components/Schedule";
 import {
-  Waves, Flame, Activity, Sparkles, Clock, MapPin, Phone, Instagram,
+  Sparkles, Clock, MapPin, Phone, Instagram,
   ArrowUpRight, Menu, X, Heart, Users, Star,
 } from "lucide-react";
 
@@ -403,26 +403,41 @@ const Index = () => {
         <div className="absolute bottom-0 inset-x-0 h-40 bg-gradient-to-t from-valiance-nude to-transparent z-[5]" />
       </section>
 
-      {/* ────────── DISCIPLINAS — strip flotante ────────── */}
-      <section className="relative z-10 -mt-16 mb-12">
+      {/* ────────── DISCIPLINAS — índice editorial flotante ────────── */}
+      <section className="relative z-10 -mt-20 mb-16">
         <div className="max-w-[1200px] mx-auto px-6 sm:px-10">
-          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-valiance-lavender/30 bg-valiance-nude rounded-[1.75rem] overflow-hidden ring-1 ring-valiance-charcoal/8 shadow-[0_30px_60px_-25px_rgba(140,107,111,0.22)]">
-            {[
-              { name: "Reformer", icon: Waves, hint: "Resistencia controlada" },
-              { name: "Tower", icon: Sparkles, hint: "Rango y estabilidad" },
-              { name: "Mat", icon: Activity, hint: "Pilates clásico" },
-              { name: "Silla", icon: Flame, hint: "Fuerza y equilibrio" },
-            ].map((d) => (
-              <button
-                key={d.name}
-                onClick={() => scrollTo("clases")}
-                className="bg-valiance-nude p-7 sm:p-8 text-left flex flex-col gap-2 hover:bg-valiance-lavender/15 transition-colors group focus-visible:outline-none focus-visible:bg-valiance-lavender/20"
-              >
-                <d.icon size={20} className="text-valiance-mauve group-hover:text-valiance-gold transition-colors" strokeWidth={1.5} />
-                <div className="font-display text-[1.5rem] leading-tight text-valiance-charcoal mt-1">{d.name}</div>
-                <div className="font-body text-[0.8rem] text-valiance-mauve">{d.hint}</div>
-              </button>
-            ))}
+          <div className="relative bg-valiance-nude rounded-[1.75rem] ring-1 ring-valiance-charcoal/8 shadow-[0_40px_80px_-30px_rgba(140,107,111,0.30)] overflow-hidden">
+            {/* hilo de oro superior */}
+            <span className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-valiance-gold/70 to-transparent" />
+            <div className="flex items-end justify-between gap-6 px-7 sm:px-10 pt-8 pb-6">
+              <p className="flex items-center text-[0.66rem] tracking-[0.3em] uppercase text-valiance-mauve font-body">
+                <span className="inline-block w-7 h-px bg-valiance-gold mr-3" />
+                El método · cuatro aparatos
+              </p>
+              <span className="hidden sm:block font-display italic text-[1.15rem] text-valiance-mauve/55">Una clase, cuatro formas</span>
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-valiance-lavender/30 border-t border-valiance-lavender/30">
+              {[
+                { n: "01", name: "Reformer", hint: "Resistencia controlada" },
+                { n: "02", name: "Tower", hint: "Rango y estabilidad" },
+                { n: "03", name: "Mat", hint: "Pilates clásico" },
+                { n: "04", name: "Silla", hint: "Fuerza y equilibrio" },
+              ].map((d) => (
+                <button
+                  key={d.name}
+                  onClick={() => scrollTo("clases")}
+                  className="group relative text-left px-7 sm:px-9 py-9 sm:py-11 transition-colors hover:bg-valiance-blush/12 focus-visible:outline-none focus-visible:bg-valiance-blush/15"
+                >
+                  <span className="font-display leading-none text-[2.6rem] text-valiance-gold/40 group-hover:text-valiance-gold transition-colors duration-300">{d.n}</span>
+                  <div className="mt-4 flex items-center gap-2">
+                    <span className="font-display text-[1.7rem] leading-tight text-valiance-charcoal">{d.name}</span>
+                    <ArrowUpRight size={16} strokeWidth={1.8} className="text-valiance-mauve opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300" />
+                  </div>
+                  <span className="block h-px w-0 bg-valiance-gold/70 mt-3 group-hover:w-10 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]" />
+                  <div className="mt-3 font-body text-[0.7rem] tracking-[0.14em] uppercase text-valiance-mauve">{d.hint}</div>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </section>

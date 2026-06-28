@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
 import {
   format, addDays, startOfWeek, isSameDay, parseISO,
   isToday, addWeeks, differenceInMinutes, getDay,
@@ -449,25 +448,6 @@ export default function Schedule() {
           Todas las clases en Reformer · Viernes 8:30 pm en Tower.
         </p>
 
-        {/* ── CTA primera vez ─────────────────────────────────────────────── */}
-        <div className="mt-14 rounded-[1.75rem] border border-valiance-gold/25 bg-valiance-nude p-8 sm:p-12 text-center">
-          <p className="text-[0.7rem] tracking-[0.2em] uppercase text-valiance-mauve font-medium mb-3">
-            ¿Primera vez en Tu Espacio Pilates?
-          </p>
-          <h3 className="font-display text-[clamp(1.9rem,3.4vw,2.7rem)] leading-[1.05] text-valiance-charcoal mb-4">
-            Prueba una clase sin compromiso
-          </h3>
-          <p className="text-[0.92rem] text-valiance-charcoal/65 mb-8 max-w-md mx-auto font-body leading-[1.7]">
-            Reserva tu sesión muestra y descubre por qué cada vez más mujeres entrenan en Tu Espacio Pilates.
-          </p>
-          <Link
-            to="/auth/register?returnUrl=/app/book"
-            className="inline-flex items-center gap-2 bg-valiance-mauve text-valiance-cream px-8 py-3.5 rounded-full text-[0.8rem] font-medium tracking-[0.08em] uppercase hover:bg-valiance-charcoal transition-all no-underline"
-          >
-            Reservar mi primera clase
-            <ArrowUpRight size={15} strokeWidth={2.2} />
-          </Link>
-        </div>
       </div>
 
       {/* Booking dialog */}
