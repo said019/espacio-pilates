@@ -62,8 +62,10 @@ export default {
           lavender:  "#DFD1C9",
           lilacSoft: "#FAF8F6",
           gray:      "#DFD1C9",
-          ink:       "#1A1A1A",   // tinta de marca
+          ink:       "#3A3832",   // texto casi-negro cálido
           gold:      "#B8915A",   // dorado de marca (hilo de oro)
+          surface2:  "#F6EFEC",   // rosa lavado (cards / hover)
+          mauveDeep: "#71545A",   // rosa-profundo (r-700) · hover primario
         },
         /* Alias backwards-compat `valiance-*` (componentes heredados) — re-mapeados a la marca TEP. */
         valiance: {
@@ -78,12 +80,14 @@ export default {
           rose:     "#D9B5BA",    // rosa claro
           lavender: "#DFD1C9",
           dusty:    "#D1B9B4",
-          mauve:    "#8C6B6F",    // mauve-rosa (acentos / bordes / íconos)
-          plum:     "#333333",    // near-black (hover de charcoal)
-          charcoal: "#1A1A1A",    // tinta de marca
-          cream:    "#FAF8F6",
-          gold:     "#B8915A",    // dorado de marca (hilo de oro)
-          wood:     "#716D64",
+          mauve:     "#8C6B6F",   // mauve-rosa (acción / acentos / bordes)
+          mauveDeep: "#71545A",   // rosa-profundo (r-700) · hover primario
+          plum:      "#564046",   // rosa-profundo (r-800) · hover oscuro
+          charcoal:  "#3D2D31",   // rosa-profundo (r-900) · casi-negro cálido (superficies oscuras)
+          surface2:  "#F6EFEC",   // rosa lavado (cards / hover)
+          cream:     "#FAF8F6",
+          gold:      "#B8915A",   // dorado de marca (hilo de oro)
+          wood:      "#716D64",
         },
         /* ── Backwards-compat alias para no romper código heredado ── */
         punto: {

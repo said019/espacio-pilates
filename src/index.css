@@ -20,7 +20,7 @@
     --background: 30 29% 97%;           /* #FAF8F6 ivory */
     --foreground: 0 0% 27%;             /* #444444 pebble */
 
-    --card: 30 29% 97%;
+    --card: 0 0% 100%;                  /* #FFFFFF superficie (lift sobre ivory) */
     --card-foreground: 0 0% 27%;
 
     --popover: 30 29% 97%;
@@ -38,7 +38,7 @@
     --accent: 10 24% 76%;               /* #D1B9B4 dusk */
     --accent-foreground: 0 0% 10%;      /* #1A1A1A tinta */
 
-    --destructive: 0 50% 52%;
+    --destructive: 5 45% 45%;           /* #A8473F ladrillo cálido */
     --destructive-foreground: 0 0% 100%;
 
     --border: 22 26% 83%;               /* #DFD1C9 oat */
@@ -59,14 +59,14 @@
     --tep-lavender: 22 26% 83%;
     --tep-lilac-soft: 30 29% 97%;
     --tep-gray: 22 26% 83%;
-    --tep-ink: 0 0% 10%;               /* #1A1A1A tinta */
+    --tep-ink: 45 7% 21%;              /* #3A3832 casi-negro cálido */
     --tep-gold: 35 40% 54%;            /* #B8915A dorado */
 
     --valiance-blush: 10 24% 76%;      /* #D1B9B4 dusk */
     --valiance-nude: 30 29% 97%;
     --valiance-mauve: 353 13% 48%;     /* #8C6B6F mauve-rosa */
     --valiance-gold: 35 40% 54%;       /* #B8915A dorado */
-    --valiance-charcoal: 0 0% 10%;     /* #1A1A1A tinta */
+    --valiance-charcoal: 345 15% 21%;  /* #3D2D31 rosa-profundo (casi-negro cálido) */
 
     /* Backwards-compat aliases */
     --punto-cream: 30 29% 97%;
