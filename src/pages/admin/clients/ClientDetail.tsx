@@ -404,6 +404,18 @@ const ClientDetail = () => {
     onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al vincular", variant: "destructive" }),
   });
 
+  const resetPasswordMutation = useMutation({
+    mutationFn: () => api.post(`/admin/users/${id}/reset-password`, {}),
+    onSuccess: (res: any) => {
+      const temp = res?.data?.tempPassword;
+      toast({
+        title: "Contraseña restablecida",
+        description: temp ? `Nueva contraseña temporal: ${temp}` : "Lista. Compártela con la alumna.",
+      });
+    },
+    onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al restablecer", variant: "destructive" }),
+  });
+
   const startEditing = () => {
     setForm({
       displayName: u?.displayName ?? "",
@@ -503,9 +515,23 @@ const ClientDetail = () => {
               <SectionCard
                 title="Perfil de la alumna"
                 action={!editing && !isLoading ? (
-                  <Button size="sm" variant="outline" onClick={startEditing}>
-                    <Pencil size={14} className="mr-1" /> Editar
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm("¿Restablecer la contraseña de esta alumna? Se generará una contraseña temporal para compartirle.")) {
+                          resetPasswordMutation.mutate();
+                        }
+                      }}
+                      disabled={resetPasswordMutation.isPending}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-valiance-mauve/30 px-3.5 py-2 text-[0.78rem] font-medium text-valiance-mauve transition-colors hover:bg-valiance-mauve hover:text-valiance-nude disabled:opacity-60"
+                    >
+                      Restablecer contraseña
+                    </button>
+                    <Button size="sm" variant="outline" onClick={startEditing}>
+                      <Pencil size={14} className="mr-1" /> Editar
+                    </Button>
+                  </div>
                 ) : undefined}
               >
                 {isLoading ? <Skeleton className="h-40 w-full" /> : editing ? (

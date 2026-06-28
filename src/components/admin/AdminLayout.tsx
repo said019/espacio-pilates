@@ -187,7 +187,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                         "flex items-center gap-3 mx-3 my-0.5 rounded-2xl transition-all duration-200 no-underline",
                         isCompact ? "justify-center py-2.5" : "px-3.5 py-2.5",
                         active
-                          ? "bg-valiance-charcoal text-valiance-nude"
+                          ? "bg-valiance-mauve text-valiance-nude"
                           : "text-valiance-charcoal/65 hover:bg-valiance-blush/40 hover:text-valiance-charcoal",
                       )}
                     >
@@ -196,7 +196,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                         <span className="font-body text-[0.84rem] leading-none truncate flex-1">{label}</span>
                       )}
                       {active && !isCompact && (
-                        <span className="ml-auto w-1.5 h-1.5 rounded-full bg-valiance-blush" />
+                        <span className="ml-auto w-1.5 h-1.5 rounded-full bg-valiance-nude/80" />
                       )}
                     </Link>
                   );
@@ -268,7 +268,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
             </span>
             <div className="hidden sm:block w-px h-4 bg-valiance-blush" />
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-full bg-valiance-charcoal flex items-center justify-center font-display text-[0.92rem] text-valiance-nude">
+              <div className="w-9 h-9 rounded-full bg-valiance-mauve flex items-center justify-center font-display text-[0.92rem] text-valiance-nude">
                 {initials}
               </div>
               <span className="hidden md:block font-body text-[0.82rem] text-valiance-charcoal/70 truncate max-w-[180px]">
@@ -296,7 +296,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
                       className={cn(
                         "flex h-12 flex-col items-center justify-center rounded-xl font-body text-[0.66rem] transition-all",
                         active
-                          ? "bg-valiance-charcoal text-valiance-nude"
+                          ? "bg-valiance-mauve text-valiance-nude"
                           : "text-valiance-charcoal/55 hover:bg-valiance-blush/40 hover:text-valiance-charcoal",
                       )}
                     >

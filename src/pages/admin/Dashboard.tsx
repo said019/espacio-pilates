@@ -70,14 +70,14 @@ const Dashboard = () => {
     <AuthGuard requiredRoles={["admin", "instructor"]}>
       <AdminLayout>
         <div className="admin-page max-w-6xl space-y-6">
-          <section className="relative overflow-hidden rounded-[1.5rem] bg-valiance-charcoal p-6 text-valiance-nude shadow-valiance-deep sm:p-8">
+          <section className="relative overflow-hidden rounded-[1.5rem] bg-[#5E4651] p-6 text-valiance-nude shadow-valiance-deep sm:p-8">
             <img
               src={studioMirrorLine}
               alt=""
               aria-hidden
               className="absolute inset-y-0 right-0 hidden h-full w-[42%] object-cover opacity-45 lg:block"
             />
-            <div className="absolute inset-0 bg-gradient-to-r from-valiance-charcoal via-valiance-charcoal/90 to-valiance-charcoal/35" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#5E4651] via-[#5E4651]/90 to-[#5E4651]/35" />
             <div className="relative max-w-2xl">
               <p className="mb-3 flex items-center text-[0.66rem] font-medium uppercase tracking-[0.22em] text-valiance-blush/80">
                 <span className="mr-3 inline-block h-px w-7 bg-valiance-gold" />
@@ -91,10 +91,10 @@ const Dashboard = () => {
           </section>
 
           <div className="stagger-in grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {metric("Clases de hoy", stats?.classesToday, <CalendarDays size={18} />, "", "#D1B9B4")}
-            {metric("Membresías activas", stats?.activeMembers, <Users size={18} />, "", "#716D64")}
-            {metric("Ingresos del mes", stats?.monthlyRevenue, <DollarSign size={18} />, "$", "#9B997B")}
-            {metric("Alertas pendientes", stats?.pendingAlerts, <AlertCircle size={18} />, "", "#D1B9B4")}
+            {metric("Clases de hoy", stats?.classesToday, <CalendarDays size={18} />, "", "#8C6B6F")}
+            {metric("Membresías activas", stats?.activeMembers, <Users size={18} />, "", "#B6968F")}
+            {metric("Ingresos del mes", stats?.monthlyRevenue, <DollarSign size={18} />, "$", "#C08791")}
+            {metric("Alertas pendientes", stats?.pendingAlerts, <AlertCircle size={18} />, "", "#A9787E")}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -126,7 +126,7 @@ const Dashboard = () => {
             </Card>
 
             <Card
-              className="cursor-pointer border-valiance-oat bg-valiance-ivory shadow-valiance-soft transition-all hover:-translate-y-0.5 hover:border-valiance-fern/50"
+              className="cursor-pointer border-valiance-oat bg-valiance-ivory shadow-valiance-soft transition-all hover:-translate-y-0.5 hover:border-valiance-mauve/50"
               onClick={() => navigate("/admin/payments?tab=pending")}
             >
               <CardHeader>

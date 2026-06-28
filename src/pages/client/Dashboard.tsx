@@ -59,17 +59,17 @@ const Dashboard = () => {
     <ClientAuthGuard requiredRoles={["client"]}>
       <ClientLayout>
         <div className="mx-auto max-w-6xl space-y-6">
-          <section className="relative overflow-hidden rounded-[1.5rem] bg-valiance-charcoal text-valiance-nude shadow-valiance-deep">
+          <section className="relative overflow-hidden rounded-[1.5rem] bg-gradient-to-br from-valiance-mauve to-valiance-charcoal text-valiance-nude shadow-valiance-deep">
             <img
               src={coachGuidance}
               alt=""
               aria-hidden
               className="absolute inset-y-0 right-0 hidden h-full w-[48%] object-cover object-[center_42%] opacity-70 lg:block"
             />
-            <div className="absolute inset-0 bg-gradient-to-r from-valiance-charcoal via-valiance-charcoal/92 to-valiance-charcoal/30" />
+            <div className="absolute inset-0 bg-gradient-to-r from-valiance-mauve via-valiance-mauve/90 to-valiance-mauve/25" />
             <div className="relative grid gap-8 p-6 sm:p-8 lg:grid-cols-[1fr_0.7fr] lg:p-10">
               <div className="max-w-xl">
-                <p className="mb-3 flex items-center text-[0.66rem] font-medium uppercase tracking-[0.22em] text-valiance-blush/85">
+                <p className="mb-3 flex items-center text-[0.66rem] font-medium uppercase tracking-[0.22em] text-valiance-nude/85">
                   <span className="mr-3 inline-block h-px w-7 bg-valiance-gold" />
                   Tu reserva de hoy
                 </p>
@@ -97,19 +97,19 @@ const Dashboard = () => {
 
               <div className="grid grid-cols-3 content-end gap-2 sm:gap-3 lg:grid-cols-1">
                 <div className="rounded-2xl border border-valiance-nude/12 bg-valiance-nude/10 p-3 backdrop-blur-sm sm:p-4">
-                  <p className="text-[0.55rem] uppercase tracking-[0.14em] text-valiance-blush/75 sm:text-[0.64rem] sm:tracking-[0.18em]">Clases</p>
+                  <p className="text-[0.55rem] uppercase tracking-[0.14em] text-valiance-nude/75 sm:text-[0.64rem] sm:tracking-[0.18em]">Clases</p>
                   <p className="mt-2 font-display text-2xl leading-none text-valiance-nude tabular-nums sm:text-3xl">
                     {classesRemaining == null ? "—" : classesRemaining}
                   </p>
                   <p className="mt-1 text-xs text-valiance-nude/58">disponibles</p>
                 </div>
                 <div className="rounded-2xl border border-valiance-nude/12 bg-valiance-nude/10 p-3 backdrop-blur-sm sm:p-4">
-                  <p className="text-[0.55rem] uppercase tracking-[0.14em] text-valiance-blush/75 sm:text-[0.64rem] sm:tracking-[0.18em]">Próximas</p>
+                  <p className="text-[0.55rem] uppercase tracking-[0.14em] text-valiance-nude/75 sm:text-[0.64rem] sm:tracking-[0.18em]">Próximas</p>
                   <p className="mt-2 font-display text-2xl leading-none text-valiance-nude tabular-nums sm:text-3xl">{upcomingBookings.length}</p>
                   <p className="mt-1 text-xs text-valiance-nude/58">reservas</p>
                 </div>
                 <div className="rounded-2xl border border-valiance-nude/12 bg-valiance-nude/10 p-3 backdrop-blur-sm sm:p-4">
-                  <p className="text-[0.55rem] uppercase tracking-[0.14em] text-valiance-blush/75 sm:text-[0.64rem] sm:tracking-[0.18em]">Pendientes</p>
+                  <p className="text-[0.55rem] uppercase tracking-[0.14em] text-valiance-nude/75 sm:text-[0.64rem] sm:tracking-[0.18em]">Pendientes</p>
                   <p className="mt-2 font-display text-2xl leading-none text-valiance-nude tabular-nums sm:text-3xl">{pendingOrders.length}</p>
                   <p className="mt-1 text-xs text-valiance-nude/58"><span className="sm:hidden">pagos</span><span className="hidden sm:inline">pagos/órdenes</span></p>
                 </div>
@@ -118,23 +118,23 @@ const Dashboard = () => {
           </section>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <Button asChild variant="outline" className="h-12 justify-start rounded-2xl border-valiance-oat bg-valiance-ivory text-valiance-charcoal hover:bg-valiance-oat/45">
+            <Button asChild variant="outline" className="h-12 justify-start rounded-2xl border-valiance-blush/40 bg-valiance-blush/15 text-valiance-charcoal hover:bg-valiance-blush/35">
               <Link to="/app/classes"><Calendar size={16} className="mr-2 text-valiance-mauve" />Reservar clase</Link>
             </Button>
-            <Button asChild variant="outline" className="h-12 justify-start rounded-2xl border-valiance-oat bg-valiance-ivory text-valiance-charcoal hover:bg-valiance-oat/45">
+            <Button asChild variant="outline" className="h-12 justify-start rounded-2xl border-valiance-blush/40 bg-valiance-blush/15 text-valiance-charcoal hover:bg-valiance-blush/35">
               <Link to="/app/bookings"><ClipboardList size={16} className="mr-2 text-valiance-mauve" />Mis reservas</Link>
             </Button>
-            <Button asChild variant="outline" className="h-12 justify-start rounded-2xl border-valiance-oat bg-valiance-ivory text-valiance-charcoal hover:bg-valiance-oat/45">
+            <Button asChild variant="outline" className="h-12 justify-start rounded-2xl border-valiance-blush/40 bg-valiance-blush/15 text-valiance-charcoal hover:bg-valiance-blush/35">
               <Link to="/app/checkout"><ShoppingBag size={16} className="mr-2 text-valiance-mauve" />Adquirir plan</Link>
             </Button>
           </div>
 
           {(noMembership || isLowCredits) && (
             <Link to="/app/checkout" className="block no-underline">
-              <div className="relative overflow-hidden rounded-2xl border border-valiance-fern/25 bg-valiance-fern/10 p-5 transition-all hover:-translate-y-0.5 hover:shadow-valiance-card">
+              <div className="relative overflow-hidden rounded-2xl border border-valiance-mauve/25 bg-valiance-blush/20 p-5 transition-all hover:-translate-y-0.5 hover:shadow-valiance-card">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-valiance-ivory text-valiance-mauve ring-1 ring-valiance-fern/25">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-valiance-ivory text-valiance-mauve ring-1 ring-valiance-mauve/25">
                       <Sparkles size={20} />
                     </div>
                     <div>
@@ -155,7 +155,7 @@ const Dashboard = () => {
           )}
 
           <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
-            <Card className="border-valiance-oat bg-valiance-ivory shadow-valiance-soft">
+            <Card className="border-valiance-blush/30 bg-valiance-blush/[0.06] shadow-valiance-soft">
               <CardHeader className="pb-2">
                 <CardTitle className="font-body text-sm font-semibold text-valiance-mauve">Mi membresía</CardTitle>
               </CardHeader>
@@ -165,7 +165,7 @@ const Dashboard = () => {
                 ) : membership ? (
                   <MembershipCard membership={membership} />
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-valiance-oat bg-valiance-oat/20 p-5">
+                  <div className="rounded-2xl border border-dashed border-valiance-blush/35 bg-valiance-blush/12 p-5">
                     <p className="text-sm font-medium text-valiance-charcoal">No tienes membresía activa</p>
                     <p className="mt-1 text-xs leading-5 text-muted-foreground">Elige un paquete y reserva tu primera clase desde aquí.</p>
                     <Button asChild size="sm" className="mt-4 rounded-full">
@@ -176,7 +176,7 @@ const Dashboard = () => {
               </CardContent>
             </Card>
 
-            <Card className="border-valiance-oat bg-valiance-ivory shadow-valiance-soft">
+            <Card className="border-valiance-blush/30 bg-valiance-blush/[0.06] shadow-valiance-soft">
               <CardHeader className="pb-2">
                 <CardTitle className="font-body text-sm font-semibold text-valiance-mauve">Próximas clases</CardTitle>
               </CardHeader>
@@ -184,7 +184,7 @@ const Dashboard = () => {
                 {loadingBookings ? (
                   <Skeleton className="h-24 w-full rounded-2xl" />
                 ) : upcomingBookings.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-valiance-oat bg-valiance-oat/20 p-5">
+                  <div className="rounded-2xl border border-dashed border-valiance-blush/35 bg-valiance-blush/12 p-5">
                     <p className="text-sm font-medium text-valiance-charcoal">No tienes clases próximas</p>
                     <Button asChild size="sm" className="mt-4 rounded-full">
                       <Link to="/app/classes">Reservar ahora</Link>
@@ -193,7 +193,7 @@ const Dashboard = () => {
                 ) : (
                   <div className="space-y-3">
                     {upcomingBookings.map((b) => (
-                      <div key={b.id} className="rounded-2xl border border-valiance-oat bg-valiance-oat/20 p-4">
+                      <div key={b.id} className="rounded-2xl border border-valiance-blush/30 bg-valiance-blush/10 p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-sm font-semibold text-valiance-charcoal">{b.class_type_name}</p>
@@ -214,7 +214,7 @@ const Dashboard = () => {
           </div>
 
           {pendingOrders.length > 0 && (
-            <Card className="border-valiance-fern/25 bg-valiance-fern/10">
+            <Card className="border-valiance-mauve/25 bg-valiance-blush/20">
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-2 font-body text-sm font-semibold text-valiance-mauve">
                   <CreditCard size={16} />
@@ -224,7 +224,7 @@ const Dashboard = () => {
               <CardContent>
                 <div className="space-y-3">
                   {pendingOrders.map((o: any) => (
-                    <div key={o.id} className="rounded-2xl border border-valiance-oat bg-valiance-ivory p-4">
+                    <div key={o.id} className="rounded-2xl border border-valiance-blush/25 bg-valiance-blush/[0.06] p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1">
                           <p className="text-sm font-semibold text-valiance-charcoal">{o.plan_name}</p>
@@ -239,7 +239,7 @@ const Dashboard = () => {
                           variant="outline"
                           className={o.status === "pending_payment"
                             ? "rounded-full border-amber-500/40 bg-amber-50 text-amber-700"
-                            : "rounded-full border-valiance-fern/50 bg-valiance-fern/10 text-valiance-mauve"
+                            : "rounded-full border-valiance-mauve/40 bg-valiance-blush/25 text-valiance-mauve"
                           }
                         >
                           {o.status === "pending_payment" ? (
@@ -257,12 +257,12 @@ const Dashboard = () => {
                         </Button>
                       )}
                       {o.status === "pending_verification" && o.payment_method === "cash" && (
-                        <p className="mt-3 rounded-xl bg-valiance-oat/35 px-3 py-2 text-xs text-valiance-mauve">
+                        <p className="mt-3 rounded-xl bg-valiance-blush/25 px-3 py-2 text-xs text-valiance-mauve">
                           Acércate a recepción para completar tu pago. Tu membresía se activará al confirmar.
                         </p>
                       )}
                       {o.status === "pending_verification" && o.payment_method !== "cash" && (
-                        <p className="mt-3 rounded-xl bg-valiance-oat/35 px-3 py-2 text-xs text-valiance-mauve">
+                        <p className="mt-3 rounded-xl bg-valiance-blush/25 px-3 py-2 text-xs text-valiance-mauve">
                           Tu comprobante está siendo revisado. Recibirás una notificación cuando se apruebe.
                         </p>
                       )}
