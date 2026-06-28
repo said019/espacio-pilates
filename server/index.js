@@ -3019,7 +3019,7 @@ app.post("/api/auth/login", async (req, res) => {
       result = await pool.query("SELECT * FROM users WHERE email = $1", [identifier.toLowerCase()]);
     } else {
       const normalizedPhone = normalizePhoneForStorage(identifier);
-      result = await pool.query("SELECT * FROM users WHERE phone = $1 LIMIT 1", [normalizedPhone]);
+      result = await pool.query("SELECT * FROM users WHERE phone = $1 AND role = 'client' LIMIT 1", [normalizedPhone]);
     }
     if (result.rows.length === 0) return res.status(401).json({ message: "Credenciales incorrectas" });
     const user = result.rows[0];
@@ -10132,10 +10132,10 @@ app.post("/api/admin/users/:id/reset-password", adminMiddleware, async (req, res
       : crypto.randomBytes(8).toString("base64url").slice(0, 10) + "A1";
     const hash = await bcrypt.hash(newPassword, 12);
     const r = await pool.query(
-      "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id",
+      "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 AND role = 'client' RETURNING id",
       [hash, req.params.id]
     );
-    if (r.rows.length === 0) return res.status(404).json({ message: "Usuario no encontrado" });
+    if (r.rows.length === 0) return res.status(404).json({ message: "Clienta no encontrada" });
     // Invalidar links de recuperación pendientes
     await pool.query("UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false", [req.params.id]).catch((e) => { console.warn("reset-password: no se pudieron invalidar tokens previos", req.params.id, e?.message); });
     return res.json({ message: "Contraseña restablecida", tempPassword: newPassword });
@@ -12041,7 +12041,10 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[POST /admin/clients/manual]", err.message, err.code);
-    if (err.code === "23505") return res.status(409).json({ message: "Ya existe una clienta con ese email" });
+    if (err.code === "23505") {
+      const isPhone = err.constraint === "uq_users_phone_client" || /phone/i.test(err.detail || "");
+      return res.status(409).json({ message: isPhone ? "Ya existe una clienta con ese teléfono" : "Ya existe una clienta con ese email" });
+    }
     return res.status(500).json({ message: err.message || "Error interno" });
   } finally {
     client.release();
