@@ -53,10 +53,10 @@ export default {
           pebble: "#444444",      // gris medio (texto secundario)
           olive:  "#716D64",      // taupe neutro (legacy)
           fern:   "#9B997B",      // verde-oliva suave (legacy)
-          dusk:   "#C9ADA3",      // blush de marca
+          dusk:   "#D1B9B4",      // blush de marca
           ivory:  "#FAF8F6",      // marfil (fondo)
           oat:    "#DFD1C9",      // avena (neutro cálido)
-          blush:     "#C9ADA3",   // blush de marca (rosita suave)
+          blush:     "#D1B9B4",   // blush de marca (rosita suave)
           nude:      "#FAF8F6",
           rose:      "#D9B5BA",   // rosa claro (acento)
           lavender:  "#DFD1C9",
@@ -70,14 +70,14 @@ export default {
           pebble:   "#444444",
           olive:    "#716D64",
           fern:     "#9B997B",
-          dusk:     "#C9ADA3",    // blush
+          dusk:     "#D1B9B4",    // blush
           ivory:    "#FAF8F6",
           oat:      "#DFD1C9",
-          blush:    "#C9ADA3",    // blush de marca (rosita suave)
+          blush:    "#D1B9B4",    // blush de marca (rosita suave)
           nude:     "#FAF8F6",
           rose:     "#D9B5BA",    // rosa claro
           lavender: "#DFD1C9",
-          dusty:    "#C9ADA3",
+          dusty:    "#D1B9B4",
           mauve:    "#8C6B6F",    // mauve-rosa (acentos / bordes / íconos)
           plum:     "#333333",    // near-black (hover de charcoal)
           charcoal: "#1A1A1A",    // tinta de marca

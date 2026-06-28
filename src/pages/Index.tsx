@@ -502,7 +502,7 @@ const Index = () => {
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
             {classTypes.slice(0, 4).map((c, idx) => {
               const isHero = idx === 0; // Pilates destacado
-              const accent = c.color || "#C9ADA3";
+              const accent = c.color || "#D1B9B4";
               return (
                 <article
                   key={c.id}
