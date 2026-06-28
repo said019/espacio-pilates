@@ -3,8 +3,6 @@
 // usuario y la poda viven en server/index.js.
 import webpush from "web-push";
 
-let vapidConfigured = false;
-
 export function isPushConfigured() {
   return Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY);
 }
@@ -13,13 +11,11 @@ export function getVapidPublicKey() {
   return process.env.VAPID_PUBLIC_KEY || null;
 }
 
-// Configura VAPID una sola vez (idempotente). Devuelve false si faltan llaves.
+// Configura VAPID (idempotente, sin estado). Devuelve false si faltan llaves.
 export function ensureVapidConfigured() {
-  if (vapidConfigured) return true;
   if (!isPushConfigured()) return false;
   const subject = process.env.VAPID_SUBJECT || "mailto:espaciopilatesvm@gmail.com";
   webpush.setVapidDetails(subject, process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
-  vapidConfigured = true;
   return true;
 }
 

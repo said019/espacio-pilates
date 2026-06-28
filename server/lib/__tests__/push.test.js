@@ -53,6 +53,10 @@ describe("buildPushPayload", () => {
     expect(obj.url).toBe("/app/bookings");
     expect(obj.tag).toBe("class_reminder");
   });
+  it("usa el título por defecto cuando se omite", () => {
+    const obj = JSON.parse(buildPushPayload({ body: "B" }));
+    expect(obj.title).toBe("Tu Espacio Pilates");
+  });
 });
 
 describe("shouldPruneSubscription", () => {
