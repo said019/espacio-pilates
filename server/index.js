@@ -16,6 +16,7 @@ import archiver from "archiver";
 import { execSync } from "child_process";
 import { endOfPurchaseMonth, canCancel, canReschedule } from "./lib/bookingPolicy.js";
 import { createPreference, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
+import { isEmailIdentifier } from "./lib/authIdentity.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -3009,10 +3010,17 @@ app.post("/api/auth/register", async (req, res) => {
 
 // POST /api/auth/login
 app.post("/api/auth/login", async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ message: "Email y contraseña requeridos" });
+  const identifier = (req.body?.identifier ?? req.body?.email ?? "").toString().trim();
+  const { password } = req.body;
+  if (!identifier || !password) return res.status(400).json({ message: "Teléfono o email y contraseña son requeridos" });
   try {
-    const result = await pool.query("SELECT * FROM users WHERE email = $1", [email.toLowerCase().trim()]);
+    let result;
+    if (isEmailIdentifier(identifier)) {
+      result = await pool.query("SELECT * FROM users WHERE email = $1", [identifier.toLowerCase()]);
+    } else {
+      const normalizedPhone = normalizePhoneForStorage(identifier);
+      result = await pool.query("SELECT * FROM users WHERE phone = $1 LIMIT 1", [normalizedPhone]);
+    }
     if (result.rows.length === 0) return res.status(401).json({ message: "Credenciales incorrectas" });
     const user = result.rows[0];
     if (!user.password_hash) return res.status(401).json({ message: "Credenciales incorrectas" });
