@@ -65,7 +65,7 @@ const FALLBACK_CLASS_TYPES: ClassTypeRow[] = [
   },
 ];
 
-/* Paquetes mensuales — no acumulables, vencen al fin del mes de compra */
+/* Paquetes mensuales — no acumulables, vencen 30 días después de la compra */
 const PAQUETES = [
   { id: "p1", name: "7 clases", plan: "Paquete 7 Clases", classes: 7, price: 860, hint: "1 a 2 por semana" },
   { id: "p2", name: "14 clases", plan: "Paquete 14 Clases", classes: 14, price: 1400, hint: "2 a 3 por semana", popular: true },
@@ -614,7 +614,7 @@ const Index = () => {
             </h2>
             <span className="block h-px w-16 bg-valiance-gold/50 origin-left mt-6 mb-6 reveal scale-x-0 transition-transform duration-700" />
             <p className="font-body text-[1.02rem] text-valiance-charcoal/70 leading-[1.8] max-w-[60ch]">
-              Paquetes mensuales, no acumulables: vencen al fin del mes de compra. Elige el que mejor acompañe tu semana.
+              Paquetes mensuales, no acumulables: vencen 30 días después de la compra. Elige el que mejor acompañe tu semana.
             </p>
           </div>
 
@@ -721,7 +721,7 @@ const Index = () => {
           </div>
 
           <p className="text-[0.78rem] text-valiance-charcoal/55 mt-10 text-center font-body max-w-[640px] mx-auto leading-[1.7]">
-            Paquetes mensuales no acumulables: vencen al fin del mes de compra. La inscripción es un pago único. La adquisición implica aceptación del reglamento interno.
+            Paquetes mensuales no acumulables: vencen 30 días después de la compra. La inscripción es un pago único. La adquisición implica aceptación del reglamento interno.
           </p>
         </div>
       </section>

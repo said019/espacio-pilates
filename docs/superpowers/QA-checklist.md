@@ -3,7 +3,7 @@
 ## Flujo de reservas (e2e contra API local, 9/9 ✅)
 - ✅ Registro de cliente (con teléfono, como exige el formulario)
 - ✅ Login admin (espaciopilatesvm@gmail.com)
-- ✅ Admin asigna membresía → créditos = 7, vigencia = fin del mes de compra
+- ✅ Admin asigna membresía → créditos = 7, vigencia = 30 días desde la compra
 - ✅ Calendario con clases reservables (cupo 8)
 - ✅ Reservar → confirmada, crédito 7→6
 - ✅ Cancelar ≥12h → crédito devuelto (6→7)
