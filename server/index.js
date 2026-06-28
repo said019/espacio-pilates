@@ -3053,41 +3053,45 @@ app.get("/api/auth/me", authMiddleware, async (req, res) => {
 
 // POST /api/auth/forgot-password
 app.post("/api/auth/forgot-password", async (req, res) => {
-  const email = normalizeEmailAddress(req.body?.email);
-  if (!email) return res.status(400).json({ message: "Email es requerido" });
+  const raw = (req.body?.email ?? req.body?.identifier ?? "").toString().trim();
+  if (!raw) return res.status(400).json({ message: "Teléfono o email es requerido" });
+  const genericOk = { message: "Si la cuenta existe y tiene correo, recibirás un enlace. Si no, contáctanos por WhatsApp." };
 
   try {
-    const user = await pool.query("SELECT id, display_name FROM users WHERE email = $1", [email]);
-    if (user.rows.length === 0) {
-      // Return 200 to prevent user enumeration
-      return res.json({ message: "Si el correo existe, recibirás un enlace de recuperación." });
+    let user;
+    if (isEmailIdentifier(raw)) {
+      user = await pool.query("SELECT id, display_name, email FROM users WHERE email = $1", [raw.toLowerCase()]);
+    } else {
+      const normalizedPhone = normalizePhoneForStorage(raw);
+      user = await pool.query("SELECT id, display_name, email FROM users WHERE phone = $1 LIMIT 1", [normalizedPhone]);
     }
+    // Sin usuario, o usuario sin correo: responder genérico (no se puede enviar link).
+    if (user.rows.length === 0 || !user.rows[0].email) {
+      return res.json(genericOk);
+    }
+    const target = user.rows[0];
 
     const token = crypto.randomBytes(32).toString("hex");
-    // Expiration set to 2 hours from now
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 2);
 
-    // Invalidate older active reset links before creating a new one.
     await pool.query(
-      `UPDATE password_reset_tokens
-       SET used = true
-       WHERE user_id = $1 AND used = false`,
-      [user.rows[0].id],
+      `UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false`,
+      [target.id],
     );
     await pool.query(
       `INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)`,
-      [user.rows[0].id, token, expiresAt]
+      [target.id, token, expiresAt]
     );
 
     await sendPasswordResetEmail({
-      to: email,
-      name: user.rows[0].display_name || "Clienta",
+      to: target.email,
+      name: target.display_name || "Clienta",
       token,
       resetUrl: `${APP_PUBLIC_URL}/auth/reset-password?token=${encodeURIComponent(token)}`,
     });
 
-    return res.json({ message: "Si el correo existe, recibirás un enlace de recuperación." });
+    return res.json(genericOk);
   } catch (err) {
     console.error("Auth /forgot-password error:", err);
     return res.status(500).json({ message: "Error interno del servidor" });
@@ -10083,16 +10087,23 @@ app.get("/api/users", adminMiddleware, async (req, res) => {
 app.post("/api/users", adminMiddleware, async (req, res) => {
   try {
     const { email, displayName, phone, role = "client", dateOfBirth, emergencyContactName, emergencyContactPhone, healthNotes } = req.body;
-    if (!email || !displayName) return res.status(400).json({ message: "Email y nombre requeridos" });
-    const exists = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
-    if (exists.rows.length) return res.status(409).json({ message: "Email ya registrado" });
+    if (!displayName || !phone) return res.status(400).json({ message: "Nombre y teléfono requeridos" });
+    const normalizedPhone = normalizePhoneForStorage(phone);
+    const normalizedEmail = email ? email.toLowerCase().trim() : null;
+    if (role === "client") {
+      const phoneExists = await pool.query("SELECT id FROM users WHERE phone = $1 AND role = 'client'", [normalizedPhone]);
+      if (phoneExists.rows.length) return res.status(409).json({ message: "Teléfono ya registrado" });
+    }
+    if (normalizedEmail) {
+      const emailExists = await pool.query("SELECT id FROM users WHERE email = $1", [normalizedEmail]);
+      if (emailExists.rows.length) return res.status(409).json({ message: "Email ya registrado" });
+    }
     const tempPassword = Math.random().toString(36).slice(2, 10);
-    const bcrypt = await import("bcryptjs");
-    const hash = await bcrypt.default.hash(tempPassword, 10);
+    const hash = await bcrypt.hash(tempPassword, 12);
     const r = await pool.query(
       `INSERT INTO users (display_name, email, phone, role, password_hash, date_of_birth, emergency_contact_name, emergency_contact_phone, health_notes, accepts_terms)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,true) RETURNING *`,
-      [displayName, email, phone || null, role, hash, dateOfBirth || null, emergencyContactName || null, emergencyContactPhone || null, healthNotes || null]
+      [displayName, normalizedEmail, normalizedPhone, role, hash, dateOfBirth || null, emergencyContactName || null, emergencyContactPhone || null, healthNotes || null]
     );
     return res.status(201).json({ user: mapUser(r.rows[0]), tempPassword });
   } catch (err) {
@@ -10108,6 +10119,28 @@ app.delete("/api/users/:id", adminMiddleware, async (req, res) => {
     return res.json({ message: "Usuario eliminado" });
   } catch (err) {
     console.error("DELETE /api/users/:id error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/admin/users/:id/reset-password — admin restablece la contraseña de un cliente
+app.post("/api/admin/users/:id/reset-password", adminMiddleware, async (req, res) => {
+  try {
+    const { password } = req.body || {};
+    const newPassword = (password && String(password).length >= 8)
+      ? String(password)
+      : Math.random().toString(36).slice(2, 10) + "A1";
+    const hash = await bcrypt.hash(newPassword, 12);
+    const r = await pool.query(
+      "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id",
+      [hash, req.params.id]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ message: "Usuario no encontrado" });
+    // Invalidar links de recuperación pendientes
+    await pool.query("UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false", [req.params.id]).catch(() => { });
+    return res.json({ message: "Contraseña restablecida", tempPassword: newPassword });
+  } catch (err) {
+    console.error("POST /api/admin/users/:id/reset-password error:", err);
     return res.status(500).json({ message: "Error interno" });
   }
 });
