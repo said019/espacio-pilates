@@ -8,13 +8,13 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
-  Check, Loader2, CreditCard, Copy, Banknote, Building2,
+  Check, Loader2, CreditCard, Copy, Building2,
   Tag, ChevronRight, ArrowLeft, Upload, CheckCircle, Sparkles,
 } from "lucide-react";
 import imgPilates from "@/assets/pilates_2320695.png";
 
-type Step = "select" | "method" | "bank" | "cash" | "upload" | "done";
-type PaymentMethod = "transfer" | "cash" | "card";
+type Step = "select" | "method" | "bank" | "upload" | "done";
+type PaymentMethod = "transfer" | "card";
 
 function compressImage(file: File, maxWidth = 1400, quality = 0.82): Promise<File> {
   return new Promise((resolve) => {
@@ -117,7 +117,7 @@ const PlanCard = ({
       </div>
       {discountPrice && (
         <p className="text-[11px] text-[#6B4F53] font-bold mt-0.5">
-          Efectivo/transferencia: ${discountPrice.toLocaleString("es-MX")}
+          Transferencia: ${discountPrice.toLocaleString("es-MX")}
         </p>
       )}
       {features.length > 0 && (
@@ -161,7 +161,7 @@ const STEPS: { id: Step; label: string }[] = [
 ];
 
 const StepBar = ({ current }: { current: Step }) => {
-  const order: Step[] = ["select", "method", "bank", "cash", "upload", "done"];
+  const order: Step[] = ["select", "method", "bank", "upload", "done"];
   const currentIdx = order.indexOf(current);
 
   return (
@@ -169,7 +169,7 @@ const StepBar = ({ current }: { current: Step }) => {
       {STEPS.map((s, i) => {
         const sIdx = order.indexOf(s.id === "method" ? "method" : s.id);
         const done = currentIdx > sIdx;
-        const active = s.id === current || (current === "bank" && s.id === "method") || (current === "cash" && s.id === "method");
+        const active = s.id === current || (current === "bank" && s.id === "method");
         return (
           <div key={s.id} className="flex items-center gap-1">
             {i > 0 && <div className={cn("h-px w-6 rounded", done ? "bg-[#8C6B6F]/60" : "bg-[#8C6B6F]/10")} />}
@@ -247,7 +247,7 @@ const Checkout = () => {
   // Compute price (price arrives as a string from the API → coerce to number to avoid string concatenation in totals)
   const basePrice = Number(selectedPlan?.price ?? 0);
   const individualDiscount = getPlanDiscountPrice(selectedPlan);
-  const effectivePrice = (paymentMethod === "transfer" || paymentMethod === "cash") && individualDiscount
+  const effectivePrice = paymentMethod === "transfer" && individualDiscount
     ? individualDiscount : basePrice;
   const finalAmount = discountResult ? effectivePrice - (discountResult.discount_amount ?? 0) : effectivePrice;
 
@@ -293,8 +293,7 @@ const Checkout = () => {
         }
         return;
       }
-      if (paymentMethod === "transfer") setStep("bank");
-      else setStep("cash");
+      setStep("bank");
     },
     onError: (err: any) =>
       toast({ title: "Error al crear orden", description: err.response?.data?.message, variant: "destructive" }),
@@ -420,7 +419,7 @@ const Checkout = () => {
                       <div className="flex items-center gap-2 bg-[#6B4F53]/10 border border-[#6B4F53]/20 rounded-lg px-3 py-2">
                         <span className="text-base">💰</span>
                         <p className="text-[#6B4F53] font-bold text-xs">
-                          Paga con efectivo/transferencia: <span className="text-sm">${individualDiscount.toLocaleString("es-MX")}</span>
+                          Paga con transferencia: <span className="text-sm">${individualDiscount.toLocaleString("es-MX")}</span>
                         </p>
                       </div>
                     )}
@@ -475,7 +474,7 @@ const Checkout = () => {
                       <span className="text-2xl font-bold text-[#1A1A1A]">${(basePrice + inscriptionAmount).toLocaleString("es-MX")} <span className="text-sm font-normal text-[#1A1A1A]/35">MXN</span></span>
                       {individualDiscount && individualDiscount < basePrice && (
                         <p className="text-[11px] text-[#6B4F53] font-bold mt-0.5">
-                          💰 Efectivo/transf: ${(individualDiscount + inscriptionAmount).toLocaleString("es-MX")}
+                          💰 Transferencia: ${(individualDiscount + inscriptionAmount).toLocaleString("es-MX")}
                         </p>
                       )}
                     </div>
@@ -530,14 +529,14 @@ const Checkout = () => {
                 )}
                 {individualDiscount && individualDiscount < basePrice && paymentMethod !== "card" && (
                   <p className="text-[11px] text-[#6B4F53] font-bold mt-1.5 flex items-center gap-1">
-                    💰 Ahorras ${(basePrice - individualDiscount).toLocaleString("es-MX")} con efectivo/transferencia
+                    💰 Ahorras ${(basePrice - individualDiscount).toLocaleString("es-MX")} con transferencia
                   </p>
                 )}
               </div>
 
               <p className="text-sm font-semibold text-[#1A1A1A]/80">¿Cómo quieres pagar?</p>
 
-              <div className={cn("grid grid-cols-1 gap-3", cardEnabled ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+              <div className={cn("grid grid-cols-1 gap-3", cardEnabled ? "sm:grid-cols-2" : "sm:grid-cols-1")}>
                 <button
                   type="button"
                   onClick={() => setPaymentMethod("transfer")}
@@ -557,30 +556,6 @@ const Checkout = () => {
                   </div>
                   {paymentMethod === "transfer" && (
                     <span className="w-5 h-5 rounded-full bg-gradient-to-br from-[#D9B5BA] to-[#8C6B6F] flex items-center justify-center">
-                      <Check size={10} className="text-white" />
-                    </span>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setPaymentMethod("cash")}
-                  className={cn(
-                    "flex flex-col items-center gap-3 p-5 rounded-2xl border transition-all",
-                    paymentMethod === "cash"
-                      ? "border-[#8C6B6F]/50 bg-[#8C6B6F]/10 shadow-[0_0_16px_rgba(148,134,122,0.15)]"
-                      : "border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] hover:border-[#8C6B6F]/25"
-                  )}
-                >
-                  <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", paymentMethod === "cash" ? "bg-[#8C6B6F]/20 text-[#8C6B6F]" : "bg-[#8C6B6F]/[0.06] text-[#1A1A1A]/40")}>
-                    <Banknote size={22} />
-                  </div>
-                  <div className="text-center">
-                    <p className={cn("text-sm font-semibold", paymentMethod === "cash" ? "text-[#8C6B6F]" : "text-[#1A1A1A]/60")}>Efectivo</p>
-                    <p className="text-[10px] text-[#1A1A1A]/30 mt-0.5">Pagar en estudio</p>
-                  </div>
-                  {paymentMethod === "cash" && (
-                    <span className="w-5 h-5 rounded-full bg-gradient-to-br from-[#8C6B6F] to-[#D9B5BA] flex items-center justify-center">
                       <Check size={10} className="text-white" />
                     </span>
                   )}
@@ -654,29 +629,6 @@ const Checkout = () => {
               <p className="text-xs text-[#3D3A3A] text-center">Toca cualquier dato para copiarlo al portapapeles</p>
               <button onClick={() => setStep("upload")} className="w-full py-3.5 rounded-xl font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 transition-opacity text-sm tracking-wide uppercase">
                 Ya realicé la transferencia →
-              </button>
-            </div>
-          )}
-
-          {/* ── Step 3b: Cash in studio ── */}
-          {step === "cash" && (
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-[#8C6B6F]/20 bg-[#8C6B6F]/5 p-6 text-center space-y-3">
-                <div className="w-14 h-14 rounded-2xl bg-[#8C6B6F]/15 flex items-center justify-center mx-auto">
-                  <Banknote size={26} className="text-[#8C6B6F]" />
-                </div>
-                <p className="font-semibold text-[#1A1A1A]">Pago en el estudio</p>
-                <p className="text-sm text-[#1A1A1A]/50">Acércate a la recepción con el número de orden para completar tu pago en efectivo.</p>
-                {orderId && (
-                  <div className="bg-[#8C6B6F]/[0.06] border border-[#8C6B6F]/15 rounded-xl px-4 py-2 inline-block">
-                    <p className="text-[10px] text-[#1A1A1A]/35 uppercase tracking-wider mb-0.5">Número de orden</p>
-                    <p className="font-mono font-bold text-[#1A1A1A] text-sm">{orderId}</p>
-                  </div>
-                )}
-                <p className="text-xs text-[#1A1A1A]/30">Tu membresía se activará una vez que el equipo confirme el pago.</p>
-              </div>
-              <button onClick={() => window.location.replace("/app")} className="w-full py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 transition-opacity">
-                Ir a mi panel
               </button>
             </div>
           )}
