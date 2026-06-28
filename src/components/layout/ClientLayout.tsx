@@ -204,8 +204,8 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
             <Menu size={20} />
           </button>
 
-          <Link to="/" aria-label="Tu Espacio Pilates — Inicio">
-            <img src={valianceLogo} alt="" aria-hidden className="h-20 w-auto object-contain" />
+          <Link to="/" aria-label="Tu Espacio Pilates — Inicio" className="flex items-center">
+            <img src={valianceLogo} alt="" aria-hidden className="h-12 w-auto object-contain" />
           </Link>
 
           <Link
