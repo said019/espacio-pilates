@@ -14,7 +14,7 @@ if (process.env.RESEND_API_KEY) {
 }
 
 const FROM_EMAIL = process.env.EMAIL_FROM || "Tu Espacio Pilates <onboarding@resend.dev>";
-const SITE_URL = String(process.env.SITE_URL || process.env.APP_URL || "http://localhost:5173").replace(/\/+$/, "");
+const SITE_URL = String(process.env.SITE_URL || process.env.APP_URL || "https://www.tuespaciopilates.com.mx").replace(/\/+$/, "");
 const LOGO_URL = `${SITE_URL}/tep-mark-ink.png`;
 
 // ─── Brand palette Tu Espacio Pilates VM (paleta del sitio) ──────────────────

@@ -38,7 +38,7 @@ export async function createPreference(params) {
   const accessToken = process.env.MP_ACCESS_TOKEN || "";
   if (!accessToken) throw new Error("MP_ACCESS_TOKEN no configurado");
   const backendUrl = stripTrailingSlash(process.env.BACKEND_URL);
-  const frontendUrl = stripTrailingSlash(process.env.FRONTEND_URL);
+  const frontendUrl = stripTrailingSlash(process.env.FRONTEND_URL || process.env.SITE_URL || "https://www.tuespaciopilates.com.mx");
   const body = buildPreferenceBody(params, { backendUrl, frontendUrl });
 
   const res = await fetch(`${MP_API}/checkout/preferences`, {

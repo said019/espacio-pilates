@@ -31,7 +31,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || "puntoneutro_secret_2026";
-const APP_PUBLIC_URL = String(process.env.APP_URL || process.env.SITE_URL || "http://localhost:5173").replace(/\/+$/, "");
+const APP_PUBLIC_URL = String(process.env.APP_URL || process.env.SITE_URL || "https://www.tuespaciopilates.com.mx").replace(/\/+$/, "");
 
 // ─── Evolution API (WhatsApp) config ────────────────────────────────────────
 const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || "https://evolution-api-production-c1cb.up.railway.app";
@@ -1979,7 +1979,7 @@ async function ensureSchema() {
 // ─── Middleware ──────────────────────────────────────────────────────────────
 const CORS_ALLOWED_ORIGINS = String(
   process.env.CORS_ALLOWED_ORIGINS ||
-  "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080",
+  "http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,https://www.tuespaciopilates.com.mx,https://tuespaciopilates.com.mx",
 )
   .split(",")
   .map((origin) => origin.trim())
@@ -1996,6 +1996,8 @@ app.use(cors({
     if (!origin) return callback(null, true);
     if (CORS_ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
     if (origin.endsWith(".up.railway.app")) return callback(null, true);
+    // Dominio de producción + cualquier subdominio (www, etc.), http o https.
+    if (/^https?:\/\/([a-z0-9-]+\.)*tuespaciopilates\.com\.mx$/i.test(origin)) return callback(null, true);
     // Evita lanzar un error 500. Se retorna false para no enviar cabeceras CORS.
     return callback(null, false);
   },
@@ -5127,7 +5129,7 @@ app.post("/api/loyalty/redeem", authMiddleware, async (req, res) => {
 
 // ─── Google Wallet helpers ──────────────────────────────────────────────────
 
-const SITE_URL = process.env.SITE_URL || "http://localhost:5173";
+const SITE_URL = process.env.SITE_URL || "https://www.tuespaciopilates.com.mx";
 const GW_ISSUER_ID = process.env.GOOGLE_ISSUER_ID || "";
 const GW_ISSUER_NAME = process.env.GOOGLE_ISSUER_NAME || "Tu Espacio Pilates";
 const GW_PROGRAM_NAME = process.env.GOOGLE_PROGRAM_NAME || "Tu Espacio Pilates Club";
