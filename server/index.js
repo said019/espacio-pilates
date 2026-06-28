@@ -958,9 +958,9 @@ async function ensureSchema() {
     // activos (más TotalPass 154 admin-only, que se re-activa en su propio
     // bloque idempotente más abajo). No requiere UNIQUE(name).
     const VM_PLANS = [
-      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence 30 días después de la compra.",  price: 860,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence 30 días después de la compra.", price: 1400, dur: 30,   cl: 14, so: 2, feat: ["14 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 20 Clases",     desc: "20 clases al mes. Vence 30 días después de la compra.", price: 2200, dur: 30,   cl: 20, so: 3, feat: ["20 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence 30 días después de la compra.",  price: 880,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 9 Clases",      desc: "9 clases al mes. Vence 30 días después de la compra.",  price: 1050, dur: 30,   cl: 9,  so: 2, feat: ["9 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence 30 días después de la compra.", price: 1400, dur: 30,   cl: 14, so: 3, feat: ["14 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
       { name: "Clase Extra",           desc: "Clase adicional para alumnas ya inscritas.",        price: 130,  dur: 30,   cl: 1,  so: 4, feat: ["1 clase extra", "Solo para inscritas"] },
       { name: "Clase Suelta / Visita", desc: "Clase individual sin inscripción.",                 price: 250,  dur: 7,    cl: 1,  so: 5, feat: ["1 clase", "Sin inscripción", "Si te inscribes se toma a cuenta"] },
       { name: "Inscripción",           desc: "Pago único de inscripción. Se re-paga tras ausencia mayor a 6 meses.", price: 500, dur: 3650, cl: 0, so: 6, feat: ["Pago único", "Requerida para paquetes"] },

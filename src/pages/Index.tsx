@@ -67,9 +67,9 @@ const FALLBACK_CLASS_TYPES: ClassTypeRow[] = [
 
 /* Paquetes mensuales — no acumulables, vencen 30 días después de la compra */
 const PAQUETES = [
-  { id: "p1", name: "7 clases", plan: "Paquete 7 Clases", classes: 7, price: 860, hint: "1 a 2 por semana" },
-  { id: "p2", name: "14 clases", plan: "Paquete 14 Clases", classes: 14, price: 1400, hint: "2 a 3 por semana", popular: true },
-  { id: "p3", name: "20 clases", plan: "Paquete 20 Clases", classes: 20, price: 2200, hint: "4+ por semana", best: true },
+  { id: "p1", name: "7 clases", plan: "Paquete 7 Clases", classes: 7, price: 880, hint: "1 a 2 por semana" },
+  { id: "p2", name: "9 clases", plan: "Paquete 9 Clases", classes: 9, price: 1050, hint: "2 por semana", popular: true },
+  { id: "p3", name: "14 clases", plan: "Paquete 14 Clases", classes: 14, price: 1400, hint: "3+ por semana", best: true },
 ] as const;
 
 /* Cargos puntuales */
