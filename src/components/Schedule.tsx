@@ -38,15 +38,15 @@ interface ScheduleClass {
   color: string;
 }
 
-// Tema muscular por día — index = getDay() (0=Dom … 6=Sáb)
+// Enfoque del día — index = getDay() (0=Dom … 6=Sáb)
 const DAY_THEMES = [
-  "",                  // Domingo — sin clases
-  "Pierna & glúteo",   // Lunes
-  "Full body",         // Martes
-  "Tren superior",     // Miércoles
-  "Pierna & glúteo",   // Jueves
-  "Full body",         // Viernes
-  "Core",              // Sábado
+  "",            // Domingo — sin clases
+  "Lower body",  // Lunes — pierna & glúteo
+  "Full body",   // Martes
+  "Upper body",  // Miércoles — tren superior
+  "Lower body",  // Jueves — pierna & glúteo
+  "Full body",   // Viernes
+  "Core",        // Sábado
 ] as const;
 
 const DEFAULT_COLOR = "#716D64";
@@ -413,7 +413,7 @@ export default function Schedule() {
                       ].join(" ")}
                     >
                       <span className={["w-1 h-1 rounded-full", isTower ? "bg-valiance-gold" : "bg-valiance-mauve/60"].join(" ")} />
-                      {isTower ? "Tower" : "Reformer"}
+                      {isTower ? "Tower" : (selectedTheme || "Pilates")}
                     </span>
                   </div>
 

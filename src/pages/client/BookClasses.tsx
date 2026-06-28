@@ -18,15 +18,15 @@ import type { BookingClient } from "@/types/booking";
 
 const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"] as const;
 
-// Tema muscular por día (índice = getDay(): 0=Dom … 6=Sáb). Disciplina única.
+// Enfoque del día (índice = getDay(): 0=Dom … 6=Sáb). Disciplina única.
 const DAY_THEMES = [
-  "",                  // Domingo — sin clases
-  "Pierna & glúteo",   // Lunes
-  "Full body",         // Martes
-  "Tren superior",     // Miércoles
-  "Pierna & glúteo",   // Jueves
-  "Full body",         // Viernes
-  "Core",              // Sábado
+  "",            // Domingo — sin clases
+  "Lower body",  // Lunes — pierna & glúteo
+  "Full body",   // Martes
+  "Upper body",  // Miércoles — tren superior
+  "Lower body",  // Jueves — pierna & glúteo
+  "Full body",   // Viernes
+  "Core",        // Sábado
 ] as const;
 
 // "07:00" → "7:00 am" — formato cálido y legible.
@@ -271,7 +271,9 @@ const BookClasses = () => {
                           const rawApparatus =
                             typeof cls.apparatus === "string" ? cls.apparatus.toLowerCase() : "reformer";
                           const isTower = rawApparatus === "tower";
-                          const apparatusLabel = isTower ? "Tower" : "Reformer";
+                          // Badge: el enfoque del día (Lower/Upper/Full body/Core);
+                          // Tower se conserva como excepción de aparato.
+                          const apparatusLabel = isTower ? "Tower" : (theme || "Pilates");
 
                           return (
                             <button

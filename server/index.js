@@ -547,10 +547,14 @@ function parseScheduleSlot(raw) {
   return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
-// Add 60 minutes to a "HH:MM" string, returned as "HH:MM".
-function addScheduleHour(hhmm) {
+// Duración canónica de una clase (minutos). Las clases son de 55 min con un
+// colchón de 5 min entre slots (los slots están a 60 min de distancia).
+const CLASS_DURATION_MIN = 55;
+
+// Add `mins` minutes to a "HH:MM" string, returned as "HH:MM".
+function addScheduleMinutes(hhmm, mins) {
   const [h, mn] = hhmm.split(":").map((n) => parseInt(n, 10));
-  const total = h * 60 + mn + 60;
+  const total = h * 60 + mn + mins;
   const eh = Math.floor(total / 60) % 24;
   const em = total % 60;
   return `${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
@@ -598,7 +602,7 @@ async function generateClassesFromSchedule({ weeks = 4 } = {}) {
       planned.push({
         date: dateStr,
         start,
-        end: addScheduleHour(start),
+        end: addScheduleMinutes(start, CLASS_DURATION_MIN),
         apparatus: slot.apparatus || "reformer",
       });
     }
@@ -801,8 +805,8 @@ async function ensureSchema() {
       await pool.query(`
         INSERT INTO packages (name, num_classes, price, category, validity_days, is_active, sort_order) VALUES
           ('7 Clases',               '7', 860,  'pilates', 30, true, 1),
-          ('9 Clases',               '9', 1050, 'pilates', 30, true, 2),
-          ('14 Clases',              '14', 1400, 'pilates', 30, true, 3),
+          ('14 Clases',              '14', 1400, 'pilates', 30, true, 2),
+          ('20 Clases',              '20', 2200, 'pilates', 30, true, 3),
           ('Clase Extra',            '1', 130,  'pilates', 30, true, 4),
           ('Clase Suelta / Visita',  '1', 250,  'pilates', 7,  true, 5)
         ON CONFLICT DO NOTHING;
@@ -955,8 +959,8 @@ async function ensureSchema() {
     // bloque idempotente más abajo). No requiere UNIQUE(name).
     const VM_PLANS = [
       { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence al fin del mes de compra.",  price: 860,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 9 Clases",      desc: "9 clases al mes. Vence al fin del mes de compra.",  price: 1050, dur: 30,   cl: 9,  so: 2, feat: ["9 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence al fin del mes de compra.", price: 1400, dur: 30,   cl: 14, so: 3, feat: ["14 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence al fin del mes de compra.", price: 1400, dur: 30,   cl: 14, so: 2, feat: ["14 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 20 Clases",     desc: "20 clases al mes. Vence al fin del mes de compra.", price: 2200, dur: 30,   cl: 20, so: 3, feat: ["20 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
       { name: "Clase Extra",           desc: "Clase adicional para alumnas ya inscritas.",        price: 130,  dur: 30,   cl: 1,  so: 4, feat: ["1 clase extra", "Solo para inscritas"] },
       { name: "Clase Suelta / Visita", desc: "Clase individual sin inscripción.",                 price: 250,  dur: 7,    cl: 1,  so: 5, feat: ["1 clase", "Sin inscripción", "Si te inscribes se toma a cuenta"] },
       { name: "Inscripción",           desc: "Pago único de inscripción. Se re-paga tras ausencia mayor a 6 meses.", price: 500, dur: 3650, cl: 0, so: 6, feat: ["Pago único", "Requerida para paquetes"] },
@@ -1895,7 +1899,7 @@ async function ensureSchema() {
   // It NEVER deletes a class that has a non-cancelled booking, and is wrapped
   // so a failure logs and continues rather than crashing boot.
   try {
-    const SCHEDULE_VERSION = "vm-2026-06-27-tower";
+    const SCHEDULE_VERSION = "vm-2026-06-28-55min";
     const markerRes = await pool.query(
       "SELECT value FROM settings WHERE key = 'schedule_version' LIMIT 1"
     );
@@ -1921,6 +1925,24 @@ async function ensureSchema() {
       `);
       // c) Regenerate bookable classes from the new schedule (next 4 weeks).
       const regen = await generateClassesFromSchedule({ weeks: 4 });
+      // c2) Normalizar duración: TODAS las clases futuras (incluidas las ya
+      //     reservadas) a 55 min — corrige los end_time de 60 min que generaba
+      //     la versión anterior (addScheduleHour sumaba 60).
+      const durFix = await pool.query(
+        `UPDATE classes
+            SET end_time = start_time + (interval '1 minute' * $1)
+          WHERE date >= CURRENT_DATE
+            AND status <> 'cancelled'
+            AND end_time <> start_time + (interval '1 minute' * $1)
+         RETURNING id`,
+        [CLASS_DURATION_MIN]
+      );
+      // c3) Reflejar 55 min también en el tipo de clase (lo muestra el admin).
+      await pool.query(
+        `UPDATE class_types SET duration_min = $1
+          WHERE is_active = true AND COALESCE(duration_min, 0) <> $1`,
+        [CLASS_DURATION_MIN]
+      );
       // d) Persist the version marker so this block runs once per deploy.
       await pool.query(
         `INSERT INTO settings (key, value) VALUES ('schedule_version', $1)
@@ -1928,7 +1950,7 @@ async function ensureSchema() {
         [JSON.stringify(SCHEDULE_VERSION)]
       );
       console.log(
-        `✅ Schedule RESYNC done: deleted ${del.rowCount} future un-booked classes, regenerated ${regen}, marker=${SCHEDULE_VERSION}`
+        `✅ Schedule RESYNC done: deleted ${del.rowCount} future un-booked classes, regenerated ${regen}, normalized ${durFix.rowCount} durations to ${CLASS_DURATION_MIN}min, marker=${SCHEDULE_VERSION}`
       );
     }
   } catch (err) {
@@ -4406,6 +4428,16 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       return res.status(409).json({ message: nonRepeatableConflict.message });
     }
 
+    // ── Clase Extra: solo para alumnas inscritas ──────────────────────────
+    // La "Clase Suelta / Visita" es el ÚNICO producto comprable SIN inscripción.
+    // La "Clase Extra" ($130) es un complemento para quien ya tiene membresía
+    // activa/reciente; si la alumna necesita inscripción, se bloquea (no se le
+    // permite "entrar" por clase extra).
+    if (String(plan.name).trim().toLowerCase() === "clase extra" && (await clientNeedsInscription(req.userId))) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ message: "La clase extra es solo para alumnas inscritas. Si aún no te inscribes, compra una Clase suelta / visita o un paquete." });
+    }
+
     // ── Block duplicate pending orders for the same plan ──
     const pendingDup = await client.query(
       `SELECT id FROM orders
@@ -4465,7 +4497,7 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
 
     // ── One-time inscription (enrollment) fee ──────────────────────────────
     // Auto-add the $500 inscription when the ordered plan is a CLASS PACKAGE
-    // (class_limit >= 2 → the 7/9/14 packages; excludes Clase Extra/Suelta
+    // (class_limit >= 2 → the 7/14/20 packages; excludes Clase Extra/Suelta
     // which have limit 1, and Inscripción itself which has limit 0) AND the
     // client needs it (no active/recent membership). Applied here, BEFORE the
     // INSERT and BEFORE any MercadoPago preference, so EVERY payment method
