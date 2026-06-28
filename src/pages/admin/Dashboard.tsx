@@ -47,7 +47,7 @@ const Dashboard = () => {
   });
 
   const metric = (label: string, value: number | undefined, icon: React.ReactNode, prefix = "", accent = "#D1B9B4") => (
-    <Card className="overflow-hidden border-valiance-oat bg-valiance-ivory shadow-valiance-soft">
+    <Card className="overflow-hidden border-valiance-oat bg-valiance-surface2 shadow-valiance-soft">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="font-body text-xs font-semibold uppercase tracking-[0.16em] text-valiance-mauve/75">{label}</CardTitle>
         <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-valiance-oat bg-valiance-oat/35" style={{ color: accent }}>
@@ -98,7 +98,7 @@ const Dashboard = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card className="border-valiance-oat bg-valiance-ivory shadow-valiance-soft">
+            <Card className="border-valiance-oat bg-valiance-surface2 shadow-valiance-soft">
               <CardHeader>
                 <CardTitle className="font-body text-base font-semibold text-valiance-charcoal">Últimas membresías</CardTitle>
               </CardHeader>
@@ -126,7 +126,7 @@ const Dashboard = () => {
             </Card>
 
             <Card
-              className="cursor-pointer border-valiance-oat bg-valiance-ivory shadow-valiance-soft transition-all hover:-translate-y-0.5 hover:border-valiance-mauve/50"
+              className="cursor-pointer border-valiance-oat bg-valiance-surface2 shadow-valiance-soft transition-all hover:-translate-y-0.5 hover:border-valiance-mauve/50"
               onClick={() => navigate("/admin/payments?tab=pending")}
             >
               <CardHeader>

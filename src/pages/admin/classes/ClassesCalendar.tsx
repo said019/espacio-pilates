@@ -602,7 +602,7 @@ const ClassesCalendar = () => {
     <AuthGuard>
       <AdminLayout>
         <div className="admin-page max-w-6xl">
-          <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-valiance-oat bg-valiance-ivory p-4 shadow-valiance-soft sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-valiance-oat bg-valiance-surface2 p-4 shadow-valiance-soft sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="mb-1 text-[0.62rem] font-semibold uppercase tracking-[0.2em] text-valiance-mauve/70">Calendario</p>
               <h1 className="admin-title font-display text-valiance-charcoal">Clases</h1>
@@ -618,7 +618,7 @@ const ClassesCalendar = () => {
                     "flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium whitespace-nowrap transition-all sm:px-4 sm:text-sm " +
                     (tab === key
                       ? "bg-valiance-mauve text-valiance-nude shadow-valiance-soft"
-                      : "text-valiance-mauve hover:bg-valiance-ivory hover:text-valiance-charcoal")
+                      : "text-valiance-mauve hover:bg-valiance-surface2 hover:text-valiance-charcoal")
                   }
                 >
                   <Icon size={15} />
@@ -894,7 +894,7 @@ function CalendarTab({
           </div>
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-valiance-oat bg-valiance-ivory p-3 shadow-valiance-soft">
+        <div className="overflow-x-auto rounded-2xl border border-valiance-oat bg-valiance-surface2 p-3 shadow-valiance-soft">
           <div className="grid min-w-[1060px] grid-cols-7 gap-3">
             {days.map((day) => {
               const dayKey = format(day, "yyyy-MM-dd");
@@ -903,7 +903,7 @@ function CalendarTab({
                 <div key={dayKey} className="min-h-[420px] rounded-2xl border border-valiance-oat bg-valiance-oat/18 p-3">
                   <button
                     type="button"
-                    className="mb-3 flex w-full items-center justify-between rounded-xl px-1 py-1 text-left transition-colors hover:bg-valiance-ivory/70"
+                    className="mb-3 flex w-full items-center justify-between rounded-xl px-1 py-1 text-left transition-colors hover:bg-valiance-surface2/70"
                     onClick={() => openCreate(dayKey)}
                   >
                     <div>
@@ -912,7 +912,7 @@ function CalendarTab({
                       </p>
                       <p className="font-display text-2xl leading-none text-valiance-charcoal">{format(day, "d")}</p>
                     </div>
-                    <span className="rounded-full bg-valiance-ivory px-2.5 py-1 text-[0.65rem] font-medium text-valiance-mauve ring-1 ring-valiance-oat">
+                    <span className="rounded-full bg-valiance-surface2 px-2.5 py-1 text-[0.65rem] font-medium text-valiance-mauve ring-1 ring-valiance-oat">
                       {dayClasses.length}
                     </span>
                   </button>
@@ -929,7 +929,7 @@ function CalendarTab({
                           type="button"
                           onClick={() => { setSelectedClass(c); setSheetOpen(true); }}
                           className={cn(
-                            "w-full rounded-2xl border bg-valiance-ivory p-3 text-left shadow-[0_10px_24px_-22px_rgba(68,68,68,0.4)] transition-all hover:-translate-y-0.5 hover:shadow-valiance-card",
+                            "w-full rounded-2xl border bg-valiance-surface2 p-3 text-left shadow-[0_10px_24px_-22px_rgba(68,68,68,0.4)] transition-all hover:-translate-y-0.5 hover:shadow-valiance-card",
                             c.isCancelled ? "border-destructive/25 opacity-60" : "border-valiance-oat hover:border-valiance-fern/45"
                           )}
                         >
@@ -981,7 +981,7 @@ function CalendarTab({
                     <button
                       type="button"
                       onClick={() => openCreate(dayKey)}
-                      className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed border-valiance-oat bg-valiance-ivory/50 text-valiance-mauve transition-colors hover:border-valiance-fern/45 hover:bg-valiance-ivory"
+                      className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed border-valiance-oat bg-valiance-surface2/50 text-valiance-mauve transition-colors hover:border-valiance-fern/45 hover:bg-valiance-surface2"
                       aria-label={`Crear clase para ${format(day, "d MMM", { locale: es })}`}
                     >
                       <Plus size={15} />

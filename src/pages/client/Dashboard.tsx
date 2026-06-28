@@ -134,7 +134,7 @@ const Dashboard = () => {
               <div className="relative overflow-hidden rounded-2xl border border-valiance-mauve/25 bg-valiance-blush/20 p-5 transition-all hover:-translate-y-0.5 hover:shadow-valiance-card">
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-valiance-ivory text-valiance-mauve ring-1 ring-valiance-mauve/25">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-valiance-surface2 text-valiance-mauve ring-1 ring-valiance-mauve/25">
                       <Sparkles size={20} />
                     </div>
                     <div>

@@ -305,7 +305,7 @@ export default function Schedule() {
                   count === 0
                     ? (selected ? "text-valiance-cream/40" : "text-valiance-mauve/30")
                     : selected
-                      ? "bg-valiance-cream/20 text-valiance-cream"
+                      ? "bg-valiance-surface2/20 text-valiance-cream"
                       : "bg-valiance-charcoal/[0.06] text-valiance-mauve",
                 ].join(" ")}>
                   {count === 0 ? "·" : count}
