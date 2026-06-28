@@ -266,6 +266,11 @@ const Checkout = () => {
   // Plan price after any discount + inscription = what the backend charges.
   const totalWithInscription = finalAmount + inscriptionAmount;
 
+  // "Clase Extra" es solo para alumnas inscritas → se bloquea si la alumna
+  // aún necesita inscripción (la "Clase Suelta / Visita" es la única sin inscripción).
+  const isClaseExtra = /clase\s*extra/i.test(selectedName);
+  const blockedClaseExtra = isClaseExtra && needsInscription;
+
   const validateCodeMutation = useMutation({
     mutationFn: () => api.post("/discount-codes/validate", { code: discountCode, planId: selectedPlan?.id }),
     onSuccess: (res) => setDiscountResult(res.data?.data ?? res.data),
@@ -480,9 +485,18 @@ const Checkout = () => {
                     </div>
                   </div>
 
+                  {blockedClaseExtra && (
+                    <div className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-[12px] text-amber-800 leading-snug">
+                      La <strong>clase extra</strong> es solo para alumnas inscritas. Aún no estás inscrita — elige una <strong>Clase suelta / visita</strong> o un <strong>paquete</strong> para empezar.
+                    </div>
+                  )}
                   <button
                     onClick={() => setStep("method")}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 transition-opacity"
+                    disabled={blockedClaseExtra}
+                    className={cn(
+                      "w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] transition-opacity",
+                      blockedClaseExtra ? "opacity-40 cursor-not-allowed" : "hover:opacity-90"
+                    )}
                   >
                     Seleccionar método de pago <ChevronRight size={15} />
                   </button>

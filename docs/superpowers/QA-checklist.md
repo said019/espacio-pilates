@@ -12,7 +12,7 @@
 - Bloqueo cancelación <12h / reagenda <3h: cubierto por tests unitarios (bookingPolicy: canCancel/canReschedule).
 
 ## Datos / seed (DB fresca)
-- 6 planes de catálogo VM: 7=$860, 9=$1,050, 14=$1,400, Clase Extra $130, Suelta/Visita $250, Inscripción $500
+- 6 planes de catálogo VM: 7=$860, 14=$1,400, 20=$2,200, Clase Extra $130 (solo inscritas), Suelta/Visita $250 (única sin inscripción), Inscripción $500
 - 1 tipo de clase activo: "Pilates" (cupo 8)
 - 28 schedule_slots = horario VM; 92 clases generadas (próximas 4 semanas, cupo 8)
 - 1 coach (instructor con usuario), admin VM
