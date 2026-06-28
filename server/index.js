@@ -10098,7 +10098,7 @@ app.post("/api/users", adminMiddleware, async (req, res) => {
       const emailExists = await pool.query("SELECT id FROM users WHERE email = $1", [normalizedEmail]);
       if (emailExists.rows.length) return res.status(409).json({ message: "Email ya registrado" });
     }
-    const tempPassword = Math.random().toString(36).slice(2, 10);
+    const tempPassword = crypto.randomBytes(8).toString("base64url").slice(0, 10);
     const hash = await bcrypt.hash(tempPassword, 12);
     const r = await pool.query(
       `INSERT INTO users (display_name, email, phone, role, password_hash, date_of_birth, emergency_contact_name, emergency_contact_phone, health_notes, accepts_terms)
@@ -10129,7 +10129,7 @@ app.post("/api/admin/users/:id/reset-password", adminMiddleware, async (req, res
     const { password } = req.body || {};
     const newPassword = (password && String(password).length >= 8)
       ? String(password)
-      : Math.random().toString(36).slice(2, 10) + "A1";
+      : crypto.randomBytes(8).toString("base64url").slice(0, 10) + "A1";
     const hash = await bcrypt.hash(newPassword, 12);
     const r = await pool.query(
       "UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2 RETURNING id",
@@ -10137,7 +10137,7 @@ app.post("/api/admin/users/:id/reset-password", adminMiddleware, async (req, res
     );
     if (r.rows.length === 0) return res.status(404).json({ message: "Usuario no encontrado" });
     // Invalidar links de recuperación pendientes
-    await pool.query("UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false", [req.params.id]).catch(() => { });
+    await pool.query("UPDATE password_reset_tokens SET used = true WHERE user_id = $1 AND used = false", [req.params.id]).catch((e) => { console.warn("reset-password: no se pudieron invalidar tokens previos", req.params.id, e?.message); });
     return res.json({ message: "Contraseña restablecida", tempPassword: newPassword });
   } catch (err) {
     console.error("POST /api/admin/users/:id/reset-password error:", err);
