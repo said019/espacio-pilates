@@ -52,7 +52,7 @@ está centralizado y el riesgo es bajo.
   - Mar / Jue: 5:30, 6:30, 7:30 pm
   - Sábado: 9:00 am
 - **Paquetes (mensuales, no acumulables, vencen al fin del mes de compra):**
-  - A — 7 clases/mes — $880
+  - A — 7 clases/mes — $860
   - B — 9 clases/mes — $1,050
   - C — 14 clases/mes — $1,400
   - Inscripción (pago único): $500 — re-pago si ausencia > 3 meses.

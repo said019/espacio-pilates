@@ -13,7 +13,7 @@
 - Nombre de marca exacto: **Tu Espacio Pilates** (variantes: "Tu Espacio Pilates VM", "Villa Magna"). Nunca "Valiance" ni "Punto Neutro".
 - Paleta exacta: primario `#C9ADA3`, acento lila `#C0AAD6`, neutro frío `#E3E7E9`, tinta `#1A1A1A`, dorado `#B8915A`.
 - Cupo por clase: **8**.
-- Paquetes (no acumulables, vencen fin del mes de compra): 7×$880, 9×$1,050, 14×$1,400. Inscripción $500. Clase extra $130. Clase suelta/visita $250.
+- Paquetes (no acumulables, vencen fin del mes de compra): 7×$860, 9×$1,050, 14×$1,400. Inscripción $500. Clase extra $130. Clase suelta/visita $250.
 - Horarios: L/X/V 07:00,08:00,09:00 y 17:30,18:30,19:30,20:30 · Ma/Ju 17:30,18:30,19:30 · Sáb 09:00.
 - Cancelación: ventana 12 h (devuelve crédito). Reagenda: ventana 3 h. <3 h pierde lugar. Reagendar es operación nueva.
 - Pagos: **solo transferencia** + validación admin. Moneda MXN.
@@ -183,7 +183,7 @@ Nombre "Tu Espacio Pilates · Villa Magna", tagline alineado a "explora el méto
 
 - [ ] **Step 2: Reemplazar paquetes/precios (fallback hardcoded)**
 
-7 clases $880 · 9 clases $1,050 · 14 clases $1,400 · Inscripción $500 · Clase extra $130 · Clase suelta/visita $250.
+7 clases $860 · 9 clases $1,050 · 14 clases $1,400 · Inscripción $500 · Clase extra $130 · Clase suelta/visita $250.
 
 - [ ] **Step 3: Reemplazar horarios y temas por día**
 
@@ -250,7 +250,7 @@ Insertar los horarios exactos (Global Constraints) con un campo de tema/`focus` 
 
 - [ ] **Step 3: Plans/paquetes**
 
-A 7×$880 (class_limit 7), B 9×$1,050 (9), C 14×$1,400 (14), Inscripción $500 (class_limit 0, no repetible salvo regla >3 meses), Clase extra $130 (1), Clase suelta/visita $250 (1). `duration_days` se ignora a favor de fin-de-mes (Task 7); dejar 30 por compat.
+A 7×$860 (class_limit 7), B 9×$1,050 (9), C 14×$1,400 (14), Inscripción $500 (class_limit 0, no repetible salvo regla >3 meses), Clase extra $130 (1), Clase suelta/visita $250 (1). `duration_days` se ignora a favor de fin-de-mes (Task 7); dejar 30 por compat.
 
 - [ ] **Step 4: system_settings**
 

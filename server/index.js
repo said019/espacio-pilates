@@ -794,7 +794,7 @@ async function ensureSchema() {
     if (parseInt(pkgCount.rows[0].count) === 0) {
       await pool.query(`
         INSERT INTO packages (name, num_classes, price, category, validity_days, is_active, sort_order) VALUES
-          ('7 Clases',               '7', 880,  'pilates', 30, true, 1),
+          ('7 Clases',               '7', 860,  'pilates', 30, true, 1),
           ('9 Clases',               '9', 1050, 'pilates', 30, true, 2),
           ('14 Clases',              '14', 1400, 'pilates', 30, true, 3),
           ('Clase Extra',            '1', 130,  'pilates', 30, true, 4),
@@ -948,7 +948,7 @@ async function ensureSchema() {
     // activos (más TotalPass 154 admin-only, que se re-activa en su propio
     // bloque idempotente más abajo). No requiere UNIQUE(name).
     const VM_PLANS = [
-      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence al fin del mes de compra.",  price: 880,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence al fin del mes de compra.",  price: 860,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
       { name: "Paquete 9 Clases",      desc: "9 clases al mes. Vence al fin del mes de compra.",  price: 1050, dur: 30,   cl: 9,  so: 2, feat: ["9 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
       { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence al fin del mes de compra.", price: 1400, dur: 30,   cl: 14, so: 3, feat: ["14 clases", "Vigencia: mes de compra", "Personal e intransferible", "Solo transferencia"] },
       { name: "Clase Extra",           desc: "Clase adicional para alumnas ya inscritas.",        price: 130,  dur: 30,   cl: 1,  so: 4, feat: ["1 clase extra", "Solo para inscritas"] },
