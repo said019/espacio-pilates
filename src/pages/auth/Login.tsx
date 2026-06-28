@@ -129,7 +129,7 @@ const Login = () => {
       </aside>
 
       {/* ── RIGHT — formulario ── */}
-      <main className="flex-1 flex flex-col justify-center items-center px-6 py-6 sm:px-10 relative overflow-hidden">
+      <main className="flex-1 flex flex-col justify-center items-center px-6 py-6 sm:px-10 relative overflow-x-hidden">
         <div className="w-full max-w-[400px]">
           <Link to="/" className="flex justify-center mb-5">
             <img src={valianceLogo} alt="Tu Espacio Pilates" className="h-11 w-auto" />
@@ -165,7 +165,7 @@ const Login = () => {
                 id="identifier"
                 type="text"
                 autoComplete="username"
-                placeholder="Tu teléfono"
+                placeholder="Tu teléfono o correo"
                 {...register("identifier")}
                 className="bg-valiance-blush/30 border border-transparent rounded-2xl px-4 py-2.5 font-body text-[0.92rem] text-valiance-charcoal placeholder:text-valiance-charcoal/35 focus:outline-none focus:bg-valiance-nude focus:border-valiance-mauve/40 transition-all"
               />
