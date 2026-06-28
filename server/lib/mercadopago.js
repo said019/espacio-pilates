@@ -62,6 +62,57 @@ export async function createPreference(params) {
   };
 }
 
+// ── Body del pago con tarjeta (Checkout API / Brick) — puro, testeable ──
+// El monto SIEMPRE viene del servidor; installments se fuerza a 1 (contado).
+export function buildCardPaymentBody({ orderId, orderNumber, planName, amount, token, paymentMethodId, issuerId, payer }, { backendUrl }) {
+  return {
+    transaction_amount: Number(amount),
+    token,
+    description: `Tu Espacio Pilates — ${planName}`,
+    installments: 1,
+    payment_method_id: paymentMethodId,
+    issuer_id: issuerId || undefined,
+    external_reference: orderId,
+    notification_url: `${backendUrl}/webhooks/mercadopago`,
+    statement_descriptor: "ESPACIO PILATES",
+    metadata: { order_id: orderId, order_number: orderNumber },
+    payer: {
+      email: payer?.email || undefined,
+      identification: payer?.identification || undefined,
+    },
+  };
+}
+
+// ── Crear pago con tarjeta tokenizada (respuesta síncrona de MP) ──
+export async function createCardPayment(params) {
+  const accessToken = process.env.MP_ACCESS_TOKEN || "";
+  if (!accessToken) throw new Error("MP_ACCESS_TOKEN no configurado");
+  const backendUrl = stripTrailingSlash(process.env.BACKEND_URL);
+  const body = buildCardPaymentBody(params, { backendUrl });
+
+  const res = await fetch(`${MP_API}/v1/payments`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      // Evita doble cargo del MISMO token; un reintento usa token nuevo.
+      "X-Idempotency-Key": `paytoken-${String(params.token).slice(0, 24)}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`MercadoPago payment error: ${res.status} — ${err}`);
+  }
+  const data = await res.json();
+  return {
+    id: data.id,
+    status: data.status,
+    status_detail: data.status_detail,
+    external_reference: data.external_reference,
+  };
+}
+
 // ── Consultar estado real de un pago ──
 export async function syncPayment(mpPaymentId) {
   const accessToken = process.env.MP_ACCESS_TOKEN || "";

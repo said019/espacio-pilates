@@ -15,7 +15,7 @@ import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
 import { canCancel, canReschedule } from "./lib/bookingPolicy.js";
-import { createPreference, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
+import { createPreference, createCardPayment, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
 import { isEmailIdentifier } from "./lib/authIdentity.js";
 import {
   sendMembershipActivated,
@@ -4730,6 +4730,118 @@ app.post("/api/orders/:id/pay-with-card", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("pay-with-card error:", err.message);
     return res.status(500).json({ message: "No se pudo generar el checkout" });
+  }
+});
+
+// Mapa de status_detail de MP → mensaje en español (rechazos comunes de tarjeta)
+function mpRejectionMessage(detail) {
+  const map = {
+    cc_rejected_insufficient_amount:       "Fondos insuficientes.",
+    cc_rejected_bad_filled_card_number:    "Número de tarjeta incorrecto.",
+    cc_rejected_bad_filled_date:           "Fecha de vencimiento incorrecta.",
+    cc_rejected_bad_filled_security_code:  "Código de seguridad (CVV) incorrecto.",
+    cc_rejected_bad_filled_other:          "Revisa los datos de la tarjeta.",
+    cc_rejected_call_for_authorize:        "Tu banco requiere autorizar este monto. Llámalos y reintenta.",
+    cc_rejected_card_disabled:             "Tarjeta inactiva. Llama a tu banco para activarla.",
+    cc_rejected_card_error:                "No se pudo procesar la tarjeta. Intenta de nuevo.",
+    cc_rejected_duplicated_payment:        "Ya registramos un pago igual hace unos momentos.",
+    cc_rejected_high_risk:                 "El pago fue rechazado por prevención de fraude.",
+    cc_rejected_max_attempts:              "Superaste el número de intentos. Usa otra tarjeta.",
+    cc_rejected_blacklist:                 "La tarjeta no fue autorizada.",
+    cc_rejected_other_reason:              "Tu banco rechazó el pago.",
+  };
+  return map[detail] || "El pago fue rechazado. Intenta con otra tarjeta.";
+}
+
+// POST /api/orders/:id/pay-card-token — pago con tarjeta DENTRO de la app (Brick → /v1/payments)
+// El cliente envía SOLO el token (MP tokenizó la tarjeta en el navegador); el monto sale del servidor.
+app.post("/api/orders/:id/pay-card-token", authMiddleware, async (req, res) => {
+  try {
+    const { token, payment_method_id, issuer_id, payer } = req.body || {};
+    if (!token || !payment_method_id) {
+      return res.status(400).json({ message: "Faltan datos de la tarjeta" });
+    }
+    const r = await pool.query(
+      `SELECT o.*, p.name AS plan_name, u.email AS user_email
+         FROM orders o
+         JOIN plans p ON o.plan_id = p.id
+         JOIN users u ON o.user_id = u.id
+        WHERE o.id = $1 AND o.user_id = $2`,
+      [req.params.id, req.userId]
+    );
+    if (!r.rows.length) return res.status(404).json({ message: "Orden no encontrada" });
+    const order = r.rows[0];
+    if (order.status !== "pending_payment") {
+      return res.status(400).json({ message: "Esta orden ya no acepta pagos" });
+    }
+
+    let payment;
+    try {
+      payment = await createCardPayment({
+        orderId: order.id,
+        orderNumber: order.order_number,
+        planName: order.plan_name,
+        amount: Number(order.total_amount),          // monto del servidor, nunca del cliente
+        token,
+        paymentMethodId: payment_method_id,
+        issuerId: issuer_id,
+        payer: { email: payer?.email || order.user_email || "", identification: payer?.identification },
+      });
+    } catch (mpErr) {
+      console.error("pay-card-token MP error:", mpErr.message);
+      return res.status(502).json({ message: "No se pudo procesar el pago. Intenta de nuevo." });
+    }
+
+    await pool.query(
+      `UPDATE orders SET payment_method = 'card'::payment_method,
+                         payment_provider = 'mercadopago',
+                         mp_payment_id = $1, mp_payment_status = $2, mp_status_detail = $3,
+                         provider_synced_at = NOW(), updated_at = NOW()
+         WHERE id = $4`,
+      [payment.id, payment.status, payment.status_detail, order.id]
+    );
+
+    if (payment.status === "approved") {
+      await approveOrderFromMP(order.id, payment.id);
+      return res.json({ data: { status: "approved" } });
+    }
+    if (payment.status === "in_process" || payment.status === "pending") {
+      return res.json({ data: { status: "pending" } });
+    }
+    // rejected u otro estado terminal
+    const message = mpRejectionMessage(payment.status_detail);
+    await pool.query(
+      `UPDATE orders SET rejection_reason = $1, rejected_at = COALESCE(rejected_at, NOW()), updated_at = NOW()
+         WHERE id = $2 AND status = 'pending_payment'`,
+      [message, order.id]
+    );
+    return res.json({ data: { status: "rejected", detail: payment.status_detail, message } });
+  } catch (err) {
+    console.error("pay-card-token error:", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/orders/:id/cancel — el cliente cancela su propia orden pendiente de pago
+app.post("/api/orders/:id/cancel", authMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(
+      "SELECT status FROM orders WHERE id = $1 AND user_id = $2",
+      [req.params.id, req.userId]
+    );
+    if (!r.rows.length) return res.status(404).json({ message: "Orden no encontrada" });
+    if (r.rows[0].status !== "pending_payment") {
+      return res.status(400).json({ message: "Solo puedes cancelar órdenes pendientes de pago" });
+    }
+    const upd = await pool.query(
+      `UPDATE orders SET status = 'cancelled', updated_at = NOW()
+         WHERE id = $1 AND status = 'pending_payment' RETURNING *`,
+      [req.params.id]
+    );
+    return res.json({ data: upd.rows[0] });
+  } catch (err) {
+    console.error("cancel order error:", err.message);
+    return res.status(500).json({ message: "No se pudo cancelar la orden" });
   }
 });
 
