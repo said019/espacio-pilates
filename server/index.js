@@ -14435,6 +14435,62 @@ app.put("/api/events/:id/register/payment", authMiddleware, async (req, res) => 
   }
 });
 
+// ─── Web Push: avisos del admin ──────────────────────────────────────────────
+app.get("/api/admin/push/stats", adminMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(
+      "SELECT COUNT(DISTINCT user_id)::int AS subscribers, COUNT(*)::int AS devices FROM push_subscriptions"
+    );
+    return res.json({
+      enabled: isPushConfigured(),
+      subscribers: r.rows[0]?.subscribers ?? 0,
+      devices: r.rows[0]?.devices ?? 0,
+    });
+  } catch (err) {
+    console.error("GET /api/admin/push/stats:", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+app.post("/api/admin/push/broadcast", adminMiddleware, async (req, res) => {
+  try {
+    if (!isPushConfigured()) return res.status(400).json({ message: "Push no configurado" });
+    const { title, body, url, segment } = req.body || {};
+    if (!title || !body) return res.status(400).json({ message: "Falta título o mensaje" });
+    const seg = segment === "active_membership" ? "active_membership" : "all";
+    let userQuery;
+    if (seg === "active_membership") {
+      userQuery = `
+        SELECT DISTINCT ps.user_id
+          FROM push_subscriptions ps
+         WHERE EXISTS (
+           SELECT 1 FROM memberships m
+            WHERE m.user_id = ps.user_id
+              AND m.status = 'active'
+              AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+         )`;
+    } else {
+      userQuery = "SELECT DISTINCT user_id FROM push_subscriptions";
+    }
+    const users = await pool.query(userQuery);
+    let sent = 0, failed = 0, pruned = 0;
+    for (const row of users.rows) {
+      const r = await sendPushToUser(row.user_id, {
+        title: String(title).slice(0, 80),
+        body: String(body).slice(0, 240),
+        url: url || "/app",
+        tag: "admin_broadcast",
+        respectPrefs: true,
+      });
+      sent += r.sent; failed += r.failed; pruned += r.pruned;
+    }
+    return res.json({ recipients: users.rows.length, sent, failed, pruned });
+  } catch (err) {
+    console.error("POST /api/admin/push/broadcast:", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // ─── Email test endpoint (admin only) ─────────────────────────────────────────
 app.post("/api/admin/test-emails", adminMiddleware, async (req, res) => {
   const testTo = req.body.to || "saidromero19@gmail.com";

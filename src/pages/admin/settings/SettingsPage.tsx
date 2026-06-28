@@ -623,6 +623,69 @@ const cancellationSchema = z.object({
 });
 type CancellationFormValues = z.infer<typeof cancellationSchema>;
 
+const PushBroadcastSection = () => {
+  const { toast } = useToast();
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [url, setUrl] = useState("");
+  const [segment, setSegment] = useState<"all" | "active_membership">("all");
+
+  const { data: stats } = useQuery({
+    queryKey: ["push-stats"],
+    queryFn: async () => (await api.get("/admin/push/stats")).data,
+  });
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      api.post("/admin/push/broadcast", { title, body: message, url: url || undefined, segment }),
+    onSuccess: (res) => {
+      const d = res.data || {};
+      toast({ title: "Aviso enviado", description: `Entregado a ${d.sent} dispositivo(s) de ${d.recipients} alumna(s).` });
+      setTitle(""); setMessage(""); setUrl("");
+    },
+    onError: (e: any) =>
+      toast({ title: "No se pudo enviar", description: e?.response?.data?.message || "Error", variant: "destructive" }),
+  });
+
+  if (stats && stats.enabled === false) {
+    return <p className="text-sm text-muted-foreground">Las notificaciones push no están configuradas en el servidor (falta VAPID).</p>;
+  }
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <p className="text-sm text-muted-foreground">
+        {stats ? `${stats.subscribers} alumna(s) suscrita(s) · ${stats.devices} dispositivo(s)` : "Cargando…"}
+      </p>
+      <div className="space-y-1">
+        <Label>Título</Label>
+        <Input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} placeholder="Ej. Clases especiales este sábado" />
+      </div>
+      <div className="space-y-1">
+        <Label>Mensaje</Label>
+        <Textarea rows={4} value={message} maxLength={240} onChange={(e) => setMessage(e.target.value)} placeholder="Escribe el aviso…" />
+      </div>
+      <div className="space-y-1">
+        <Label>Enlace al tocar (opcional)</Label>
+        <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="/app/classes" />
+      </div>
+      <div className="space-y-1">
+        <Label>Destinatarias</Label>
+        <select className="w-full border rounded-md h-10 px-3 text-sm" value={segment} onChange={(e) => setSegment(e.target.value as any)}>
+          <option value="all">Todas las suscritas</option>
+          <option value="active_membership">Solo con membresía activa</option>
+        </select>
+      </div>
+      <Button
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending || !title || !message}
+        className="bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] text-white"
+      >
+        {mutation.isPending ? "Enviando…" : "Enviar aviso"}
+      </Button>
+    </div>
+  );
+};
+
 const CancellationSettings = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -788,6 +851,7 @@ const SettingsPage = () => (
             <TabsTrigger value="notifications">Notificaciones</TabsTrigger>
             <TabsTrigger value="policies">Políticas</TabsTrigger>
             <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
+            <TabsTrigger value="avisos">Avisos</TabsTrigger>
             <TabsTrigger value="cancellations">Cancelaciones</TabsTrigger>
           </TabsList>
 
@@ -848,6 +912,10 @@ const SettingsPage = () => (
 
           <TabsContent value="whatsapp">
             <WhatsAppSettings />
+          </TabsContent>
+
+          <TabsContent value="avisos">
+            <PushBroadcastSection />
           </TabsContent>
 
           <TabsContent value="cancellations">
