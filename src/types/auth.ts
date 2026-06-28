@@ -1,6 +1,6 @@
 export interface User {
   id: string;
-  email: string;
+  email: string | null;
   phone: string;
   displayName: string;
   display_name?: string;
@@ -42,12 +42,12 @@ export interface AuthResponse {
 }
 
 export interface LoginCredentials {
-  email: string;
+  identifier: string;
   password: string;
 }
 
 export interface RegisterData {
-  email: string;
+  email?: string;
   password: string;
   displayName: string;
   phone: string;
