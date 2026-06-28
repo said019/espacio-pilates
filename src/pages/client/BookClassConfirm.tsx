@@ -34,7 +34,13 @@ const BookClassConfirm = () => {
       qc.invalidateQueries({ queryKey: ["my-membership"] });
       qc.invalidateQueries({ queryKey: ["public-classes"] });
       if (data?.booking?.status === "waitlist") {
-        toast({ title: "En lista de espera", description: "Te avisaremos si se libera un lugar" });
+        const pos = data?.waitlistPosition;
+        toast({
+          title: "En lista de espera",
+          description: pos
+            ? `Estás en la posición ${pos}. Te avisaremos por WhatsApp y correo si se libera un lugar.`
+            : "Te avisaremos por WhatsApp y correo si se libera un lugar.",
+        });
       } else {
         toast({ title: "¡Reserva confirmada!" });
       }
@@ -82,12 +88,21 @@ const BookClassConfirm = () => {
                   <Users size={14} className="text-muted-foreground" />
                   {cls.current_bookings ?? 0} / {cls.max_capacity} lugares
                 </div>
+                {(cls.current_bookings ?? 0) >= (cls.max_capacity ?? 0) && (
+                  <p className="text-xs text-valiance-mauve">
+                    Clase llena — te unirás a la lista de espera y te avisaremos si se libera un lugar.
+                  </p>
+                )}
                 <Button
                   className="w-full mt-4"
                   onClick={() => bookMutation.mutate()}
                   disabled={bookMutation.isPending}
                 >
-                  {bookMutation.isPending ? "Reservando..." : "Confirmar reserva"}
+                  {bookMutation.isPending
+                    ? "Reservando..."
+                    : (cls.current_bookings ?? 0) >= (cls.max_capacity ?? 0)
+                      ? "Unirme a la lista de espera"
+                      : "Confirmar reserva"}
                 </Button>
               </CardContent>
             </Card>

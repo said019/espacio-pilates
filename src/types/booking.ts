@@ -8,4 +8,5 @@ export interface BookingClient {
   status: "confirmed" | "waitlist" | "checked_in" | "no_show" | "cancelled";
   booked_at: string;
   has_review?: boolean;
+  waitlist_position?: number | null;
 }

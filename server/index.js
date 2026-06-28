@@ -220,6 +220,7 @@ const DEFAULT_CANCELLATION_SETTINGS = {
   enabled: true,
   min_hours: 12,
   reschedule_hours: 3,
+  waitlist_cutoff_hours: 3,   // dentro de estas horas ya no se auto-promueve de la lista de espera
   refund_credit_on_cancel: true,
   cancellations_limit: 2,
   late_cancel_message: "Las cancelaciones requieren al menos {hours}h de anticipación. La clase se tomará como impartida y no será devuelta a tu paquete.",
@@ -3507,7 +3508,12 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
               i.display_name AS instructor_name,
               i.photo_url    AS instructor_photo,
               (rv.id IS NOT NULL) AS has_review,
-              f.name         AS facility_name
+              f.name         AS facility_name,
+              CASE WHEN b.status = 'waitlist' THEN (
+                SELECT COUNT(*)::int FROM bookings b2
+                 WHERE b2.class_id = b.class_id AND b2.status = 'waitlist'
+                   AND b2.created_at <= b.created_at
+              ) END AS waitlist_position
        FROM bookings b
        JOIN classes c         ON b.class_id      = c.id
        JOIN class_types ct    ON c.class_type_id = ct.id
@@ -3536,6 +3542,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     // Lock class row to avoid overbooking in concurrent requests
     const classRes = await client.query(
       `SELECT c.id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
+              (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc,
               ct.category AS class_category
        FROM classes c
        JOIN class_types ct ON c.class_type_id = ct.id
@@ -3618,6 +3625,24 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     }
 
     const isWaitlist = cls.current_bookings >= cls.max_capacity;
+
+    // Lista de espera: si la clase está llena y ya pasó el cutoff (faltan menos
+    // de waitlist_cutoff_hours), no se permite unirse — ya no habría auto-promoción.
+    if (isWaitlist) {
+      const cancelCfg = await getCancellationConfig();
+      const cutoffRaw = Number(cancelCfg.waitlist_cutoff_hours);
+      const cutoffH = Number.isFinite(cutoffRaw) ? cutoffRaw : 3;
+      if (cutoffH > 0 && cls.class_start_utc) {
+        const minsUntil = (new Date(cls.class_start_utc).getTime() - Date.now()) / 60_000;
+        if (minsUntil < cutoffH * 60) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({
+            message: `La lista de espera de esta clase ya cerró (faltan menos de ${cutoffH} h para la clase).`,
+          });
+        }
+      }
+    }
+
     const status = isWaitlist ? "waitlist" : "confirmed";
     const result = await client.query(
       `INSERT INTO bookings (class_id, user_id, membership_id, status)
@@ -3633,6 +3658,17 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
       if (!isUnlimitedClasses(lockedMembership.classes_remaining)) {
         await consumeMembershipCredit(client, membership.id, clsCategory);
       }
+    }
+
+    // Posición en la lista de espera (la recién insertada es la última → su
+    // posición = total de entradas en waitlist de esa clase).
+    let waitlistPosition = null;
+    if (isWaitlist) {
+      const posRes = await client.query(
+        "SELECT COUNT(*)::int AS pos FROM bookings WHERE class_id = $1 AND status = 'waitlist'",
+        [classId]
+      );
+      waitlistPosition = posRes.rows[0]?.pos ?? null;
     }
     await client.query("COMMIT");
 
@@ -3683,9 +3719,11 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
       console.error("[Email] booking confirmed query error:", emailErr.message);
     }
 
-    const msg = isWaitlist ? "Añadido a lista de espera" : "Reserva confirmada";
+    const msg = isWaitlist
+      ? `Añadido a la lista de espera${waitlistPosition ? ` · posición ${waitlistPosition}` : ""}`
+      : "Reserva confirmada";
     triggerWalletPassSync(req.userId, isWaitlist ? "booking_waitlist_created" : "booking_created");
-    return res.status(201).json({ message: msg, booking: result.rows[0] });
+    return res.status(201).json({ message: msg, booking: result.rows[0], waitlistPosition });
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) { }
     console.error("POST bookings error:", err);
@@ -3712,6 +3750,19 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
 
     if (booking.status === "cancelled") {
       return res.status(400).json({ message: "Esta reserva ya fue cancelada" });
+    }
+
+    // ── Salir de la lista de espera: camino aparte ────────────────────────────
+    // No aplica ventana de cancelación (cutoff), ni crédito, ni cupo, ni
+    // promoción, ni el correo de "reserva cancelada". Idempotente vía
+    // WHERE status='waitlist' (un doble clic afecta 0 filas, sin daño).
+    if (booking.status === "waitlist") {
+      await pool.query(
+        "UPDATE bookings SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = 'user' WHERE id = $1 AND status = 'waitlist'",
+        [req.params.id]
+      );
+      triggerWalletPassSync(req.userId, "booking_waitlist_left");
+      return res.json({ message: "Saliste de la lista de espera.", wasWaitlist: true, creditRestored: false });
     }
 
     // ── Check membership cancellation limit (max 2 per membership period) ──
@@ -3791,72 +3842,46 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
     // Refund credit only when within the refund window (>= min_hours) AND the config flag allows it.
     const shouldRefund = cancelCheck.refundCredit && (cancelConfig.refund_credit_on_cancel !== false);
 
-    // Cancel the booking (mark as user-initiated so startup reconciliation
-    // correctly counts this against the client's cancellation limit)
-    await pool.query(
-      "UPDATE bookings SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = 'user' WHERE id = $1",
+    // Cancelar de forma IDEMPOTENTE: el UPDATE con guard `status='confirmed'`
+    // serializa por el lock de fila; solo la petición que realmente transiciona
+    // confirmed→cancelled obtiene rowCount=1 y corre los efectos. Un doble clic /
+    // reintento concurrente del mismo booking obtiene rowCount=0 y se descarta,
+    // evitando doble liberación de cupo, doble reembolso y doble promoción.
+    const cancelUpd = await pool.query(
+      "UPDATE bookings SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = 'user' WHERE id = $1 AND status = 'confirmed' RETURNING id",
       [req.params.id]
     );
+    if (cancelUpd.rowCount !== 1) {
+      return res.status(400).json({ message: "Esta reserva ya fue cancelada" });
+    }
 
-    if (booking.status === "confirmed") {
-      // Always free the class spot
+    // Libera el lugar
+    await pool.query(
+      "UPDATE classes SET current_bookings = GREATEST(current_bookings - 1, 0) WHERE id = $1",
+      [booking.class_id]
+    );
+
+    if (membership) {
       await pool.query(
-        "UPDATE classes SET current_bookings = GREATEST(current_bookings - 1, 0) WHERE id = $1",
-        [booking.class_id]
+        "UPDATE memberships SET cancellations_used = COALESCE(cancellations_used, 0) + 1 WHERE id = $1",
+        [membership.id]
       );
-
-      if (membership) {
-        // Increment cancellations_used
+      // Restore credit only when configured and membership has a counted limit
+      if (shouldRefund && membership.classes_remaining !== null && membership.classes_remaining < 9999) {
         await pool.query(
-          "UPDATE memberships SET cancellations_used = COALESCE(cancellations_used, 0) + 1 WHERE id = $1",
+          "UPDATE memberships SET classes_remaining = classes_remaining + 1 WHERE id = $1",
           [membership.id]
         );
-
-        // Restore credit only when configured and membership has a counted limit
-        if (shouldRefund && membership.classes_remaining !== null && membership.classes_remaining < 9999) {
-          await pool.query(
-            "UPDATE memberships SET classes_remaining = classes_remaining + 1 WHERE id = $1",
-            [membership.id]
-          );
-        }
       }
+    }
 
-      // Auto-promote oldest waitlist booking for this class (FIFO)
-      try {
-        const wlRes = await pool.query(
-          `SELECT b.id, b.user_id, b.membership_id, m.classes_remaining
-             FROM bookings b
-             LEFT JOIN memberships m ON b.membership_id = m.id
-            WHERE b.class_id = $1 AND b.status = 'waitlist'
-            ORDER BY b.created_at ASC
-            LIMIT 1`,
-          [booking.class_id]
-        );
-        if (wlRes.rows.length) {
-          const wl = wlRes.rows[0];
-          const hasCredits = wl.classes_remaining === null
-            || Number(wl.classes_remaining) >= 9999
-            || Number(wl.classes_remaining) > 0;
-          if (hasCredits) {
-            await pool.query("UPDATE bookings SET status = 'confirmed' WHERE id = $1", [wl.id]);
-            await pool.query(
-              "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
-              [booking.class_id]
-            );
-            if (wl.membership_id && wl.classes_remaining !== null && Number(wl.classes_remaining) < 9999) {
-              await pool.query(
-                "UPDATE memberships SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW() WHERE id = $1",
-                [wl.membership_id]
-              );
-            }
-            triggerWalletPassSync(wl.user_id, "booking_promoted_from_waitlist");
-            // Avisar a la alumna que se liberó su lugar y ya está confirmada.
-            notifyWaitlistPromotion(wl.user_id, booking.class_id).catch(() => {});
-          }
-        }
-      } catch (promoteErr) {
-        console.error("[Promote waitlist on user cancel]", promoteErr.message);
-      }
+    // Auto-promover la lista de espera al liberarse un lugar (FIFO, con cutoff
+    // y saltando a quien no tenga crédito). promoteWaitlist es atómico: abre su
+    // propia transacción, bloquea la clase y re-verifica el cupo.
+    const promoted = await promoteWaitlist(booking.class_id);
+    if (promoted) {
+      triggerWalletPassSync(promoted.userId, "booking_promoted_from_waitlist");
+      notifyWaitlistPromotion(promoted.userId, booking.class_id).catch(() => {});
     }
 
     // ── Email / WhatsApp: booking cancelled ───────────────────────────────
@@ -9270,6 +9295,83 @@ async function notifyWaitlistPromotion(userId, classId) {
   }
 }
 
+// ─── Auto-promoción de lista de espera (FIFO) ────────────────────────────────
+// Promueve a la primera persona ELEGIBLE (con crédito) de la lista de espera de
+// una clase cuando hay cupo. Es atómica e idempotente bajo concurrencia:
+//   1) bloquea la fila de la clase (FOR UPDATE) y re-verifica cupo y estado,
+//   2) respeta el cutoff (no promueve si faltan < waitlist_cutoff_hours),
+//   3) itera la cola por antigüedad (created_at) SALTANDO a quien no tenga
+//      crédito, promueve a la primera elegible, descuenta 1 crédito.
+// Devuelve { bookingId, userId } de la promovida, o null. NO notifica — el
+// caller debe llamar notifyWaitlistPromotion(userId, classId) tras un éxito.
+async function promoteWaitlist(classId) {
+  const cfg = await getCancellationConfig();
+  const cutoffHours = Number(cfg.waitlist_cutoff_hours);
+  const cutoff = Number.isFinite(cutoffHours) ? cutoffHours : 3;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // (1) Lock the class row; read capacity, status, category and start time.
+    const clsRes = await client.query(
+      `SELECT c.id, c.current_bookings, c.max_capacity, c.status,
+              ct.category AS class_category,
+              (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
+         FROM classes c JOIN class_types ct ON c.class_type_id = ct.id
+        WHERE c.id = $1 FOR UPDATE OF c`,
+      [classId]
+    );
+    const cls = clsRes.rows[0];
+    if (!cls || cls.status === "cancelled") { await client.query("ROLLBACK"); return null; }
+    const classCategory = normalizeClassCategory(cls.class_category, "all");
+    if (Number(cls.current_bookings) >= Number(cls.max_capacity)) { await client.query("ROLLBACK"); return null; }
+    // (2) Cutoff: no promover dentro de la ventana de bloqueo.
+    if (cutoff > 0 && cls.class_start_utc) {
+      const minsUntil = (new Date(cls.class_start_utc).getTime() - Date.now()) / 60_000;
+      if (minsUntil < cutoff * 60) { await client.query("ROLLBACK"); return null; }
+    }
+    // (3) Cola FIFO; bloquea solo las filas de bookings (no la membresía nullable).
+    const wlRes = await client.query(
+      `SELECT id, user_id, membership_id
+         FROM bookings
+        WHERE class_id = $1 AND status = 'waitlist'
+        ORDER BY created_at ASC
+        FOR UPDATE`,
+      [classId]
+    );
+    let promoted = null;
+    for (const wl of wlRes.rows) {
+      // Re-leer y bloquear el crédito de su membresía justo antes de promover.
+      let remaining = null;
+      if (wl.membership_id) {
+        const mRes = await client.query(
+          "SELECT classes_remaining FROM memberships WHERE id = $1 FOR UPDATE",
+          [wl.membership_id]
+        );
+        remaining = mRes.rows[0]?.classes_remaining ?? null;
+      }
+      const hasCredit = remaining === null || Number(remaining) >= 9999 || Number(remaining) > 0;
+      if (!hasCredit) continue;            // saltar a la siguiente con crédito
+      await client.query("UPDATE bookings SET status = 'confirmed' WHERE id = $1", [wl.id]);
+      await client.query("UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1", [classId]);
+      if (wl.membership_id) {
+        // Descuenta classes_remaining (+ discipline_credits del combo si aplica);
+        // no-op interno para membresías ilimitadas (null o >= 9999).
+        await consumeMembershipCredit(client, wl.membership_id, classCategory);
+      }
+      promoted = { bookingId: wl.id, userId: wl.user_id };
+      break;
+    }
+    await client.query("COMMIT");
+    return promoted;
+  } catch (e) {
+    try { await client.query("ROLLBACK"); } catch (_) { /* noop */ }
+    console.error("[promoteWaitlist]", e.message);
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
 async function areEmailNotificationsEnabled() {
   const notificationSettings = await getSettingsValue("notification_settings", DEFAULT_NOTIFICATION_SETTINGS);
   return notificationSettings?.email_reminders !== false;
@@ -11656,54 +11758,17 @@ app.put("/api/admin/bookings/:id/cancel", adminMiddleware, async (req, res) => {
         );
       }
 
-      // Auto-promote oldest waitlist booking for this class (FIFO).
-      // Skip promotion if the waitlisted user no longer has credits or membership.
-      // Note: cannot FOR UPDATE on a LEFT JOIN's nullable side, so we lock
-      // only the bookings row and read membership credits separately.
-      const waitlistRes = await client.query(
-        `SELECT id, user_id, membership_id
-           FROM bookings
-          WHERE class_id = $1 AND status = 'waitlist'
-          ORDER BY created_at ASC
-          LIMIT 1
-          FOR UPDATE`,
-        [b.class_id]
-      );
-      if (waitlistRes.rows.length && waitlistRes.rows[0].membership_id) {
-        const memRes = await client.query(
-          "SELECT classes_remaining FROM memberships WHERE id = $1",
-          [waitlistRes.rows[0].membership_id]
-        );
-        waitlistRes.rows[0].classes_remaining = memRes.rows[0]?.classes_remaining ?? null;
-      } else if (waitlistRes.rows.length) {
-        waitlistRes.rows[0].classes_remaining = null;
-      }
-      if (waitlistRes.rows.length) {
-        const wl = waitlistRes.rows[0];
-        const hasCredits = wl.classes_remaining === null
-          || Number(wl.classes_remaining) >= 9999
-          || Number(wl.classes_remaining) > 0;
-        if (hasCredits) {
-          await client.query(
-            "UPDATE bookings SET status = 'confirmed' WHERE id = $1",
-            [wl.id]
-          );
-          await client.query(
-            "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
-            [b.class_id]
-          );
-          if (wl.membership_id && wl.classes_remaining !== null && Number(wl.classes_remaining) < 9999) {
-            await client.query(
-              "UPDATE memberships SET classes_remaining = GREATEST(classes_remaining - 1, 0), updated_at = NOW() WHERE id = $1",
-              [wl.membership_id]
-            );
-          }
-          promotedBookingId = wl.id;
-        }
-      }
+      // La auto-promoción de la lista de espera ocurre DESPUÉS del COMMIT, vía
+      // promoteWaitlist (abre su propia transacción atómica con lock de la clase).
     }
 
     await client.query("COMMIT");
+
+    // Auto-promover la lista de espera si esta cancelación liberó un lugar.
+    if (b.status === "confirmed" || b.status === "checked_in") {
+      const promoted = await promoteWaitlist(b.class_id);
+      promotedBookingId = promoted?.bookingId ?? null;
+    }
 
     triggerWalletPassSync(b.user_id, "booking_cancelled_by_admin");
     if (promotedBookingId) {

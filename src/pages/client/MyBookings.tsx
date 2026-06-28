@@ -105,6 +105,11 @@ const BookingCard = ({
         <Badge variant={STATUS_VARIANTS[booking.status] ?? "secondary"}>
           {STATUS_LABELS[booking.status] ?? booking.status}
         </Badge>
+        {booking.status === "waitlist" && !isPast && booking.waitlist_position != null && (
+          <span className="text-[0.7rem] text-valiance-mauve tabular-nums">
+            Posición {booking.waitlist_position} en la fila
+          </span>
+        )}
         {canReschedule && (
           <Button variant="outline" size="sm" onClick={() => onReschedule(booking)}>
             <CalendarClock size={14} className="mr-1" />Reagendar
@@ -113,6 +118,11 @@ const BookingCard = ({
         {booking.status === "confirmed" && !isPast && cancellationsEnabled && hoursUntil >= rescheduleHours && (
           <Button variant="ghost" size="sm" className="text-destructive" onClick={() => onCancel(booking.id)}>
             Cancelar
+          </Button>
+        )}
+        {booking.status === "waitlist" && !isPast && (
+          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => onCancel(booking.id)}>
+            Salir de la lista
           </Button>
         )}
         {isPast && booking.status === "checked_in" && (
@@ -214,20 +224,29 @@ const MyBookings = () => {
     b.status === "checked_in" || b.status === "no_show" || new Date(b.start_time) < now
   );
   const cancelled = bookings.filter((b) => b.status === "cancelled");
+  const cancelBooking = bookings.find((b) => b.id === cancelId) ?? null;
+  const leavingWaitlist = cancelBooking?.status === "waitlist";
 
   const cancelMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/bookings/${id}`),
-    onSuccess: (res) => {
+    mutationFn: ({ id }: { id: string; wasWaitlist?: boolean }) => api.delete(`/bookings/${id}`),
+    onSuccess: (res, vars) => {
       qc.invalidateQueries({ queryKey: ["my-bookings"] });
       qc.invalidateQueries({ queryKey: ["my-membership"] });
       qc.invalidateQueries({ queryKey: ["public-classes"] });
-      const creditRestored = res?.data?.creditRestored;
-      toast({
-        title: "Reserva cancelada",
-        description: creditRestored
-          ? "La clase fue devuelta a tu paquete."
-          : "La clase NO fue devuelta (cancelación tardía o límite alcanzado).",
-      });
+      if (vars.wasWaitlist) {
+        toast({
+          title: "Saliste de la lista de espera",
+          description: "Tu lugar en la fila fue liberado.",
+        });
+      } else {
+        const creditRestored = res?.data?.creditRestored;
+        toast({
+          title: "Reserva cancelada",
+          description: creditRestored
+            ? "La clase fue devuelta a tu paquete."
+            : "La clase NO fue devuelta (cancelación tardía o límite alcanzado).",
+        });
+      }
       setCancelId(null);
     },
     onError: (err: any) => {
@@ -337,21 +356,27 @@ const MyBookings = () => {
         <AlertDialog open={!!cancelId} onOpenChange={() => setCancelId(null)}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>¿Cancelar reserva?</AlertDialogTitle>
+              <AlertDialogTitle>{leavingWaitlist ? "¿Salir de la lista de espera?" : "¿Cancelar reserva?"}</AlertDialogTitle>
               <AlertDialogDescription className="space-y-3">
-                <span className="block">Esta acción no se puede deshacer.</span>
-                {cancelConfig.min_hours > 0 && (
-                  <span className="block rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[#B5832F] text-xs leading-relaxed">
-                    <strong>Importante:</strong>{" "}
-                    {cancelConfig.late_cancel_message
-                      ? cancelConfig.late_cancel_message.replace("{hours}", String(cancelConfig.min_hours))
-                      : `Las cancelaciones con menos de ${cancelConfig.min_hours}h de anticipación no devolverán el crédito.`}
-                  </span>
-                )}
-                {!cancelConfig.refund_credit_on_cancel && (
-                  <span className="block rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[#B5832F] text-xs leading-relaxed">
-                    <strong>Nota:</strong> La clase no será devuelta a tu paquete al cancelar.
-                  </span>
+                {leavingWaitlist ? (
+                  <span className="block">Perderás tu lugar en la fila. No se descuenta ni devuelve ningún crédito (aún no se usó ninguna clase).</span>
+                ) : (
+                  <>
+                    <span className="block">Esta acción no se puede deshacer.</span>
+                    {cancelConfig.min_hours > 0 && (
+                      <span className="block rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[#B5832F] text-xs leading-relaxed">
+                        <strong>Importante:</strong>{" "}
+                        {cancelConfig.late_cancel_message
+                          ? cancelConfig.late_cancel_message.replace("{hours}", String(cancelConfig.min_hours))
+                          : `Las cancelaciones con menos de ${cancelConfig.min_hours}h de anticipación no devolverán el crédito.`}
+                      </span>
+                    )}
+                    {!cancelConfig.refund_credit_on_cancel && (
+                      <span className="block rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[#B5832F] text-xs leading-relaxed">
+                        <strong>Nota:</strong> La clase no será devuelta a tu paquete al cancelar.
+                      </span>
+                    )}
+                  </>
                 )}
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -359,9 +384,9 @@ const MyBookings = () => {
               <AlertDialogCancel>Volver</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-destructive text-destructive-foreground"
-                onClick={() => cancelId && cancelMutation.mutate(cancelId)}
+                onClick={() => cancelId && cancelMutation.mutate({ id: cancelId, wasWaitlist: leavingWaitlist })}
               >
-                Sí, cancelar
+                {leavingWaitlist ? "Sí, salir" : "Sí, cancelar"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
