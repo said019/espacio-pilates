@@ -16,6 +16,13 @@ import archiver from "archiver";
 import { execSync } from "child_process";
 import { canCancel, canReschedule } from "./lib/bookingPolicy.js";
 import { createPreference, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
+import {
+  isPushConfigured,
+  getVapidPublicKey,
+  buildPushPayload,
+  shouldPruneSubscription,
+  sendWebPush,
+} from "./lib/push.js";
 import { isEmailIdentifier } from "./lib/authIdentity.js";
 import {
   sendMembershipActivated,
@@ -7755,6 +7762,53 @@ app.put("/api/users/:id", authMiddleware, async (req, res) => {
     return res.json({ user: mapUser(r.rows[0]) });
   } catch (err) {
     console.error("PUT users/:id error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// ─── Web Push: configuración y suscripciones ─────────────────────────────────
+app.get("/api/push/config", (req, res) => {
+  res.json({ enabled: isPushConfigured(), publicKey: getVapidPublicKey() });
+});
+
+app.post("/api/push/subscribe", authMiddleware, async (req, res) => {
+  try {
+    const { endpoint, keys } = req.body || {};
+    const p256dh = keys?.p256dh;
+    const auth = keys?.auth;
+    if (!endpoint || !p256dh || !auth) {
+      return res.status(400).json({ message: "Suscripción inválida" });
+    }
+    const userAgent = String(req.headers["user-agent"] || "").slice(0, 255);
+    await pool.query(
+      `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, user_agent, last_used_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (endpoint) DO UPDATE
+         SET user_id = EXCLUDED.user_id,
+             p256dh = EXCLUDED.p256dh,
+             auth = EXCLUDED.auth,
+             user_agent = EXCLUDED.user_agent,
+             last_used_at = NOW()`,
+      [req.userId, endpoint, p256dh, auth, userAgent]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("POST /api/push/subscribe:", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+app.post("/api/push/unsubscribe", authMiddleware, async (req, res) => {
+  try {
+    const { endpoint } = req.body || {};
+    if (!endpoint) return res.status(400).json({ message: "Falta endpoint" });
+    await pool.query(
+      "DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2",
+      [endpoint, req.userId]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("POST /api/push/unsubscribe:", err.message);
     return res.status(500).json({ message: "Error interno" });
   }
 });
