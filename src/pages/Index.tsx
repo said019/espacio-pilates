@@ -37,7 +37,7 @@ type PackageRow = {
 const FALLBACK_CLASS_TYPES: ClassTypeRow[] = [
   {
     id: "c1", name: "Pilates", subtitle: "Disciplina única",
-    description: "Una sola práctica, cuatro aparatos. Trabajamos sobre reformer, tower, mat y silla en grupos de 8. Bajo impacto, alta exigencia y atención personalizada en cada clase. La diferencia está en el conocimiento de nuestras coach y en nuestros aparatos.",
+    description: "Una sola práctica, cuatro aparatos. Trabajamos sobre reformer, tower, mat y silla en grupos de 8. Bajo impacto, alta exigencia y atención personalizada en cada clase. La diferencia está en el método y en nuestros aparatos.",
     category: "pilates", intensity: "media", color: "#D1B9B4",
     emoji: "waves", level: "Todos los niveles · madres y embarazadas", duration_min: 55, capacity: 8,
     is_active: true, sort_order: 1,
@@ -119,10 +119,6 @@ const Index = () => {
   const [navScrolled, setNavScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [classTypes, setClassTypes] = useState<ClassTypeRow[]>(FALLBACK_CLASS_TYPES);
-  const [instructors, setInstructors] = useState<{
-    id: string; displayName: string; specialties?: string | string[];
-    photoUrl?: string; photoFocusX?: number; photoFocusY?: number;
-  }[]>([]);
   const [livePlans, setLivePlans] = useState<{ name: string; price: number }[]>([]);
   const priceByName = useMemo(
     () => Object.fromEntries(livePlans.map((p) => [p.name, Number(p.price)])),
@@ -144,10 +140,6 @@ const Index = () => {
     api.get<{ data: ClassTypeRow[] }>("/admin/class-types").then(({ data }) => {
       const rows = Array.isArray(data?.data) ? data.data.filter((c: any) => c.is_active) : [];
       if (rows.length > 0) setClassTypes(rows);
-    }).catch(() => {});
-    api.get("/public/instructors").then(({ data }) => {
-      const rows = Array.isArray(data?.data) ? data.data : [];
-      if (rows.length > 0) setInstructors(rows);
     }).catch(() => {});
     api.get("/plans").then(({ data }) => {
       setLivePlans(Array.isArray(data?.data) ? data.data : []);
@@ -183,22 +175,9 @@ const Index = () => {
     { label: "Horario", id: "horario" },
     { label: "Precios", id: "precios" },
     { label: "Estudio", id: "estudio" },
-    { label: "Coach", id: "equipo" },
     { label: "Eventos", id: "eventos" },
     { label: "Visítanos", id: "contacto" },
   ];
-
-  const displayedInstructors = instructors.length > 0
-    ? instructors.map((i) => ({
-        id: i.id,
-        name: i.displayName,
-        specialty: Array.isArray(i.specialties) ? i.specialties.join(" · ")
-          : (typeof i.specialties === "string" ? i.specialties : "Coach certificada"),
-        photoUrl: i.photoUrl,
-        focusX: typeof i.photoFocusX === "number" ? i.photoFocusX : 50,
-        focusY: typeof i.photoFocusY === "number" ? i.photoFocusY : 30,
-      }))
-    : [];
 
   return (
     <div className="min-h-screen bg-valiance-nude text-valiance-charcoal selection:bg-valiance-blush selection:text-valiance-charcoal">
@@ -361,7 +340,7 @@ const Index = () => {
         <div className="absolute inset-0">
           <img
             src={heroCoachMirror}
-            alt="Coach acompañando una clase en reformer en Tu Espacio Pilates Villa Magna"
+            alt="Clase de reformer en Tu Espacio Pilates Villa Magna"
             className="w-full h-full object-cover"
             style={{ objectPosition: "center 42%", filter: "saturate(0.82) contrast(1.02)" }}
             loading="eager"
@@ -397,7 +376,7 @@ const Index = () => {
             </h1>
 
             <p className="font-body text-[1.05rem] text-valiance-nude/90 leading-[1.7] max-w-[460px] mb-10 reveal opacity-0 translate-y-6 transition-all duration-700 delay-200 [text-shadow:0_10px_32px_rgba(0,0,0,0.38)]">
-              Un estudio sencillo, lindo y cercano para explorar el método pilates con resultados. Coach que conocen tu cuerpo, aparatos cuidados y grupos pequeños para avanzar con disciplina.
+              Un estudio sencillo, lindo y cercano para explorar el método pilates con resultados. Atención que conoce tu cuerpo, aparatos cuidados y grupos pequeños para avanzar con disciplina.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 reveal opacity-0 translate-y-6 transition-all duration-700 delay-300">
@@ -465,7 +444,7 @@ const Index = () => {
             </h2>
             <span className="block h-px w-16 bg-valiance-gold/50 origin-left mt-7 mb-7 reveal scale-x-0 transition-transform duration-700" />
             <p className="font-body text-[1.02rem] text-valiance-charcoal/75 leading-[1.8] max-w-[60ch]">
-              Aquí el pilates es para ti: madres, embarazadas y mujeres que quieren moverse con propósito. Lo que nos distingue es el conocimiento de nuestras coach y nuestros aparatos. Llegas, te conocen por tu nombre y sales más fuerte cada clase.
+              Aquí el pilates es para ti: madres, embarazadas y mujeres que quieren moverse con propósito. Lo que nos distingue es el método y nuestros aparatos. Llegas, te conocen por tu nombre y sales más fuerte cada clase.
             </p>
           </div>
 
@@ -725,14 +704,14 @@ const Index = () => {
             </h2>
             <span className="block h-px w-16 bg-valiance-gold/50 origin-left mt-6 mb-6 reveal scale-x-0 transition-transform duration-700" />
             <p className="font-body text-[1.02rem] text-valiance-charcoal/70 leading-[1.8] max-w-[60ch]">
-              Espejos amplios, luz suave, aparatos cuidados y coach atentas. Un espacio sencillo y lindo para entrenar con disciplina, higiene y calma.
+              Espejos amplios, luz suave, aparatos cuidados y atención cercana. Un espacio sencillo y lindo para entrenar con disciplina, higiene y calma.
             </p>
           </div>
 
           {/* Asymmetric mosaic */}
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-12 gap-3 sm:gap-4">
             <figure className="col-span-12 lg:col-span-8 relative rounded-[1.75rem] overflow-hidden aspect-[16/10] group">
-              <img src={coachGuidance} alt="Coach guiando una clase en reformer" loading="lazy" style={{ filter: "saturate(0.86)" }} className="absolute inset-0 w-full h-full object-cover object-[center_42%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <img src={coachGuidance} alt="Clase de reformer en Tu Espacio Pilates" loading="lazy" style={{ filter: "saturate(0.86)" }} className="absolute inset-0 w-full h-full object-cover object-[center_42%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
               <div className="absolute inset-0 bg-gradient-to-t from-valiance-charcoal/72 via-transparent to-transparent" />
               <figcaption className="absolute bottom-6 left-6 right-6">
                 <span className="inline-flex items-center text-[0.6rem] tracking-[0.22em] uppercase text-valiance-gold mb-2 font-medium">
@@ -783,66 +762,6 @@ const Index = () => {
               </figcaption>
             </figure>
           </div>
-        </div>
-      </section>
-
-      {/* ────────── EQUIPO ────────── */}
-      <section id="equipo" className="py-28 lg:py-40 px-6 sm:px-10 bg-valiance-lavender/12 border-t border-valiance-charcoal/8">
-        <div className="max-w-[1200px] mx-auto">
-          <div className="reveal opacity-0 translate-y-6 transition-all duration-700 max-w-[720px] mb-14">
-            <h2
-              className="font-display font-normal text-[clamp(2.4rem,5vw,3.9rem)] leading-[1.02] tracking-[-0.015em] text-valiance-charcoal"
-              style={{ textWrap: "balance" } as React.CSSProperties}
-            >
-              Lo que nos distingue: el conocimiento de nuestras coach.
-            </h2>
-            <span className="block h-px w-16 bg-valiance-gold/50 origin-left mt-6 mb-6 reveal scale-x-0 transition-transform duration-700" />
-            <p className="font-body text-[1.02rem] text-valiance-charcoal/70 leading-[1.8] max-w-[60ch]">
-              Coach certificadas que conocen el método a profundidad y cada uno de nuestros aparatos. En grupos de 8 saben cómo trabajaste la semana pasada y qué necesitas hoy: cada movimiento se adapta a tu cuerpo, tu nivel y tu momento, incluido el embarazo o el posparto.
-            </p>
-          </div>
-
-          {displayedInstructors.length > 0 ? (
-            <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-5">
-              {displayedInstructors.slice(0, 6).map((inst) => (
-                <article key={inst.id} className="group">
-                  <div className="relative rounded-[1.25rem] overflow-hidden aspect-[3/4] mb-3 bg-valiance-mauve/10">
-                    {inst.photoUrl ? (
-                      <img
-                        src={inst.photoUrl}
-                        alt={inst.name}
-                        loading="lazy"
-                        className="absolute inset-0 w-full h-full object-cover grayscale-[20%] group-hover:grayscale-0 group-hover:scale-[1.04] transition-all duration-[900ms]"
-                        style={{ objectPosition: `${inst.focusX}% ${inst.focusY}%` }}
-                      />
-                    ) : (
-                      <div className="absolute inset-0 flex items-center justify-center bg-valiance-lavender/20">
-                        <span className="font-display text-[3rem] text-valiance-mauve/60">{inst.name[0]}</span>
-                      </div>
-                    )}
-                  </div>
-                  <h3 className="font-display text-[1.4rem] text-valiance-charcoal leading-tight">{inst.name}</h3>
-                  <p className="font-body text-[0.78rem] text-valiance-mauve mt-0.5 leading-snug">{inst.specialty}</p>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <div className="reveal opacity-0 translate-y-6 transition-all duration-700 grid grid-cols-1 lg:grid-cols-3 lg:divide-x divide-valiance-lavender/25">
-              {[
-                { icon: Star, title: "Certificadas en el método", text: "Formación en pilates y en cada aparato: reformer, tower, mat y silla." },
-                { icon: Heart, title: "Atención personalizada", text: "Grupos de 8 para corregir, acompañar y ajustar cada clase a ti." },
-                { icon: Users, title: "Cerca de ti", text: "Acompañamos a madres, embarazadas y mujeres de 25+ en cada etapa." },
-              ].map((card, i) => (
-                <div key={card.title} className={`py-8 lg:py-2 flex flex-col gap-3 ${i === 0 ? "lg:pr-10" : i === 1 ? "lg:px-10" : "lg:pl-10"}`}>
-                  <span className="w-12 h-12 rounded-full bg-valiance-nude ring-1 ring-valiance-charcoal/8 flex items-center justify-center text-valiance-gold">
-                    <card.icon size={20} strokeWidth={1.5} />
-                  </span>
-                  <h3 className="font-display text-[1.5rem] text-valiance-charcoal leading-tight">{card.title}</h3>
-                  <p className="font-body text-[0.92rem] text-valiance-charcoal/70 leading-[1.75] max-w-[34ch]">{card.text}</p>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </section>
 
