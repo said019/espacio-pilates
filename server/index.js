@@ -4595,7 +4595,7 @@ async function createCartOrder(req, res, paymentMethod) {
   for (const it of rawItems) {
     const pid = it?.planId ?? it?.plan_id;
     if (!pid) continue;
-    const q = Math.max(1, parseInt(it?.quantity, 10) || 1);
+    const q = Math.min(20, Math.max(1, parseInt(it?.quantity, 10) || 1)); // tope 20 por renglón
     qtyByPlan.set(pid, (qtyByPlan.get(pid) || 0) + q);
   }
   const cart = [...qtyByPlan.entries()].map(([planId, quantity]) => ({ planId, quantity }));
@@ -4611,6 +4611,20 @@ async function createCartOrder(req, res, paymentMethod) {
       const r = await client.query("SELECT * FROM plans WHERE id = $1 AND is_active = true", [it.planId]);
       if (!r.rows.length) { await client.query("ROLLBACK"); return res.status(404).json({ message: "Uno de los planes no existe o está inactivo" }); }
       loaded.push({ plan: r.rows[0], quantity: it.quantity });
+    }
+
+    // Bloquear si ya hay una orden pendiente para alguno de los planes del carrito
+    // (evita acumular órdenes pendientes duplicadas; espejo del camino de 1 plan).
+    const planIds = loaded.map((l) => l.plan.id);
+    const dup = await client.query(
+      `SELECT 1 FROM orders
+        WHERE user_id = $1 AND plan_id = ANY($2::uuid[])
+          AND status IN ('pending_payment','pending_verification') LIMIT 1`,
+      [req.userId, planIds]
+    );
+    if (dup.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ message: "Ya tienes una orden pendiente con uno de estos planes. Complétala o cancélala antes de crear otra." });
     }
 
     const hasPackage = loaded.some((l) => Number(l.plan.class_limit) >= 2);
@@ -4945,6 +4959,11 @@ app.post("/api/orders/:id/proof", authMiddleware, upload.any(), async (req, res)
       [req.params.id, req.userId]
     );
     if (orderRes.rows.length === 0) return res.status(404).json({ message: "Orden no encontrada" });
+    // No permitir subir comprobante a órdenes ya resueltas (cancelada/rechazada/
+    // aprobada) — si no, se "reviviría" a pending_verification.
+    if (!["pending_payment", "pending_verification"].includes(orderRes.rows[0].status)) {
+      return res.status(409).json({ message: "Esta orden ya no admite comprobante." });
+    }
 
     // Accept any uploaded field name ("proof", "file", etc.)
     const uploadedFile = req.files?.[0] ?? req.file ?? null;
@@ -5096,6 +5115,15 @@ app.post("/api/orders/:id/pay-card-token", authMiddleware, async (req, res) => {
     );
 
     if (payment.status === "approved") {
+      // MP YA cobró. Sacar la orden de 'pending_payment' ANTES de activar para que,
+      // si la activación falla, NO se pueda volver a cobrar (el reintento exige
+      // 'pending_payment'). Si approveOrderFromMP falla, queda 'pending_verification'
+      // y se reconcilia con sync-mp del admin.
+      await pool.query(
+        `UPDATE orders SET status = 'pending_verification', paid_at = COALESCE(paid_at, NOW()), updated_at = NOW()
+           WHERE id = $1 AND status = 'pending_payment'`,
+        [order.id]
+      );
       await approveOrderFromMP(order.id, payment.id);
       return res.json({ data: { status: "approved" } });
     }
@@ -13129,11 +13157,19 @@ app.put("/api/admin/orders/:id/reject", adminMiddleware, async (req, res) => {
   try {
     const { notes, reason } = req.body;
     const rejectionReason = reason || notes || "No especificado";
+    // Solo se puede rechazar una orden que sigue pendiente. NUNCA una ya aprobada
+    // (eso dejaría la membresía y el pago activos con la orden en 'rejected').
     const r = await pool.query(
-      "UPDATE orders SET status = 'rejected', verified_at = NOW(), notes = $2 WHERE id = $1 RETURNING *, user_id",
+      `UPDATE orders SET status = 'rejected', verified_at = NOW(), notes = $2
+         WHERE id = $1 AND status IN ('pending_payment','pending_verification')
+       RETURNING *, user_id`,
       [req.params.id, rejectionReason]
     );
-    if (!r.rows.length) return res.status(404).json({ message: "Orden no encontrada" });
+    if (!r.rows.length) {
+      const exists = await pool.query("SELECT status FROM orders WHERE id = $1", [req.params.id]);
+      if (!exists.rows.length) return res.status(404).json({ message: "Orden no encontrada" });
+      return res.status(409).json({ message: `No se puede rechazar una orden en estado '${exists.rows[0].status}'.` });
+    }
     const order = r.rows[0];
 
     // Notify the client about rejection via email and WhatsApp
