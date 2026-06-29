@@ -257,6 +257,18 @@ body::before {
 .delay-800 { animation-delay: 0.8s; }
 .delay-1000 { animation-delay: 1s; }
 
+/* ── Móvil: inputs a ≥16px para evitar el zoom automático de iOS al enfocar ──
+   iOS Safari hace zoom-in (y no regresa) si un input/select/textarea tiene
+   font-size < 16px. Forzamos 16px en móvil para todos los campos de formulario,
+   sin tocar el tamaño en desktop (donde no hay ese comportamiento). */
+@media (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 /* ── Date/time inputs: clickable on entire field, not just the icon ── */
 input[type="date"],
 input[type="datetime-local"],

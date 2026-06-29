@@ -256,7 +256,7 @@ const Index = () => {
               <>
                 <button
                   onClick={() => navigate("/auth/login")}
-                  className={`block text-[0.78rem] tracking-wide transition-colors bg-transparent border-none cursor-pointer px-2 sm:px-3 py-2 whitespace-nowrap ${
+                  className={`inline-flex items-center min-h-11 text-[0.78rem] tracking-wide transition-colors bg-transparent border-none cursor-pointer px-2 sm:px-3 py-2 whitespace-nowrap ${
                     navScrolled || mobileMenuOpen
                       ? "text-valiance-charcoal/70 hover:text-valiance-charcoal"
                       : "text-valiance-nude/80 hover:text-valiance-nude"
@@ -267,7 +267,7 @@ const Index = () => {
                 </button>
                 <button
                   onClick={() => navigate("/auth/register")}
-                  className={`px-5 py-2.5 rounded-full text-[0.78rem] font-medium tracking-wide transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-valiance-gold/50 ${
+                  className={`inline-flex items-center justify-center min-h-11 px-5 py-2.5 rounded-full text-[0.78rem] font-medium tracking-wide transition-all active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-valiance-gold/50 ${
                     navScrolled || mobileMenuOpen
                       ? "bg-valiance-charcoal text-valiance-nude hover:bg-valiance-plum"
                       : "bg-valiance-nude text-valiance-charcoal hover:bg-valiance-blush"

@@ -3,48 +3,52 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
-import Index from "./pages/Index";
-import NotFound from "./pages/NotFound";
+
+// Rutas con code-splitting (React.lazy): el panel de admin NO se descarga para
+// las clientas, y cada sección se carga bajo demanda → primera carga más ligera.
+const Index = lazy(() => import("./pages/Index"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 // Auth pages
-import Login from "./pages/auth/Login";
-import Register from "./pages/auth/Register";
-import ForgotPassword from "./pages/auth/ForgotPassword";
-import ResetPassword from "./pages/auth/ResetPassword";
+const Login = lazy(() => import("./pages/auth/Login"));
+const Register = lazy(() => import("./pages/auth/Register"));
+const ForgotPassword = lazy(() => import("./pages/auth/ForgotPassword"));
+const ResetPassword = lazy(() => import("./pages/auth/ResetPassword"));
 
-import Dashboard from "./pages/client/Dashboard";
-import BookClasses from "./pages/client/BookClasses";
-import BookClassConfirm from "./pages/client/BookClassConfirm";
-import MyBookings from "./pages/client/MyBookings";
-import Checkout from "./pages/client/Checkout";
-import Profile from "./pages/client/Profile";
-import ProfileEdit from "./pages/client/ProfileEdit";
-import ProfilePreferences from "./pages/client/ProfilePreferences";
-import Notifications from "./pages/client/Notifications";
-import MyOrders from "./pages/client/MyOrders";
-import CardPayment from "./pages/client/CardPayment";
+const Dashboard = lazy(() => import("./pages/client/Dashboard"));
+const BookClasses = lazy(() => import("./pages/client/BookClasses"));
+const BookClassConfirm = lazy(() => import("./pages/client/BookClassConfirm"));
+const MyBookings = lazy(() => import("./pages/client/MyBookings"));
+const Checkout = lazy(() => import("./pages/client/Checkout"));
+const Profile = lazy(() => import("./pages/client/Profile"));
+const ProfileEdit = lazy(() => import("./pages/client/ProfileEdit"));
+const ProfilePreferences = lazy(() => import("./pages/client/ProfilePreferences"));
+const Notifications = lazy(() => import("./pages/client/Notifications"));
+const MyOrders = lazy(() => import("./pages/client/MyOrders"));
+const CardPayment = lazy(() => import("./pages/client/CardPayment"));
 
-import AdminDashboard from "./pages/admin/Dashboard";
-import PlansList from "./pages/admin/plans/PlansList";
-import DiscountCodesList from "./pages/admin/discounts/DiscountCodesList";
-import MembershipsList from "./pages/admin/memberships/MembershipsList";
-import ClientsList from "./pages/admin/clients/ClientsList";
-import ClientDetail from "./pages/admin/clients/ClientDetail";
-import ClassesCalendar from "./pages/admin/classes/ClassesCalendar";
-import ClassTypesList from "./pages/admin/classes/ClassTypesList";
-import GenerateClasses from "./pages/admin/classes/GenerateClasses";
-import BookingsList from "./pages/admin/bookings/BookingsList";
-import Waitlist from "./pages/admin/bookings/Waitlist";
-import InstructorsList from "./pages/admin/staff/InstructorsList";
-import PaymentsPage from "./pages/admin/payments/PaymentsPage";
-import SettingsPage from "./pages/admin/settings/SettingsPage";
-import ReportsPage from "./pages/admin/reports/ReportsPage";
+const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
+const PlansList = lazy(() => import("./pages/admin/plans/PlansList"));
+const DiscountCodesList = lazy(() => import("./pages/admin/discounts/DiscountCodesList"));
+const MembershipsList = lazy(() => import("./pages/admin/memberships/MembershipsList"));
+const ClientsList = lazy(() => import("./pages/admin/clients/ClientsList"));
+const ClientDetail = lazy(() => import("./pages/admin/clients/ClientDetail"));
+const ClassesCalendar = lazy(() => import("./pages/admin/classes/ClassesCalendar"));
+const ClassTypesList = lazy(() => import("./pages/admin/classes/ClassTypesList"));
+const GenerateClasses = lazy(() => import("./pages/admin/classes/GenerateClasses"));
+const BookingsList = lazy(() => import("./pages/admin/bookings/BookingsList"));
+const Waitlist = lazy(() => import("./pages/admin/bookings/Waitlist"));
+const InstructorsList = lazy(() => import("./pages/admin/staff/InstructorsList"));
+const PaymentsPage = lazy(() => import("./pages/admin/payments/PaymentsPage"));
+const SettingsPage = lazy(() => import("./pages/admin/settings/SettingsPage"));
+const ReportsPage = lazy(() => import("./pages/admin/reports/ReportsPage"));
 // Legal pages
-import Privacidad from "./pages/legal/Privacidad";
-import Terminos from "./pages/legal/Terminos";
-import Cancelacion from "./pages/legal/Cancelacion";
+const Privacidad = lazy(() => import("./pages/legal/Privacidad"));
+const Terminos = lazy(() => import("./pages/legal/Terminos"));
+const Cancelacion = lazy(() => import("./pages/legal/Cancelacion"));
 
 const queryClient = new QueryClient();
 
@@ -62,6 +66,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AppInit />
+        <Suspense fallback={<div className="min-h-[100dvh] flex items-center justify-center bg-valiance-nude"><Loader2 className="animate-spin text-valiance-mauve" size={24} /></div>}>
         <Routes>
           {/* Public landing */}
           <Route path="/" element={<Index />} />
@@ -114,6 +119,7 @@ const App = () => (
           {/* 404 */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
