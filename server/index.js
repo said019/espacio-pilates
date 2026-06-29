@@ -2055,32 +2055,34 @@ async function ensureSchema() {
     console.error("Extra admin seed warning:", err.message);
   }
 
-  // ── Admin OCULTO (dueño/soporte): saidromero19@gmail.com ───────────────────
-  // Cuenta admin que NO aparece en ninguna lista del panel (is_hidden=true), para
-  // que ningún otro admin la vea. Bootstrap one-time vía flag en settings; la
-  // contraseña en texto NO vive en el código (solo el hash bcrypt). La columna
-  // is_hidden se asegura siempre (idempotente) porque los filtros la usan.
+  // ── Cuenta OCULTA (alumno): saidromero19@gmail.com ─────────────────────────
+  // Alumno (role=client) que NO aparece en ninguna lista NI conteo del panel
+  // (is_hidden=true) — los filtros COALESCE(is_hidden,false)=false la excluyen.
+  // Bootstrap idempotente vía flag versionada en settings; el teléfono se fija a
+  // un valor único para no chocar con el índice único parcial uq_users_phone_client.
+  // La contraseña en texto NO vive en el código (solo el hash, usado solo si la
+  // cuenta no existía) y NO se reescribe aquí, para no revertir un cambio del dueño.
   try {
     await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_hidden boolean NOT NULL DEFAULT false");
-    const HIDDEN_ADMIN_FLAG = "hidden_admin_saidromero_v1";
-    const already = await pool.query("SELECT 1 FROM settings WHERE key = $1 LIMIT 1", [HIDDEN_ADMIN_FLAG]);
+    const HIDDEN_ACCT_FLAG = "hidden_account_saidromero_v2_client";
+    const already = await pool.query("SELECT 1 FROM settings WHERE key = $1 LIMIT 1", [HIDDEN_ACCT_FLAG]);
     if (already.rows.length === 0) {
-      const HIDDEN_ADMIN_EMAIL = "saidromero19@gmail.com";
-      const HIDDEN_ADMIN_HASH = "$2a$12$i/Lp1QBwi8zkLOIfSEDmAuF8A38r5RQIATxwUtQ8vl1P55HXGZDLq"; // Said4321!
+      const HIDDEN_EMAIL = "saidromero19@gmail.com";
+      const HIDDEN_HASH = "$2a$12$i/Lp1QBwi8zkLOIfSEDmAuF8A38r5RQIATxwUtQ8vl1P55HXGZDLq"; // Said4321! (solo si no existía)
       await pool.query(
         `INSERT INTO users (display_name, email, phone, password_hash, role, accepts_terms, accepts_communications, is_hidden)
-         VALUES ('Soporte', $1, '0000000000', $2, 'admin', true, false, true)
-         ON CONFLICT (email) DO UPDATE SET role = 'admin', password_hash = $2, is_hidden = true`,
-        [HIDDEN_ADMIN_EMAIL, HIDDEN_ADMIN_HASH]
+         VALUES ('Soporte', $1, '0000000019', $2, 'client', true, false, true)
+         ON CONFLICT (email) DO UPDATE SET role = 'client', is_hidden = true, phone = '0000000019'`,
+        [HIDDEN_EMAIL, HIDDEN_HASH]
       );
       await pool.query(
         "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()",
-        [HIDDEN_ADMIN_FLAG, JSON.stringify("done")]
+        [HIDDEN_ACCT_FLAG, JSON.stringify("done")]
       );
-      console.log("✅ Admin oculto listo (one-time)");
+      console.log("✅ Cuenta oculta (alumno) lista (one-time)");
     }
   } catch (err) {
-    console.error("Hidden admin seed warning:", err.message);
+    console.error("Hidden account seed warning:", err.message);
   }
 }
 
@@ -9195,7 +9197,7 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
       )),
       safe("newMembers", pool.query(
         `SELECT COUNT(*) FROM users
-          WHERE role='client' AND created_at >= ${monthStartExpr}`
+          WHERE role='client' AND COALESCE(is_hidden,false)=false AND created_at >= ${monthStartExpr}`
       )),
       safe("reviews",    pool.query(
         `SELECT COUNT(*) AS total,
@@ -9343,7 +9345,7 @@ app.get("/api/reports/retention", adminMiddleware, async (req, res) => {
                 THEN 1
               END) AS new_this_month
          FROM users
-        WHERE role='client'`
+        WHERE role='client' AND COALESCE(is_hidden,false)=false`
     );
     return res.json({ data: camelRow(r.rows[0]) });
   } catch (err) {
@@ -13521,7 +13523,7 @@ app.get("/api/admin/loyalty/users", adminMiddleware, async (req, res) => {
               COALESCE(SUM(CASE WHEN lt.type='earn' THEN lt.points ELSE -lt.points END), 0) AS balance
        FROM users u
        LEFT JOIN loyalty_transactions lt ON lt.user_id = u.id
-       WHERE u.role = 'client'
+       WHERE u.role = 'client' AND COALESCE(u.is_hidden, false) = false
        GROUP BY u.id ORDER BY balance DESC LIMIT 50`
     );
     return res.json({ data: r.rows });
@@ -13838,7 +13840,7 @@ app.get("/api/admin/reports", adminMiddleware, async (req, res) => {
         [start, end]
       ),
       pool.query(
-        "SELECT COUNT(*) FROM users WHERE role='client' AND created_at BETWEEN $1 AND $2",
+        "SELECT COUNT(*) FROM users WHERE role='client' AND COALESCE(is_hidden,false)=false AND created_at BETWEEN $1 AND $2",
         [start, end]
       ),
       pool.query(
