@@ -6,7 +6,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import valianceLogo from "@/assets/tep-mark-ink.png";
 import {
   LayoutDashboard, Package, CreditCard, Users, CalendarDays,
-  BookOpen, DollarSign, BarChart3,
+  BookOpen, DollarSign, BarChart3, Ticket,
   Settings, ChevronLeft, ChevronRight, ChevronDown, LogOut, Globe, Menu, X, UserSquare2,
 } from "lucide-react";
 
@@ -26,6 +26,7 @@ const NAV_GROUPS = [
     collapsible: true,
     items: [
       { path: "/admin/plans",         label: "Planes",       icon: Package },
+      { path: "/admin/discounts",     label: "Descuentos",   icon: Ticket },
       { path: "/admin/memberships",   label: "Membresías",   icon: CreditCard },
       { path: "/admin/classes",       label: "Clases",       icon: CalendarDays },
       { path: "/admin/staff",         label: "Equipo",       icon: UserSquare2 },

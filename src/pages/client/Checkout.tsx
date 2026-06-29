@@ -264,8 +264,13 @@ const Checkout = () => {
   // of the backend rule; loading/absent status -> needsInscription=false -> no line.
   const showInscription = isPackage && needsInscription;
   const inscriptionAmount = showInscription ? inscriptionPrice : 0;
-  // Plan price after any discount + inscription = what the backend charges.
+  // Plan price after any discount + inscription.
   const totalWithInscription = finalAmount + inscriptionAmount;
+  // Recargo "uso de plataforma" (4%) SOLO para tarjeta — debe coincidir con el backend.
+  const PLATFORM_FEE_RATE = 0.04;
+  const platformFee = paymentMethod === "card" ? Math.round(totalWithInscription * PLATFORM_FEE_RATE * 100) / 100 : 0;
+  // Lo que realmente se cobra.
+  const grandTotal = totalWithInscription + platformFee;
 
   // "Clase Extra" es solo para alumnas inscritas → se bloquea si la alumna
   // aún necesita inscripción (la "Clase Suelta / Visita" es la única sin inscripción).
@@ -516,26 +521,41 @@ const Checkout = () => {
                     {individualDiscount && individualDiscount < basePrice && paymentMethod !== "card" ? (
                       <>
                         <span className="text-xs text-[#1A1A1A]/30 line-through mr-2">${(basePrice + inscriptionAmount).toLocaleString("es-MX")}</span>
-                        <span className="text-lg font-bold text-[#6B4F53]">${totalWithInscription.toLocaleString("es-MX")} MXN</span>
+                        <span className="text-lg font-bold text-[#6B4F53]">${grandTotal.toLocaleString("es-MX")} MXN</span>
                       </>
                     ) : (
-                      <span className="text-lg font-bold text-[#1A1A1A]">${totalWithInscription.toLocaleString("es-MX")} MXN</span>
+                      <span className="text-lg font-bold text-[#1A1A1A]">${grandTotal.toLocaleString("es-MX")} MXN</span>
                     )}
                   </div>
                 </div>
-                {showInscription && (
+                {(showInscription || platformFee > 0) && (
                   <div className="mt-2 pt-2 border-t border-[#8C6B6F]/10 space-y-1">
                     <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
                       <span>Plan</span>
                       <span>${finalAmount.toLocaleString("es-MX")} MXN</span>
                     </div>
-                    <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
-                      <span>Inscripción (pago único)</span>
-                      <span>${inscriptionAmount.toLocaleString("es-MX")} MXN</span>
-                    </div>
-                    <p className="text-[10px] text-[#1A1A1A]/40 leading-snug">
-                      Pago único de inscripción — se cobra solo al inscribirte (o tras 6 meses de inactividad).
-                    </p>
+                    {showInscription && (
+                      <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
+                        <span>Inscripción (pago único)</span>
+                        <span>${inscriptionAmount.toLocaleString("es-MX")} MXN</span>
+                      </div>
+                    )}
+                    {platformFee > 0 && (
+                      <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
+                        <span>Uso de plataforma (4%)</span>
+                        <span>${platformFee.toLocaleString("es-MX")} MXN</span>
+                      </div>
+                    )}
+                    {showInscription && (
+                      <p className="text-[10px] text-[#1A1A1A]/40 leading-snug">
+                        Pago único de inscripción — se cobra solo al inscribirte (o tras 6 meses de inactividad).
+                      </p>
+                    )}
+                    {platformFee > 0 && (
+                      <p className="text-[10px] text-[#1A1A1A]/40 leading-snug">
+                        El 4% por uso de plataforma aplica solo al pagar con tarjeta. Con transferencia no se cobra.
+                      </p>
+                    )}
                   </div>
                 )}
                 {individualDiscount && individualDiscount < basePrice && paymentMethod !== "card" && (
@@ -588,7 +608,7 @@ const Checkout = () => {
                     </div>
                     <div className="text-center">
                       <p className={cn("text-sm font-semibold", paymentMethod === "card" ? "text-[#B8915A]" : "text-[#1A1A1A]/60")}>Tarjeta</p>
-                      <p className="text-[10px] text-[#1A1A1A]/30 mt-0.5">Débito / crédito</p>
+                      <p className="text-[10px] text-[#1A1A1A]/30 mt-0.5">Débito / crédito · +4%</p>
                     </div>
                     {paymentMethod === "card" && (
                       <span className="w-5 h-5 rounded-full bg-gradient-to-br from-[#B8915A] to-[#D9B5BA] flex items-center justify-center">

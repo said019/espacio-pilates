@@ -1338,6 +1338,7 @@ async function ensureSchema() {
     // ── orders: add missing columns if needed ─────────────────────────────
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_amount DECIMAL(10,2) DEFAULT 0`).catch(() => { });
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS discount_code_id UUID REFERENCES discount_codes(id) ON DELETE SET NULL`).catch(() => { });
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS platform_fee DECIMAL(10,2) DEFAULT 0`).catch(() => { });
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS channel VARCHAR(30) DEFAULT 'web'`).catch(() => { });
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS plan_id UUID`).catch(() => { });
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP WITH TIME ZONE`).catch(() => { });
@@ -4581,7 +4582,16 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       subtotal += inscriptionAmount;
     }
 
-    const total = subtotal - discount;
+    // Total después del descuento (incluye inscripción).
+    let total = subtotal - discount;
+    // ── Recargo "uso de plataforma" SOLO para tarjeta (4% sobre el total a cobrar) ──
+    // El cliente paga la comisión del procesador. Transferencia/efectivo NO lo llevan.
+    const PLATFORM_FEE_RATE = 0.04;
+    let platformFee = 0;
+    if (paymentMethod === "card") {
+      platformFee = Math.round(total * PLATFORM_FEE_RATE * 100) / 100;
+      total = total + platformFee;
+    }
     const bankInfo = await getConfiguredBankInfo(client);
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h
     // Cash orders skip proof upload → go straight to pending_verification so admin can approve
@@ -4589,6 +4599,10 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     // Build INSERT dynamically — complement_id column may not exist yet
     const cols = ["user_id", "plan_id", "status", "payment_method", "subtotal", "tax_amount", "total_amount", "bank_info", "expires_at"];
     const vals = [req.userId, planId, initialStatus, paymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
+    if (platformFee > 0) {
+      cols.push("platform_fee");
+      vals.push(platformFee);
+    }
     if (discount > 0 || appliedDiscountCode) {
       cols.push("discount_amount");
       vals.push(discount);

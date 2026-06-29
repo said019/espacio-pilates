@@ -28,6 +28,7 @@ import CardPayment from "./pages/client/CardPayment";
 
 import AdminDashboard from "./pages/admin/Dashboard";
 import PlansList from "./pages/admin/plans/PlansList";
+import DiscountCodesList from "./pages/admin/discounts/DiscountCodesList";
 import MembershipsList from "./pages/admin/memberships/MembershipsList";
 import ClientsList from "./pages/admin/clients/ClientsList";
 import ClientDetail from "./pages/admin/clients/ClientDetail";
@@ -105,6 +106,7 @@ const App = () => (
           <Route path="/admin/bookings/waitlist" element={<Waitlist />} />
           <Route path="/admin/staff" element={<InstructorsList />} />
           <Route path="/admin/payments" element={<PaymentsPage />} />
+          <Route path="/admin/discounts" element={<DiscountCodesList />} />
           <Route path="/admin/orders" element={<Navigate to="/admin/payments" replace />} />
           <Route path="/admin/reports" element={<ReportsPage />} />
           <Route path="/admin/settings" element={<SettingsPage />} />
