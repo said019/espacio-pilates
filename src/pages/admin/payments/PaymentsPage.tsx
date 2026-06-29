@@ -594,7 +594,7 @@ const PendingOrders = () => {
 
 // ── Payments History ──────────────────────────────────────
 const PaymentsHistory = () => {
-  const { data } = useQuery<{ data: any[] }>({
+  const { data } = useQuery<{ data: any[]; total?: number }>({
     queryKey: ["payments"],
     queryFn: async () => (await api.get("/payments")).data,
   });
@@ -606,6 +606,21 @@ const PaymentsHistory = () => {
     transfer: "text-[#3D3A3A] border-[#8C6B6F]/30 bg-[#8C6B6F]/10",
   };
   const methodLabels: Record<string, string> = { cash: "Efectivo", card: "Tarjeta", transfer: "Transferencia" };
+  const methodIcons: Record<string, any> = { cash: Banknote, card: CreditCard, transfer: ArrowRight };
+
+  // Estado del pago/membresía → etiqueta + color
+  const statusMeta: Record<string, { label: string; cls: string }> = {
+    approved:  { label: "Aprobado",  cls: "text-[#3f7a34] border-[#bcd6ab] bg-[#eef5e8]" },
+    active:    { label: "Activa",    cls: "text-[#3f7a34] border-[#bcd6ab] bg-[#eef5e8]" },
+    expired:   { label: "Expirada",  cls: "text-[#A8473F] border-[#E2B7B0] bg-[#F3DEDA]" },
+    cancelled: { label: "Cancelada", cls: "text-[#1A1A1A]/40 border-[#8C6B6F]/20 bg-[#8C6B6F]/[0.06]" },
+    pending:   { label: "Pendiente", cls: "text-[#B5832F] border-[#E5CF9F] bg-[#F4EAD6]" },
+  };
+
+  const fmtDate = (d: string) =>
+    new Date(d).toLocaleString("es-MX", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  const total = payments.reduce((s: number, p: any) => s + Number(p.total_amount ?? p.amount ?? 0), 0);
 
   if (!payments.length) {
     return (
@@ -617,24 +632,53 @@ const PaymentsHistory = () => {
   }
 
   return (
-    <div className="space-y-2">
-      {payments.map((p: any) => (
-        <div key={p.id} className="flex items-center gap-4 p-4 rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] hover:bg-[#8C6B6F]/[0.06] transition-colors">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#8C6B6F]/20 to-[#D9B5BA]/10 border border-[#8C6B6F]/20 flex items-center justify-center shrink-0">
-            <CreditCard size={13} className="text-[#8C6B6F]/70" />
+    <div className="space-y-3">
+      {/* Resumen */}
+      <div className="flex items-center justify-between px-1">
+        <p className="text-xs text-[#1A1A1A]/40">{payments.length} {payments.length === 1 ? "pago" : "pagos"}</p>
+        <p className="text-xs text-[#1A1A1A]/40">
+          Total: <span className="font-bold text-[#8C6B6F]">${total.toLocaleString("es-MX")} MXN</span>
+        </p>
+      </div>
+
+      {payments.map((p: any) => {
+        const name = p.userName ?? p.user_name ?? "—";
+        const plan = p.planName ?? p.plan_name ?? "—";
+        const date = p.created_at ?? p.createdAt;
+        const method = String(p.method ?? "");
+        const amount = Number(p.total_amount ?? p.amount ?? 0);
+        const st = statusMeta[String(p.status)] ?? null;
+        const MIcon = methodIcons[method] ?? CreditCard;
+        return (
+          <div key={p.id} className="flex items-start gap-4 p-4 rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] hover:bg-[#8C6B6F]/[0.06] transition-colors">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#8C6B6F]/30 to-[#D9B5BA]/20 border border-[#8C6B6F]/30 flex items-center justify-center text-sm font-bold text-[#8C6B6F] shrink-0">
+              {name?.[0]?.toUpperCase() ?? "?"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-[#1A1A1A]/90 truncate">{name}</p>
+                {st && (
+                  <span className={cn("text-[9px] font-semibold px-1.5 py-0.5 rounded-full border uppercase tracking-wide", st.cls)}>
+                    {st.label}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[#1A1A1A]/45 truncate flex items-center gap-1 mt-0.5">
+                <Package size={11} className="text-[#8C6B6F]/50 shrink-0" /> {plan}
+              </p>
+              <p className="text-[11px] text-[#1A1A1A]/30 flex items-center gap-1 mt-0.5">
+                <Clock size={10} className="shrink-0" /> {date ? fmtDate(date) : "—"}
+              </p>
+            </div>
+            <div className="text-right shrink-0 flex flex-col items-end gap-1.5">
+              <span className="text-base font-bold text-[#1A1A1A]/90">${amount.toLocaleString("es-MX")} MXN</span>
+              <span className={cn("text-[11px] font-semibold px-2.5 py-1 rounded-full border inline-flex items-center gap-1", methodStyles[method] ?? "text-[#1A1A1A]/40 border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.06]")}>
+                <MIcon size={11} /> {methodLabels[method] ?? method ?? "—"}
+              </span>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-[#1A1A1A]/85 truncate">{p.userName ?? p.userId ?? "—"}</p>
-            <p className="text-xs text-[#1A1A1A]/30">{p.createdAt ? new Date(p.createdAt).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" }) : "—"}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className={cn("text-[11px] font-semibold px-2.5 py-1 rounded-full border", methodStyles[p.method] ?? "text-[#1A1A1A]/40 border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.06]")}>
-              {methodLabels[p.method] ?? p.method ?? "—"}
-            </span>
-            <span className="text-sm font-bold text-[#1A1A1A]/90">${Number(p.total_amount ?? p.amount ?? 0).toLocaleString()} MXN</span>
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };
