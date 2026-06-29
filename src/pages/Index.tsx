@@ -160,8 +160,15 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
-    document.body.style.overflow = mobileMenuOpen ? "hidden" : "";
-    return () => { document.body.style.overflow = ""; };
+    // El scroller raíz es <html> (overflow-x en html, no en body). Bloqueamos el
+    // scroll de fondo al abrir el menú móvil en html y body para cubrir ambos.
+    const v = mobileMenuOpen ? "hidden" : "";
+    document.documentElement.style.overflow = v;
+    document.body.style.overflow = v;
+    return () => {
+      document.documentElement.style.overflow = "";
+      document.body.style.overflow = "";
+    };
   }, [mobileMenuOpen]);
 
   const scrollTo = (id: string) => {

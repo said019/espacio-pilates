@@ -96,6 +96,14 @@
 
   html {
     scroll-behavior: smooth;
+    /* Clip horizontal en el contenedor de scroll RAÍZ (html), no en el body.
+       Ponerlo en body lo convierte en scroll container (overflow: hidden auto)
+       y en iOS Safari eso rompe el position:fixed del nav y provoca zoom raro
+       al cargar. */
+    overflow-x: hidden;
+    /* iOS: no re-escalar el texto (evita el "zoom" inesperado en móvil). */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
@@ -104,7 +112,6 @@
     font-feature-settings: "ss01", "cv11", "tnum";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    overflow-x: hidden;
     text-rendering: optimizeLegibility;
   }
 
