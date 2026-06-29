@@ -126,7 +126,7 @@ const Index = () => {
   );
 
   const navigate = useNavigate();
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, logout } = useAuthStore();
   const isAdmin = ["admin", "super_admin", "instructor", "reception"].includes(user?.role ?? "");
   const ctaPath = isAuthenticated ? (isAdmin ? "/admin/dashboard" : "/app/checkout") : "/auth/register";
 
@@ -244,24 +244,26 @@ const Index = () => {
             {isAuthenticated && user ? (
               <button
                 onClick={() => navigate(isAdmin ? "/admin/dashboard" : "/app")}
-                className="hidden sm:inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-[0.78rem] font-medium tracking-wide bg-valiance-charcoal text-valiance-nude hover:bg-valiance-plum transition-colors active:scale-[0.98]"
+                aria-label="Mi cuenta"
+                className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-5 py-1.5 sm:py-2.5 rounded-full text-[0.74rem] sm:text-[0.78rem] font-medium tracking-wide bg-valiance-charcoal text-valiance-nude hover:bg-valiance-plum transition-colors active:scale-[0.98] max-w-[44vw] sm:max-w-none"
               >
-                <span className="w-6 h-6 rounded-full bg-valiance-blush/20 flex items-center justify-center text-[0.7rem] font-semibold uppercase">
+                <span className="w-6 h-6 rounded-full bg-valiance-blush/20 flex items-center justify-center text-[0.7rem] font-semibold uppercase shrink-0">
                   {user.displayName?.[0] ?? user.email?.[0] ?? "U"}
                 </span>
-                {isAdmin ? "Admin" : (user.displayName?.split(" ")[0] ?? "Mi cuenta")}
+                <span className="truncate">{isAdmin ? "Admin" : (user.displayName?.split(" ")[0] ?? "Mi cuenta")}</span>
               </button>
             ) : (
               <>
                 <button
                   onClick={() => navigate("/auth/login")}
-                  className={`hidden sm:block text-[0.78rem] tracking-wide transition-colors bg-transparent border-none cursor-pointer px-3 py-2 ${
+                  className={`block text-[0.78rem] tracking-wide transition-colors bg-transparent border-none cursor-pointer px-2 sm:px-3 py-2 whitespace-nowrap ${
                     navScrolled || mobileMenuOpen
                       ? "text-valiance-charcoal/70 hover:text-valiance-charcoal"
                       : "text-valiance-nude/80 hover:text-valiance-nude"
                   }`}
                 >
-                  Iniciar sesión
+                  <span className="sm:hidden">Entrar</span>
+                  <span className="hidden sm:inline">Iniciar sesión</span>
                 </button>
                 <button
                   onClick={() => navigate("/auth/register")}
@@ -335,6 +337,25 @@ const Index = () => {
                   className="w-full py-3 rounded-full bg-valiance-charcoal text-valiance-nude text-[0.82rem] font-medium hover:bg-valiance-plum transition-colors"
                 >
                   Reservar primera clase
+                </button>
+              </div>
+            )}
+            {isAuthenticated && user && (
+              <div className="px-6 py-5 border-t border-valiance-lavender/25 space-y-2.5">
+                <button
+                  onClick={() => { setMobileMenuOpen(false); navigate(isAdmin ? "/admin/dashboard" : "/app"); }}
+                  className="w-full flex items-center gap-3 py-2.5 px-4 rounded-full bg-valiance-charcoal text-valiance-nude text-[0.82rem] font-medium hover:bg-valiance-plum transition-colors"
+                >
+                  <span className="w-7 h-7 rounded-full bg-valiance-blush/20 flex items-center justify-center text-[0.72rem] font-semibold uppercase shrink-0">
+                    {user.displayName?.[0] ?? user.email?.[0] ?? "U"}
+                  </span>
+                  <span className="truncate text-left flex-1">{isAdmin ? "Panel de administración" : (user.displayName ?? "Mi cuenta")}</span>
+                </button>
+                <button
+                  onClick={() => { setMobileMenuOpen(false); logout(); navigate("/"); }}
+                  className="w-full py-2.5 rounded-full border border-valiance-mauve/30 text-valiance-charcoal/70 text-[0.8rem] font-medium hover:bg-valiance-lavender/20 transition-colors"
+                >
+                  Cerrar sesión
                 </button>
               </div>
             )}
