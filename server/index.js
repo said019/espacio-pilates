@@ -176,6 +176,15 @@ const DEFAULT_NOTIFICATION_SETTINGS = {
 };
 
 const DEFAULT_NOTIFICATION_TEMPLATES = {
+  // Recordatorios de clase (12 h y 30 min antes). Texto fijo, sin variables.
+  class_reminder_12h: {
+    subject: "Recordatorio de clase",
+    body: "Recordatorio de clase.\nHola 🌞🌙\n\nRecuerda que tienes una clase programada en las próximas 12 hrs, no te la pierdas 🩷",
+  },
+  class_reminder_30m: {
+    subject: "Tu clase comienza pronto",
+    body: "Tu clase comienza en 30 minutos, no te la pierdas 🩷",
+  },
   booking_confirmed: {
     subject: "Reserva confirmada",
     body: "Hola {name}, tu reserva para {class} el {date} a las {time} está confirmada.",
@@ -1987,12 +1996,14 @@ async function ensureSchema() {
     const adminEmail = process.env.ADMIN_EMAIL || "espaciopilatesvm@gmail.com";
     const adminPass = process.env.ADMIN_PASSWORD || "EspacioVM2026!";
     const adminHash = await bcrypt.hash(adminPass, 12);
-    // El admin se garantiza con el upsert (ON CONFLICT) de abajo a partir
-    // del email definido por ADMIN_EMAIL. No hay migración de admin previo.
+    // El admin se crea con ADMIN_PASSWORD SOLO la primera vez. En arranques
+    // posteriores únicamente se reafirma el rol 'admin' — NO se reescribe la
+    // contraseña — para que la dueña pueda cambiarla/recuperarla ("olvidé
+    // contraseña") y ningún deploy futuro la revierta.
     await pool.query(
       `INSERT INTO users (display_name, email, phone, password_hash, role, accepts_terms, accepts_communications)
        VALUES ('Admin Tu Espacio', $1, '0000000000', $2, 'admin', true, false)
-       ON CONFLICT (email) DO UPDATE SET role = 'admin', password_hash = $2`,
+       ON CONFLICT (email) DO UPDATE SET role = 'admin'`,
       [adminEmail, adminHash]
     );
     console.log(`✅ Admin user ready: ${adminEmail}`);
@@ -9441,7 +9452,9 @@ function normalizePhoneForStorage(raw) {
   return phone; // return as-is if unrecognized format
 }
 
-const EVOLUTION_SEND_DELAY_MS = Number(process.env.EVOLUTION_SEND_DELAY_MS || 1200);
+// Anti-bloqueo: separación base entre WhatsApps (configurable). Con el jitter de
+// abajo, el espaciado real queda ~3.5–7 s aleatorio entre mensajes (más humano).
+const EVOLUTION_SEND_DELAY_MS = Number(process.env.EVOLUTION_SEND_DELAY_MS || 3500);
 let evolutionSendQueue = Promise.resolve();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -9460,9 +9473,10 @@ async function sendWhatsAppNow(number, text) {
 
 function queueWhatsAppSend(number, text) {
   const run = evolutionSendQueue.then(async () => {
-    const jitter = Math.floor(Math.random() * 250);
+    // Jitter amplio (hasta ~el delay base) para que el ritmo no sea constante.
+    const jitter = Math.floor(Math.random() * Math.max(1000, EVOLUTION_SEND_DELAY_MS));
     return sendWhatsAppNow(number, text).finally(async () => {
-      await sleep(Math.max(300, EVOLUTION_SEND_DELAY_MS + jitter));
+      await sleep(Math.max(1500, EVOLUTION_SEND_DELAY_MS + jitter));
     });
   });
   // Keep queue alive even if one send fails
@@ -9493,8 +9507,22 @@ function renderTemplateVars(template, vars = {}) {
   });
 }
 
+// ── Anti-bloqueo de Evolution: SOLO estos eventos salen por WhatsApp ──────────
+// Evolution es WhatsApp NO oficial y banea por volumen. Mantener la lista mínima
+// protege el número. El resto de notificaciones sigue saliendo por email/push,
+// pero NO por WhatsApp.
+const WHATSAPP_ALLOWED_TEMPLATES = new Set([
+  "class_reminder_12h",        // recordatorio 12 h antes
+  "class_reminder_30m",        // recordatorio 30 min antes
+  "booking_waitlist_promoted", // se liberó tu lugar y quedaste confirmada
+]);
+
 async function sendConfiguredWhatsAppTemplate({ templateKey, phone, vars = {}, fallbackMessage = "" }) {
   if (!phone) return { sent: false, reason: "no_phone" };
+  // Whitelist: cualquier evento fuera de la lista NO se envía por WhatsApp.
+  if (!WHATSAPP_ALLOWED_TEMPLATES.has(templateKey)) {
+    return { sent: false, reason: "not_in_whatsapp_whitelist" };
+  }
   const notificationSettings = await getSettingsValue("notification_settings", DEFAULT_NOTIFICATION_SETTINGS);
   if (notificationSettings?.whatsapp_reminders === false) {
     return { sent: false, reason: "whatsapp_disabled" };
@@ -15007,40 +15035,102 @@ async function runClassReminderCron(mode = "morning") {
   }
 }
 
-function scheduleEmailCrons() {
-  // Check every hour if it's time to run
-  setInterval(async () => {
-    const now = new Date();
-    // Mexico City = UTC-6 (adjust for daylight saving if needed)
-    const mexicoHour = (now.getUTCHours() - 6 + 24) % 24;
-    const dayOfWeek = now.getUTCDay(); // 0 = Sunday
+// ── Recordatorios de clase: 12 h y 30 min antes (texto fijo) ───────────────────
+// Corre cada ~5 min. Dedup por (booking_id, kind) en class_reminder_sent. Envía
+// por la cola global (anti-bloqueo). Respeta whatsapp_reminders/class_reminder.
+async function runClassReminders() {
+  try {
+    const ns = await getSettingsValue("notification_settings", DEFAULT_NOTIFICATION_SETTINGS);
+    if (ns?.whatsapp_reminders === false || ns?.class_reminder_enabled === false) return;
 
-    // Weekly reminder: every Sunday at 8:00 AM Mexico time
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS class_reminder_sent (
+        booking_id UUID NOT NULL,
+        kind       TEXT NOT NULL,
+        sent_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (booking_id, kind)
+      )
+    `).catch(() => {});
+
+    // Minutos hasta el inicio de cada clase (en hora de México) por reserva
+    // confirmada, con teléfono y recordatorios activados; ventana ±1 día.
+    const res = await pool.query(`
+      SELECT b.id AS booking_id, u.phone, COALESCE(u.display_name,'Alumna') AS name,
+             EXTRACT(EPOCH FROM (
+               ((c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City') - now()
+             )) / 60 AS mins_until
+      FROM bookings b
+      JOIN classes c ON b.class_id = c.id
+      JOIN users u   ON b.user_id = u.id
+      WHERE b.status = 'confirmed'
+        AND c.status = 'scheduled'
+        AND u.phone IS NOT NULL
+        AND u.receive_reminders IS NOT FALSE
+        AND c.date BETWEEN CURRENT_DATE - 1 AND CURRENT_DATE + 1
+        AND ((c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City') > now()
+    `);
+
+    const due = [];
+    for (const r of res.rows) {
+      const m = Number(r.mins_until);
+      if (m <= 720 && m > 45) due.push({ ...r, kind: "12h" });   // dentro de 12 h (>45 min)
+      if (m <= 40 && m >= 15) due.push({ ...r, kind: "30m" });   // ~30 min antes (ventana 15–40)
+    }
+    if (!due.length) return;
+
+    const sentRes = await pool.query(
+      "SELECT booking_id, kind FROM class_reminder_sent WHERE booking_id = ANY($1)",
+      [due.map((d) => d.booking_id)]
+    ).catch(() => ({ rows: [] }));
+    const already = new Set(sentRes.rows.map((r) => `${r.booking_id}:${r.kind}`));
+    const pending = due.filter((d) => !already.has(`${d.booking_id}:${d.kind}`));
+    if (!pending.length) return;
+    // Encolar primero los de 30 min (más urgentes) antes que los de 12 h.
+    pending.sort((a, b) => (a.kind === "30m" ? 0 : 1) - (b.kind === "30m" ? 0 : 1));
+
+    console.log(`[Cron] Recordatorios de clase — ${pending.length} por enviar`);
+    for (const d of pending) {
+      // Marcar ANTES de encolar (la cola global espacia el envío 3.5–7 s); evita
+      // duplicar si un tick se solapa. ON CONFLICT garantiza 1 envío por tipo.
+      const ins = await pool.query(
+        "INSERT INTO class_reminder_sent (booking_id, kind) VALUES ($1,$2) ON CONFLICT DO NOTHING RETURNING booking_id",
+        [d.booking_id, d.kind]
+      ).catch(() => ({ rowCount: 0 }));
+      if (!ins.rowCount) continue;
+      const is12h = d.kind === "12h";
+      sendConfiguredWhatsAppTemplate({
+        templateKey: is12h ? "class_reminder_12h" : "class_reminder_30m",
+        phone: d.phone,
+        vars: { name: d.name },
+        fallbackMessage: is12h
+          ? "Recordatorio de clase.\nHola 🌞🌙\n\nRecuerda que tienes una clase programada en las próximas 12 hrs, no te la pierdas 🩷"
+          : "Tu clase comienza en 30 minutos, no te la pierdas 🩷",
+      }).catch((e) => console.error("[WA] recordatorio clase:", e.message));
+    }
+
+    await pool.query(
+      "DELETE FROM class_reminder_sent WHERE sent_at < NOW() - INTERVAL '3 days'"
+    ).catch(() => {});
+  } catch (err) {
+    console.error("[Cron] runClassReminders error:", err.message);
+  }
+}
+
+function scheduleEmailCrons() {
+  // Recordatorios de clase (12 h y 30 min antes): revisión cada 5 minutos.
+  setInterval(() => { runClassReminders(); }, 5 * 60 * 1000);
+
+  // Resumen semanal por EMAIL: domingos 8:00 AM hora de México.
+  // (Renovación y los recordatorios viejos 9pm/8am quedaron retirados.)
+  setInterval(() => {
+    const now = new Date();
+    const mexicoHour = (now.getUTCHours() - 6 + 24) % 24;
+    const dayOfWeek = now.getUTCDay();
     if (dayOfWeek === 0 && mexicoHour === 8 && now.getUTCMinutes() < 60) {
       console.log("[Cron] Triggering weekly reminder...");
       runWeeklyReminderCron();
     }
-
-    // Renewal reminder: every day at 9:00 AM Mexico time
-    if (mexicoHour === 9 && now.getUTCMinutes() < 60) {
-      console.log("[Cron] Triggering renewal reminder...");
-      runRenewalReminderCron();
-    }
-
-    // Morning class reminder: every day at 9:00 PM Mexico time
-    // Sends for tomorrow's morning classes (before noon) — staggered 3 min each
-    if (mexicoHour === 21 && now.getUTCMinutes() < 60) {
-      console.log("[Cron] Triggering morning class reminders (tomorrow AM)...");
-      runClassReminderCron("morning");
-    }
-
-    // Afternoon class reminder: every day at 8:00 AM Mexico time
-    // Sends for today's afternoon/evening classes (noon+) — staggered 3 min each
-    if (mexicoHour === 8 && now.getUTCMinutes() < 60) {
-      console.log("[Cron] Triggering afternoon class reminders (today PM)...");
-      runClassReminderCron("afternoon");
-    }
-  }, 60 * 60 * 1000); // every 1 hour
+  }, 60 * 60 * 1000);
 }
 
 // ─── Start ───────────────────────────────────────────────────────────────────
