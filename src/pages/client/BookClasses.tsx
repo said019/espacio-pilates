@@ -271,9 +271,12 @@ const BookClasses = () => {
                           const rawApparatus =
                             typeof cls.apparatus === "string" ? cls.apparatus.toLowerCase() : "reformer";
                           const isTower = rawApparatus === "tower";
-                          // Badge: el enfoque del día (Lower/Upper/Full body/Core);
+                          // Badge: el enfoque guardado en la clase si existe; si no,
+                          // cae al enfoque del día (Lower/Upper/Full body/Core).
                           // Tower se conserva como excepción de aparato.
-                          const apparatusLabel = isTower ? "Tower" : (theme || "Pilates");
+                          const classFocus =
+                            typeof cls.focus === "string" && cls.focus ? cls.focus : theme;
+                          const apparatusLabel = isTower ? "Tower" : (classFocus || "Pilates");
 
                           return (
                             <button

@@ -24,6 +24,7 @@ const generateSchema = z.object({
   startTime: z.string().min(1),
   endTime: z.string().min(1),
   maxCapacity: z.coerce.number().min(1),
+  focus: z.string().optional(),
 });
 
 type GenerateFormData = z.infer<typeof generateSchema>;
@@ -51,7 +52,7 @@ const GenerateClasses = () => {
 
   const form = useForm<GenerateFormData>({
     resolver: zodResolver(generateSchema),
-    defaultValues: { daysOfWeek: [], maxCapacity: 5, startTime: "09:00", endTime: "10:00" },
+    defaultValues: { daysOfWeek: [], maxCapacity: 5, startTime: "09:00", endTime: "10:00", focus: "" },
   });
 
   const generateMutation = useMutation({
@@ -184,6 +185,29 @@ const GenerateClasses = () => {
                     {d.label}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Muscle focus label — guardado por clase */}
+            <div className="rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-5 space-y-3">
+              <p className="text-[11px] text-[#8C6B6F]/70 font-semibold uppercase tracking-wider">Grupo muscular (etiqueta)</p>
+              <div className="space-y-1 max-w-xs">
+                <Select
+                  value={form.watch("focus") || "auto"}
+                  onValueChange={(v) => form.setValue("focus", v === "auto" ? "" : v)}
+                >
+                  <SelectTrigger className="bg-[#8C6B6F]/[0.06] border-[#8C6B6F]/15 text-[#1A1A1A]">
+                    <SelectValue placeholder="Auto (por día)" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#F0D0D5] border-[#8C6B6F]/15">
+                    <SelectItem value="auto" className="text-[#1A1A1A]">Auto (por día)</SelectItem>
+                    <SelectItem value="Lower body" className="text-[#1A1A1A]">Lower body</SelectItem>
+                    <SelectItem value="Upper body" className="text-[#1A1A1A]">Upper body</SelectItem>
+                    <SelectItem value="Full body" className="text-[#1A1A1A]">Full body</SelectItem>
+                    <SelectItem value="Core" className="text-[#1A1A1A]">Core</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-[#1A1A1A]/40">Se guarda en cada clase generada. "Auto" deja que el calendario use el enfoque del día.</p>
               </div>
             </div>
 
