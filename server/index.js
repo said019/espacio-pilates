@@ -1975,6 +1975,33 @@ async function ensureSchema() {
   } catch (err) {
     console.error("Admin seed warning:", err.message);
   }
+
+  // ── Admin extra (bootstrap de UNA sola vez): pilatestuespacio@gmail.com ────
+  // Se asegura como admin con una contraseña TEMPORAL (hash bcrypt precomputado;
+  // la clave en texto NO vive en el código). Es one-time vía una flag en
+  // settings: tras esta vez NO se vuelve a tocar password_hash, así que cuando
+  // la cambie desde el panel, ningún deploy futuro la revierte.
+  try {
+    const EXTRA_ADMIN_FLAG = "extra_admin_pilatestuespacio_v1";
+    const already = await pool.query("SELECT 1 FROM settings WHERE key = $1 LIMIT 1", [EXTRA_ADMIN_FLAG]);
+    if (already.rows.length === 0) {
+      const EXTRA_ADMIN_EMAIL = "pilatestuespacio@gmail.com";
+      const EXTRA_ADMIN_TEMP_HASH = "$2a$12$CCnY0Ne/pz35CrMzHSTx.eWdHLH25HjMH4xk42eBe3SkwZ1Pye2qe";
+      await pool.query(
+        `INSERT INTO users (display_name, email, phone, password_hash, role, accepts_terms, accepts_communications)
+         VALUES ('Tu Espacio Pilates', $1, '0000000000', $2, 'admin', true, false)
+         ON CONFLICT (email) DO UPDATE SET role = 'admin', password_hash = $2`,
+        [EXTRA_ADMIN_EMAIL, EXTRA_ADMIN_TEMP_HASH]
+      );
+      await pool.query(
+        "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()",
+        [EXTRA_ADMIN_FLAG, JSON.stringify("done")]
+      );
+      console.log("✅ Admin extra listo (one-time): pilatestuespacio@gmail.com");
+    }
+  } catch (err) {
+    console.error("Extra admin seed warning:", err.message);
+  }
 }
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
