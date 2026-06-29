@@ -307,23 +307,6 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
     onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error", variant: "destructive" }),
   });
 
-  const seedTotalPassMutation = useMutation({
-    mutationFn: () => api.post("/admin/plans/seed-totalpass"),
-    onSuccess: (res: any) => {
-      qc.invalidateQueries({ queryKey: ["plans-walkin-admin"] });
-      qc.invalidateQueries({ queryKey: ["plans"] });
-      toast({ title: res?.data?.message ?? "TotalPass 154 listo" });
-    },
-    onError: (e: any) => {
-      const data = e?.response?.data;
-      toast({
-        title: "No se pudo crear TotalPass",
-        description: data?.detail || data?.message || e?.message,
-        variant: "destructive",
-      });
-    },
-  });
-
   const cancelMemberMutation = useMutation({
     mutationFn: ({ bookingId, force }: { bookingId: string; force?: boolean }) =>
       api.put(`/admin/bookings/${bookingId}/cancel${force ? "?force=1" : ""}`),
@@ -449,21 +432,6 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
                     })}
                 </SelectContent>
               </Select>
-              {!walkInPlans.some((p: any) => /totalpass/i.test(String(p.name))) && (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-[#E5CF9F] bg-[#F4EAD6] px-2 py-1.5">
-                  <p className="text-[10px] text-[#B5832F]">⚠️ TotalPass 154 no detectado.</p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-6 text-[10px] border-[#E5CF9F] text-[#B5832F] hover:bg-[#F4EAD6]"
-                    disabled={seedTotalPassMutation.isPending}
-                    onClick={() => seedTotalPassMutation.mutate()}
-                  >
-                    {seedTotalPassMutation.isPending ? "Creando…" : "Crear ahora"}
-                  </Button>
-                </div>
-              )}
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
