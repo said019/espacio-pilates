@@ -769,6 +769,8 @@ async function ensureSchema() {
     // generated class so the front-end can label the equipment.
     await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS apparatus VARCHAR(20) DEFAULT 'reformer'`).catch(() => { });
     await pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS apparatus VARCHAR(20) DEFAULT 'reformer'`).catch(() => { });
+    // Etiqueta de grupo muscular por clase (Lower/Upper/Full body/Core). NULL = el front cae al default por día.
+    await pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS focus VARCHAR(40)`).catch(() => { });
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_slots_slot ON schedule_slots(time_slot, day_of_week) WHERE is_active = true`).catch(() => { });
     // ── schedule_templates (plantilla simple con class_label) ───────────────
     await pool.query(`
@@ -8601,7 +8603,9 @@ function parseTimeSlotTo24Hour(timeValue) {
 // POST /api/classes/generate — bulk generate
 app.post("/api/classes/generate", adminMiddleware, async (req, res) => {
   try {
-    const { startDate, endDate, classTypeId, instructorId, daysOfWeek, startTime, endTime, maxCapacity = 10 } = req.body;
+    const { startDate, endDate, classTypeId, instructorId, daysOfWeek, startTime, endTime, maxCapacity = 10, focus } = req.body;
+    // Etiqueta opcional de grupo muscular; vacío/ausente → NULL (el front usa el default por día).
+    const focusVal = (typeof focus === "string" && focus.trim()) ? focus.trim() : null;
     if (!startDate || !endDate) return res.status(400).json({ message: "startDate y endDate requeridos" });
     if (!classTypeId) return res.status(400).json({ message: "classTypeId requerido" });
     if (!instructorId) return res.status(400).json({ message: "instructorId requerido" });
@@ -8632,9 +8636,9 @@ app.post("/api/classes/generate", adminMiddleware, async (req, res) => {
         );
         if (exists.rows.length) { skipped++; continue; }
         const r = await pool.query(
-          `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status)
-           VALUES ($1,$2,$3,$4,$5,$6,'scheduled') RETURNING *`,
-          [classTypeId, instructorId, classDate, startTime, endTime, maxCapacity]
+          `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status, focus)
+           VALUES ($1,$2,$3,$4,$5,$6,'scheduled',$7) RETURNING *`,
+          [classTypeId, instructorId, classDate, startTime, endTime, maxCapacity, focusVal]
         );
         created.push(r.rows[0]);
       }
