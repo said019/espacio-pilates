@@ -328,11 +328,10 @@ input[type="time"]::-webkit-calendar-picker-indicator {
   }
 }
 
-@media (max-width: 1023px) {
-  .admin-mobile-main {
-    overflow-x: hidden;
-  }
-}
+/* El clip horizontal del admin vive en `html { overflow-x: hidden }` (root).
+   No lo pongas en <main>: con overflow-y de scroll se vuelve `overflow: hidden auto`,
+   y en iOS Safari eso rompe el position:fixed de la barra inferior (la deja flotando
+   a media pantalla en vez de fija abajo). Mismo motivo que el comentario en html. */
 
 /* ──────────────────────────────────────────────────────────────────────
    Motion utilities (Emil)

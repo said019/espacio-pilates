@@ -279,7 +279,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
           </div>
         </header>
 
-        <main className="admin-mobile-main flex-1 overflow-auto pb-[88px] lg:pb-0">{children}</main>
+        <main className="flex-1 overflow-y-auto pb-[88px] lg:pb-0">{children}</main>
 
         {isMobile && (
           <nav
