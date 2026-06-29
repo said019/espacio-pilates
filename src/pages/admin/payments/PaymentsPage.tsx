@@ -493,7 +493,13 @@ const PendingOrders = () => {
                 </div>
                 <div>
                   <p className="font-semibold text-sm text-[#1A1A1A]/90">{o.userName ?? "—"}</p>
-                  <p className="text-xs text-[#1A1A1A]/40">{o.planName ?? "Plan"}</p>
+                  {Array.isArray(o.items) && o.items.length > 1 ? (
+                    <p className="text-xs text-[#1A1A1A]/40">
+                      {o.items.map((it: any) => `${it.plan_name} ×${it.quantity}`).join(", ")}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-[#1A1A1A]/40">{o.planName ?? "Plan"}</p>
+                  )}
                 </div>
               </div>
               <div className="text-right shrink-0">

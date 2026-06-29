@@ -103,7 +103,18 @@ const MyOrders = () => {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-1 min-w-0">
-                        <p className="font-semibold text-sm text-[#1A1A1A]">{o.plan_name}</p>
+                        <p className="font-semibold text-sm text-[#1A1A1A]">
+                          {Array.isArray(o.items) && o.items.length > 1
+                            ? `${o.items.length} artículos`
+                            : o.plan_name}
+                        </p>
+                        {Array.isArray(o.items) && o.items.length > 1 && (
+                          <ul className="text-[11px] text-[#3D3A3A] mt-0.5 space-y-0.5">
+                            {o.items.map((it: any, i: number) => (
+                              <li key={i}>• {it.plan_name} × {it.quantity}</li>
+                            ))}
+                          </ul>
+                        )}
                         <p className="text-xs text-[#3D3A3A]">
                           ${Number(o.total_amount).toLocaleString("es-MX")} MXN
                           {" · "}

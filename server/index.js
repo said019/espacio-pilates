@@ -16,6 +16,7 @@ import archiver from "archiver";
 import { execSync } from "child_process";
 import { canCancel, canReschedule, endOfPurchaseMonth } from "./lib/bookingPolicy.js";
 import { createPreference, createCardPayment, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
+import { computeCartTotals } from "./lib/cartPricing.js";
 import {
   isPushConfigured,
   getVapidPublicKey,
@@ -4390,7 +4391,15 @@ app.post("/api/reviews", authMiddleware, async (req, res) => {
 app.get("/api/orders", authMiddleware, async (req, res) => {
   try {
     const r = await pool.query(
-      `SELECT o.*, p.name AS plan_name, p.duration_days
+      `SELECT o.*, p.name AS plan_name, p.duration_days,
+              COALESCE((
+                SELECT json_agg(json_build_object(
+                         'plan_id', i.plan_id, 'plan_name', ip.name,
+                         'quantity', i.quantity, 'unit_price', i.unit_price, 'line_total', i.line_total
+                       ) ORDER BY i.created_at)
+                FROM order_plan_items i JOIN plans ip ON ip.id = i.plan_id
+                WHERE i.order_id = o.id
+              ), '[]'::json) AS items
        FROM orders o
        JOIN plans p ON o.plan_id = p.id
        WHERE o.user_id = $1
@@ -4545,9 +4554,156 @@ app.get("/api/inscription-status", authMiddleware, async (req, res) => {
 });
 
 // POST /api/orders
+// ── CARRITO: crear una orden con varios renglones (plan + cantidad) ──────────
+// Aislada del camino de 1 plan + complementos para no romper ese flujo.
+async function createCartOrder(req, res, paymentMethod) {
+  const { items: rawItems, discountCode } = req.body;
+  const isCashOrTransfer = paymentMethod === "cash" || paymentMethod === "transfer";
+
+  // Normalizar + fusionar duplicados por plan
+  const qtyByPlan = new Map();
+  for (const it of rawItems) {
+    const pid = it?.planId ?? it?.plan_id;
+    if (!pid) continue;
+    const q = Math.max(1, parseInt(it?.quantity, 10) || 1);
+    qtyByPlan.set(pid, (qtyByPlan.get(pid) || 0) + q);
+  }
+  const cart = [...qtyByPlan.entries()].map(([planId, quantity]) => ({ planId, quantity }));
+  if (!cart.length) return res.status(400).json({ message: "Agrega al menos un plan al carrito" });
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Cargar planes
+    const loaded = [];
+    for (const it of cart) {
+      const r = await client.query("SELECT * FROM plans WHERE id = $1 AND is_active = true", [it.planId]);
+      if (!r.rows.length) { await client.query("ROLLBACK"); return res.status(404).json({ message: "Uno de los planes no existe o está inactivo" }); }
+      loaded.push({ plan: r.rows[0], quantity: it.quantity });
+    }
+
+    const hasPackage = loaded.some((l) => Number(l.plan.class_limit) >= 2);
+    const needsInscription = await clientNeedsInscription(req.userId);
+
+    // Validaciones por renglón
+    for (const { plan, quantity } of loaded) {
+      if (plan.is_non_repeatable) {
+        if (quantity > 1) { await client.query("ROLLBACK"); return res.status(400).json({ message: `"${plan.name}" no se puede comprar más de una vez por orden.` }); }
+        const conflict = await findNonRepeatablePlanConflict({ userId: req.userId, plan, client });
+        if (conflict) { await client.query("ROLLBACK"); return res.status(409).json({ message: conflict.message }); }
+      }
+      if (String(plan.name).trim().toLowerCase() === "clase extra" && needsInscription && !hasPackage) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ message: "La clase extra es solo para alumnas inscritas. Agrega un paquete en la misma compra o compra una Clase suelta / visita." });
+      }
+    }
+
+    // Precios por renglón (transferencia/efectivo usan discount_price si existe; tarjeta usa precio base)
+    let itemsSubtotal = 0;
+    const lineRows = [];
+    for (const { plan, quantity } of loaded) {
+      let unit = parseFloat(plan.price);
+      if (isCashOrTransfer && plan.discount_price != null && parseFloat(plan.discount_price) > 0) {
+        unit = parseFloat(plan.discount_price);
+      }
+      const lineTotal = Math.round(unit * quantity * 100) / 100;
+      itemsSubtotal += lineTotal;
+      lineRows.push({ plan, quantity, unit, lineTotal });
+    }
+    itemsSubtotal = Math.round(itemsSubtotal * 100) / 100;
+
+    // Plan principal: primer paquete, o el primer renglón
+    const primary = (loaded.find((l) => Number(l.plan.class_limit) >= 2) || loaded[0]).plan;
+
+    // Descuento (código) sobre el subtotal de ítems (antes de inscripción)
+    let discount = 0, appliedDiscountCode = null;
+    if (discountCode) {
+      const dr = await findApplicableDiscountCode({
+        code: discountCode, subtotal: itemsSubtotal, planId: primary.id,
+        classCategory: normalizeClassCategory(primary.class_category, "all"),
+        channel: "membership", client,
+      });
+      if (!dr) { await client.query("ROLLBACK"); return res.status(400).json({ message: "Código de descuento no válido" }); }
+      if (dr.rejectedByMinOrder) { await client.query("ROLLBACK"); return res.status(400).json({ message: `Compra mínima requerida: $${Number(dr.minOrderAmount || 0).toFixed(2)} MXN` }); }
+      discount = dr.discountAmount; appliedDiscountCode = dr.code;
+    }
+
+    // Inscripción una sola vez (si hay paquete y la clienta la necesita)
+    let inscriptionAmount = 0;
+    if (hasPackage && needsInscription) {
+      inscriptionAmount = await getInscriptionPrice(client);
+    }
+
+    // Totales (helper puro testeado): subtotal incluye inscripción; +4% tarjeta sobre el descontado
+    const { subtotal, platformFee, total } = computeCartTotals({
+      lineTotals: lineRows.map((l) => l.lineTotal),
+      discount, inscription: inscriptionAmount, isCard: paymentMethod === "card",
+    });
+
+    const bankInfo = await getConfiguredBankInfo(client);
+    const expires = new Date(Date.now() + 48 * 60 * 60 * 1000);
+    const initialStatus = paymentMethod === "cash" ? "pending_verification" : "pending_payment";
+
+    const cols = ["user_id", "plan_id", "status", "payment_method", "subtotal", "tax_amount", "total_amount", "bank_info", "expires_at"];
+    const vals = [req.userId, primary.id, initialStatus, paymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
+    if (platformFee > 0) { cols.push("platform_fee"); vals.push(platformFee); }
+    if (discount > 0 || appliedDiscountCode) {
+      cols.push("discount_amount"); vals.push(discount);
+      if (appliedDiscountCode?.id) { cols.push("discount_code_id"); vals.push(appliedDiscountCode.id); }
+    }
+    if (inscriptionAmount > 0) { cols.push("inscription_amount"); vals.push(inscriptionAmount); }
+    const placeholders = vals.map((_, i) => {
+      const c = cols[i];
+      if (c === "status") return `$${i + 1}::order_status`;
+      if (c === "payment_method") return `$${i + 1}::payment_method`;
+      return `$${i + 1}`;
+    }).join(", ");
+    const orderRes = await client.query(`INSERT INTO orders (${cols.join(", ")}) VALUES (${placeholders}) RETURNING *`, vals);
+    const order = orderRes.rows[0];
+
+    // Renglones del carrito (la aprobación crea 1 membresía por unidad de cada renglón)
+    for (const { plan, quantity, unit, lineTotal } of lineRows) {
+      await client.query(
+        `INSERT INTO order_plan_items (order_id, plan_id, quantity, unit_price, line_total) VALUES ($1,$2,$3,$4,$5)`,
+        [order.id, plan.id, quantity, unit, lineTotal]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    // Tarjeta: preferencia de MP (por compatibilidad) — el Brick usa total_amount
+    let mp_checkout_url = null;
+    if (paymentMethod === "card") {
+      try {
+        const u = await pool.query("SELECT email FROM users WHERE id = $1", [req.userId]);
+        const planName = lineRows.length > 1 ? `${primary.name} y ${lineRows.length - 1} más` : primary.name;
+        const pref = await createPreference({ orderId: order.id, orderNumber: order.order_number, planName, amount: Number(order.total_amount), userEmail: u.rows[0]?.email || "" });
+        mp_checkout_url = pref.checkout_url;
+        await pool.query(`UPDATE orders SET payment_provider = 'mercadopago', payment_intent_id = $1, mp_checkout_url = $2, updated_at = NOW() WHERE id = $3`, [pref.preference_id, pref.checkout_url, order.id]);
+      } catch (mpErr) { console.error("MercadoPago preference error (cart):", mpErr.message); }
+    }
+
+    const itemsOut = lineRows.map((l) => ({ plan_id: l.plan.id, plan_name: l.plan.name, quantity: l.quantity, unit_price: l.unit, line_total: l.lineTotal }));
+    return res.status(201).json({
+      data: { ...order, plan_name: primary.name, items: itemsOut, mp_checkout_url, inscriptionAmount, bank_details: { ...bankInfo, amount: total, currency: "MXN" } },
+    });
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch (_) { }
+    console.error("POST orders (cart) error:", err);
+    return res.status(500).json({ message: err?.message || "Error interno" });
+  } finally {
+    client.release();
+  }
+}
+
 app.post("/api/orders", authMiddleware, async (req, res) => {
   const { planId, discountCode, paymentMethod: rawPM = "transfer", complementId, complementType } = req.body;
   const paymentMethod = normalizePaymentMethod(rawPM);
+  // Carrito multi-ítem (nuevo) — camino aislado; el resto queda igual (1 plan + complementos).
+  if (Array.isArray(req.body.items) && req.body.items.length > 0) {
+    return createCartOrder(req, res, paymentMethod);
+  }
   if (!planId) return res.status(400).json({ message: "planId requerido" });
   const client = await pool.connect();
   try {
@@ -12620,7 +12776,15 @@ app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
       hasComplements = true;
     } catch (_) {}
     let q = `SELECT o.*, u.display_name AS user_name, p.name AS plan_name,
-                    pp.file_url AS proof_url, pp.status AS proof_status, pp.uploaded_at AS proof_uploaded_at
+                    pp.file_url AS proof_url, pp.status AS proof_status, pp.uploaded_at AS proof_uploaded_at,
+                    COALESCE((
+                      SELECT json_agg(json_build_object(
+                               'plan_id', i.plan_id, 'plan_name', ip.name,
+                               'quantity', i.quantity, 'unit_price', i.unit_price, 'line_total', i.line_total
+                             ) ORDER BY i.created_at)
+                      FROM order_plan_items i JOIN plans ip ON ip.id = i.plan_id
+                      WHERE i.order_id = o.id
+                    ), '[]'::json) AS items
                     ${hasComplements ? ", comp.name AS complement_name, comp.specialist AS complement_specialist" : ""}
              FROM orders o
              LEFT JOIN users u ON o.user_id = u.id
@@ -12638,6 +12802,7 @@ app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
         userName: o.user_name,
         userId: o.user_id,
         planName: o.plan_name,
+        items: o.items,
         proofUrl: o.proof_url,
         proofStatus: o.proof_status,
         proofUploadedAt: o.proof_uploaded_at,

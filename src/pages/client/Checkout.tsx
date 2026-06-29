@@ -9,7 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   Check, Loader2, CreditCard, Copy, Building2,
-  Tag, ChevronRight, ArrowLeft, Upload, CheckCircle, Sparkles,
+  Tag, ChevronRight, ArrowLeft, Upload, CheckCircle, Sparkles, X, Plus, Minus,
 } from "lucide-react";
 import imgPilates from "@/assets/pilates_2320695.png";
 
@@ -201,7 +201,7 @@ const Checkout = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("select");
-  const [selectedPlan, setSelectedPlan] = useState<any>(null);
+  const [cart, setCart] = useState<Array<{ plan: any; quantity: number }>>([]);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("transfer");
   const [discountCode, setDiscountCode] = useState("");
   const [discountResult, setDiscountResult] = useState<any>(null);
@@ -248,40 +248,62 @@ const Checkout = () => {
   const trialPlan = allPlans.find((p) => (p.name ?? "").toLowerCase().includes("muestra"));
   const plans = allPlans.filter((p) => p !== trialPlan);
 
-  // Compute price (price arrives as a string from the API → coerce to number to avoid string concatenation in totals)
-  const basePrice = Number(selectedPlan?.price ?? 0);
-  const individualDiscount = getPlanDiscountPrice(selectedPlan);
-  const effectivePrice = paymentMethod === "transfer" && individualDiscount
-    ? individualDiscount : basePrice;
-  const finalAmount = discountResult ? effectivePrice - (discountResult.discount_amount ?? 0) : effectivePrice;
+  // ── Carrito: helpers ───────────────────────────────────────────────────────
+  const planClassLimit = (p: any) => Number(p?.classLimit ?? p?.class_limit ?? 0);
+  const planNonRepeatable = (p: any) => flag(p?.isNonRepeatable ?? p?.is_non_repeatable);
+  const inCart = (id: string) => cart.find((c) => c.plan.id === id);
 
-  // Is the selected plan a multi-class package? (Backend auto-adds inscription to these.)
-  // Detect via class count (class_limit >= 2) OR by name matching /paquete/i.
-  // Excludes "Clase Extra" / "Clase Suelta / Visita" (class_limit < 2) and the trial.
-  const selectedClassLimit = Number(selectedPlan?.classLimit ?? selectedPlan?.class_limit ?? 0);
-  const selectedName = String(selectedPlan?.name ?? "");
-  const isPackage = Boolean(
-    selectedPlan && (selectedClassLimit >= 2 || /paquete/i.test(selectedName))
-  );
-  // Inscription applies to packages when the client still needs it. Display-only mirror
-  // of the backend rule; loading/absent status -> needsInscription=false -> no line.
-  const showInscription = isPackage && needsInscription;
+  const addToCart = (plan: any) => {
+    setDiscountResult(null);
+    setCart((prev) => {
+      const existing = prev.find((c) => c.plan.id === plan.id);
+      if (existing) {
+        if (planNonRepeatable(plan)) return prev; // no se puede más de 1
+        return prev.map((c) => (c.plan.id === plan.id ? { ...c, quantity: c.quantity + 1 } : c));
+      }
+      return [...prev, { plan, quantity: 1 }];
+    });
+  };
+  const changeQty = (id: string, delta: number) => {
+    setDiscountResult(null);
+    setCart((prev) => prev.flatMap((c) => {
+      if (c.plan.id !== id) return [c];
+      if (planNonRepeatable(c.plan)) return delta < 0 ? [] : [c]; // no-repetible: solo 1 o quitar
+      const nq = c.quantity + delta;
+      return nq <= 0 ? [] : [{ ...c, quantity: nq }];
+    }));
+  };
+  const removeFromCart = (id: string) => { setDiscountResult(null); setCart((prev) => prev.filter((c) => c.plan.id !== id)); };
+
+  // ── Precios del carrito (espejo del backend computeCartTotals) ─────────────
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const lineRows = cart.map(({ plan, quantity }) => {
+    const base = Number(plan.price ?? 0);
+    const dprice = getPlanDiscountPrice(plan);
+    const unit = paymentMethod === "transfer" && dprice ? dprice : base;
+    return { plan, quantity, unit, lineTotal: round2(unit * quantity) };
+  });
+  const itemsSubtotal = round2(lineRows.reduce((a, l) => a + l.lineTotal, 0));
+  const codeDiscount = discountResult ? Number(discountResult.discount_amount ?? 0) : 0;
+  const hasPackage = cart.some((c) => planClassLimit(c.plan) >= 2);
+  const showInscription = hasPackage && needsInscription;
   const inscriptionAmount = showInscription ? inscriptionPrice : 0;
-  // Plan price after any discount + inscription.
-  const totalWithInscription = finalAmount + inscriptionAmount;
+  const afterDiscount = round2(itemsSubtotal + inscriptionAmount - codeDiscount);
   // Recargo "uso de plataforma" (4%) SOLO para tarjeta — debe coincidir con el backend.
   const PLATFORM_FEE_RATE = 0.04;
-  const platformFee = paymentMethod === "card" ? Math.round(totalWithInscription * PLATFORM_FEE_RATE * 100) / 100 : 0;
-  // Lo que realmente se cobra.
-  const grandTotal = totalWithInscription + platformFee;
+  const platformFee = paymentMethod === "card" ? round2(afterDiscount * PLATFORM_FEE_RATE) : 0;
+  const grandTotal = round2(afterDiscount + platformFee);
 
-  // "Clase Extra" es solo para alumnas inscritas → se bloquea si la alumna
-  // aún necesita inscripción (la "Clase Suelta / Visita" es la única sin inscripción).
-  const isClaseExtra = /clase\s*extra/i.test(selectedName);
-  const blockedClaseExtra = isClaseExtra && needsInscription;
+  // Plan principal (para validar el código y mostrar el nombre)
+  const primaryPlan = cart.find((c) => planClassLimit(c.plan) >= 2)?.plan ?? cart[0]?.plan ?? null;
+
+  // "Clase Extra" solo para inscritas: se bloquea si hay clase extra, la clienta
+  // necesita inscripción y NO hay un paquete en el carrito que la inscriba.
+  const cartHasClaseExtra = cart.some((c) => /clase\s*extra/i.test(String(c.plan.name ?? "")));
+  const blockedClaseExtra = cartHasClaseExtra && needsInscription && !hasPackage;
 
   const validateCodeMutation = useMutation({
-    mutationFn: () => api.post("/discount-codes/validate", { code: discountCode, planId: selectedPlan?.id }),
+    mutationFn: () => api.post("/discount-codes/validate", { code: discountCode, planId: primaryPlan?.id }),
     onSuccess: (res) => setDiscountResult(res.data?.data ?? res.data),
     onError: () => toast({ title: "Código inválido", variant: "destructive" }),
   });
@@ -289,7 +311,7 @@ const Checkout = () => {
   const createOrderMutation = useMutation({
     mutationFn: () =>
       api.post("/orders", {
-        planId: selectedPlan.id,
+        items: cart.map((c) => ({ planId: c.plan.id, quantity: c.quantity })),
         discountCode: discountResult?.code,
         paymentMethod,
       }),
@@ -359,18 +381,15 @@ const Checkout = () => {
                       </p>
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedPlan(trialPlan);
-                          setDiscountResult(null);
-                        }}
+                        onClick={() => addToCart(trialPlan)}
                         className={cn(
                           "relative w-full text-left rounded-2xl border p-4 transition-all duration-200 overflow-hidden",
-                          selectedPlan?.id === trialPlan.id
+                          inCart(trialPlan.id)
                             ? "border-[#D9B5BA]/60 bg-gradient-to-br from-[#D9B5BA]/10 to-[#8C6B6F]/5 shadow-[0_0_20px_rgba(181,191,156,0.15)]"
                             : "border-[#D9B5BA]/25 bg-[#D9B5BA]/[0.04] hover:border-[#D9B5BA]/40 hover:bg-[#D9B5BA]/[0.06]"
                         )}
                       >
-                        {selectedPlan?.id === trialPlan.id && (
+                        {inCart(trialPlan.id) && (
                           <span className="absolute top-3 right-3 w-5 h-5 rounded-full bg-gradient-to-br from-[#D9B5BA] to-[#8C6B6F] flex items-center justify-center">
                             <Check size={11} className="text-white" />
                           </span>
@@ -407,11 +426,8 @@ const Checkout = () => {
                         <PlanCard
                           key={plan.id}
                           plan={plan}
-                          selected={selectedPlan?.id === plan.id}
-                          onSelect={() => {
-                            setSelectedPlan(plan);
-                            setDiscountResult(null);
-                          }}
+                          selected={Boolean(inCart(plan.id))}
+                          onSelect={() => addToCart(plan)}
                         />
                       ))}
                     </div>
@@ -420,23 +436,40 @@ const Checkout = () => {
                 </div>
               )}
 
-              {/* Summary + continue */}
-              {selectedPlan && (
+              {/* Carrito + continuar */}
+              {cart.length > 0 && (
                 <div className="rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-4 space-y-4">
-                  <div className="text-xs text-[#1A1A1A]/60 space-y-1.5">
-                    <p><strong className="text-[#1A1A1A]/80">{selectedPlan.name}</strong></p>
-                    {individualDiscount && individualDiscount < basePrice && (
-                      <div className="flex items-center gap-2 bg-[#6B4F53]/10 border border-[#6B4F53]/20 rounded-lg px-3 py-2">
-                        <span className="text-base">💰</span>
-                        <p className="text-[#6B4F53] font-bold text-xs">
-                          Paga con transferencia: <span className="text-sm">${individualDiscount.toLocaleString("es-MX")}</span>
-                        </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8C6B6F]/70">Tu carrito</p>
+
+                  {/* Renglones */}
+                  <div className="space-y-2.5">
+                    {lineRows.map((l) => (
+                      <div key={l.plan.id} className="flex items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-[#1A1A1A]/85 truncate">{l.plan.name}</p>
+                          <p className="text-[11px] text-[#1A1A1A]/45">${l.unit.toLocaleString("es-MX")} c/u</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button type="button" onClick={() => changeQty(l.plan.id, -1)}
+                            className="w-7 h-7 rounded-lg border border-[#8C6B6F]/25 text-[#8C6B6F] flex items-center justify-center hover:bg-[#8C6B6F]/10">
+                            <Minus size={13} />
+                          </button>
+                          <span className="w-6 text-center text-sm font-semibold">{l.quantity}</span>
+                          <button type="button" onClick={() => changeQty(l.plan.id, 1)} disabled={planNonRepeatable(l.plan)}
+                            className="w-7 h-7 rounded-lg border border-[#8C6B6F]/25 text-[#8C6B6F] flex items-center justify-center hover:bg-[#8C6B6F]/10 disabled:opacity-30">
+                            <Plus size={13} />
+                          </button>
+                        </div>
+                        <span className="w-16 text-right text-sm font-semibold text-[#1A1A1A]/80 shrink-0">${l.lineTotal.toLocaleString("es-MX")}</span>
+                        <button type="button" onClick={() => removeFromCart(l.plan.id)} aria-label="Quitar" className="text-[#8C6B6F]/50 hover:text-[#A8473F] shrink-0">
+                          <X size={15} />
+                        </button>
                       </div>
-                    )}
+                    ))}
                   </div>
 
                   {/* Discount code */}
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 pt-3 border-t border-[#8C6B6F]/15">
                     <div className="relative flex-1">
                       <Tag size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8C6B6F]/50" />
                       <Input
@@ -460,47 +493,34 @@ const Checkout = () => {
                     </div>
                   )}
 
-                  {/* Inscription line (packages only, when the client needs it) */}
-                  {showInscription && (
-                    <div className="space-y-1.5 pt-3 border-t border-[#8C6B6F]/15">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-[#1A1A1A]/60">Plan</span>
-                        <span className="font-semibold text-[#1A1A1A]/80">${basePrice.toLocaleString("es-MX")} MXN</span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-[#1A1A1A]/60">Inscripción (pago único)</span>
-                        <span className="font-semibold text-[#1A1A1A]/80">${inscriptionAmount.toLocaleString("es-MX")} MXN</span>
-                      </div>
-                      <p className="text-[10px] text-[#1A1A1A]/40 leading-snug pt-0.5">
-                        Pago único de inscripción — se cobra solo al inscribirte (o tras 6 meses de inactividad).
-                      </p>
-                    </div>
-                  )}
+                  {/* Desglose */}
+                  <div className="space-y-1.5 pt-3 border-t border-[#8C6B6F]/15 text-xs">
+                    <div className="flex justify-between"><span className="text-[#1A1A1A]/60">Subtotal</span><span className="font-semibold text-[#1A1A1A]/80">${itemsSubtotal.toLocaleString("es-MX")} MXN</span></div>
+                    {codeDiscount > 0 && (<div className="flex justify-between text-[#6E7F4F]"><span>Descuento</span><span>−${codeDiscount.toLocaleString("es-MX")} MXN</span></div>)}
+                    {showInscription && (<div className="flex justify-between"><span className="text-[#1A1A1A]/60">Inscripción (pago único)</span><span className="font-semibold text-[#1A1A1A]/80">${inscriptionAmount.toLocaleString("es-MX")} MXN</span></div>)}
+                    {platformFee > 0 && (<div className="flex justify-between"><span className="text-[#1A1A1A]/60">Uso de plataforma (4%)</span><span className="font-semibold text-[#1A1A1A]/80">${platformFee.toLocaleString("es-MX")} MXN</span></div>)}
+                  </div>
 
                   {/* Total */}
-                  <div className={cn("flex items-center justify-between py-3", showInscription ? "" : "border-t border-[#8C6B6F]/15")}>
+                  <div className="flex items-center justify-between py-2 border-t border-[#8C6B6F]/15">
                     <span className="text-sm text-[#1A1A1A]/60">Total a pagar</span>
-                    <div className="text-right">
-                      <span className="text-2xl font-bold text-[#1A1A1A]">${(basePrice + inscriptionAmount).toLocaleString("es-MX")} <span className="text-sm font-normal text-[#1A1A1A]/35">MXN</span></span>
-                      {individualDiscount && individualDiscount < basePrice && (
-                        <p className="text-[11px] text-[#6B4F53] font-bold mt-0.5">
-                          💰 Transferencia: ${(individualDiscount + inscriptionAmount).toLocaleString("es-MX")}
-                        </p>
-                      )}
-                    </div>
+                    <span className="text-2xl font-bold text-[#1A1A1A]">${grandTotal.toLocaleString("es-MX")} <span className="text-sm font-normal text-[#1A1A1A]/35">MXN</span></span>
                   </div>
+                  {platformFee > 0 && (
+                    <p className="text-[10px] text-[#1A1A1A]/40 -mt-2 leading-snug">El 4% por uso de plataforma aplica solo al pagar con tarjeta. Con transferencia no se cobra.</p>
+                  )}
 
                   {blockedClaseExtra && (
                     <div className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-[12px] text-amber-800 leading-snug">
-                      La <strong>clase extra</strong> es solo para alumnas inscritas. Aún no estás inscrita — elige una <strong>Clase suelta / visita</strong> o un <strong>paquete</strong> para empezar.
+                      La <strong>clase extra</strong> es solo para alumnas inscritas. Agrega un <strong>paquete</strong> a tu carrito o una <strong>Clase suelta / visita</strong>.
                     </div>
                   )}
                   <button
                     onClick={() => setStep("method")}
-                    disabled={blockedClaseExtra}
+                    disabled={blockedClaseExtra || cart.length === 0}
                     className={cn(
                       "w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] transition-opacity",
-                      blockedClaseExtra ? "opacity-40 cursor-not-allowed" : "hover:opacity-90"
+                      (blockedClaseExtra || cart.length === 0) ? "opacity-40 cursor-not-allowed" : "hover:opacity-90"
                     )}
                   >
                     Seleccionar método de pago <ChevronRight size={15} />
@@ -519,53 +539,37 @@ const Checkout = () => {
 
               <div className="rounded-2xl border border-[#8C6B6F]/20 bg-[#8C6B6F]/5 px-4 py-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-[#1A1A1A]/70">{selectedPlan?.name}</span>
-                  <div className="text-right">
-                    {individualDiscount && individualDiscount < basePrice && paymentMethod !== "card" ? (
-                      <>
-                        <span className="text-xs text-[#1A1A1A]/30 line-through mr-2">${(basePrice + inscriptionAmount).toLocaleString("es-MX")}</span>
-                        <span className="text-lg font-bold text-[#6B4F53]">${grandTotal.toLocaleString("es-MX")} MXN</span>
-                      </>
-                    ) : (
-                      <span className="text-lg font-bold text-[#1A1A1A]">${grandTotal.toLocaleString("es-MX")} MXN</span>
-                    )}
-                  </div>
+                  <span className="text-sm text-[#1A1A1A]/70">{cart.length === 1 ? primaryPlan?.name : `${cart.length} artículos`}</span>
+                  <span className="text-lg font-bold text-[#1A1A1A]">${grandTotal.toLocaleString("es-MX")} MXN</span>
                 </div>
-                {(showInscription || platformFee > 0) && (
-                  <div className="mt-2 pt-2 border-t border-[#8C6B6F]/10 space-y-1">
-                    <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
-                      <span>Plan</span>
-                      <span>${finalAmount.toLocaleString("es-MX")} MXN</span>
-                    </div>
-                    {showInscription && (
-                      <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
-                        <span>Inscripción (pago único)</span>
-                        <span>${inscriptionAmount.toLocaleString("es-MX")} MXN</span>
-                      </div>
-                    )}
-                    {platformFee > 0 && (
-                      <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
-                        <span>Uso de plataforma (4%)</span>
-                        <span>${platformFee.toLocaleString("es-MX")} MXN</span>
-                      </div>
-                    )}
-                    {showInscription && (
-                      <p className="text-[10px] text-[#1A1A1A]/40 leading-snug">
-                        Pago único de inscripción — se cobra solo al inscribirte (o tras 6 meses de inactividad).
-                      </p>
-                    )}
-                    {platformFee > 0 && (
-                      <p className="text-[10px] text-[#1A1A1A]/40 leading-snug">
-                        El 4% por uso de plataforma aplica solo al pagar con tarjeta. Con transferencia no se cobra.
-                      </p>
-                    )}
+                <div className="mt-2 pt-2 border-t border-[#8C6B6F]/10 space-y-1">
+                  <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
+                    <span>Subtotal</span>
+                    <span>${itemsSubtotal.toLocaleString("es-MX")} MXN</span>
                   </div>
-                )}
-                {individualDiscount && individualDiscount < basePrice && paymentMethod !== "card" && (
-                  <p className="text-[11px] text-[#6B4F53] font-bold mt-1.5 flex items-center gap-1">
-                    💰 Ahorras ${(basePrice - individualDiscount).toLocaleString("es-MX")} con transferencia
-                  </p>
-                )}
+                  {codeDiscount > 0 && (
+                    <div className="flex justify-between items-center text-[11px] text-[#6E7F4F]">
+                      <span>Descuento</span><span>−${codeDiscount.toLocaleString("es-MX")} MXN</span>
+                    </div>
+                  )}
+                  {showInscription && (
+                    <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
+                      <span>Inscripción (pago único)</span>
+                      <span>${inscriptionAmount.toLocaleString("es-MX")} MXN</span>
+                    </div>
+                  )}
+                  {platformFee > 0 && (
+                    <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
+                      <span>Uso de plataforma (4%)</span>
+                      <span>${platformFee.toLocaleString("es-MX")} MXN</span>
+                    </div>
+                  )}
+                  {platformFee > 0 && (
+                    <p className="text-[10px] text-[#1A1A1A]/40 leading-snug">
+                      El 4% por uso de plataforma aplica solo al pagar con tarjeta. Con transferencia no se cobra.
+                    </p>
+                  )}
+                </div>
               </div>
 
               <p className="text-sm font-semibold text-[#1A1A1A]/80">¿Cómo quieres pagar?</p>
