@@ -10519,8 +10519,14 @@ app.delete("/api/homepage-video-cards/:id/video", adminMiddleware, async (req, r
 // GET /api/admin/stats
 app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+    // Fecha LOCAL de México (CST/CDT), no la UTC del servidor (Railway corre en UTC):
+    // si no, un domingo por la noche en SLP ya es lunes UTC y "clases de hoy" contaría las del lunes.
+    const mxParts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "America/Mexico_City", year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date());
+    const mxPart = (t) => mxParts.find((p) => p.type === t)?.value;
+    const today = `${mxPart("year")}-${mxPart("month")}-${mxPart("day")}`;
+    const monthStart = `${mxPart("year")}-${mxPart("month")}-01`;
 
     const [classesToday, activeMembers, monthlyRevenue, pendingAlerts] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM classes WHERE date = $1", [today]),
