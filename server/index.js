@@ -1410,18 +1410,18 @@ async function ensureSchema() {
     try {
       const ins = await pool.query(`
         INSERT INTO plans (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_admin_only)
-        SELECT 'TotalPass 154', 'Convenio TotalPass · uso interno walk-in', 154, 'MXN', 1, 1, 'reformer', '["Walk-in TotalPass","Solo uso interno"]'::jsonb, false, 999, true
+        SELECT 'TotalPass 154', 'Convenio TotalPass · uso interno walk-in', 154, 'MXN', 1, 1, 'reformer', '["Walk-in TotalPass","Solo uso interno"]'::jsonb, true, 999, true
         WHERE NOT EXISTS (SELECT 1 FROM plans WHERE LOWER(name) = LOWER('TotalPass 154'))
         RETURNING id
       `);
-      // Always force-set the flags so a previously-created row (e.g. from a
-      // failed earlier attempt with wrong category or is_admin_only=false)
-      // converges to the correct state. is_active stays false: convenio
-      // Valiance/aggregator fuera de alcance para Tu Espacio Pilates VM.
+      // Always force-set the flags so a previously-created row converge al estado
+      // correcto. is_active = true: el convenio TotalPass SÍ se usa en TEP (walk-in
+      // de admin). Sigue is_admin_only = true → no aparece en el catálogo público,
+      // solo en el selector de walk-in del panel.
       const upd = await pool.query(`
         UPDATE plans
            SET is_admin_only = true,
-               is_active = false,
+               is_active = true,
                class_category = 'reformer',
                price = COALESCE(NULLIF(price, 0), 154),
                class_limit = COALESCE(class_limit, 1),
