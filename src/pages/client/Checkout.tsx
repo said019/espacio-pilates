@@ -165,22 +165,25 @@ const StepBar = ({ current }: { current: Step }) => {
   const currentIdx = order.indexOf(current);
 
   return (
-    <div className="flex items-center gap-1">
+    // w-full + conectores flex-1: la barra ocupa exactamente el ancho disponible
+    // y nunca desborda en mobile. Las etiquetas se ocultan en móvil (solo números);
+    // en sm+ se muestran. Las pills son shrink-0 + nowrap (no se parten ni se salen).
+    <div className="flex w-full items-center gap-1">
       {STEPS.map((s, i) => {
         const sIdx = order.indexOf(s.id === "method" ? "method" : s.id);
         const done = currentIdx > sIdx;
         const active = s.id === current || (current === "bank" && s.id === "method");
         return (
-          <div key={s.id} className="flex items-center gap-1">
-            {i > 0 && <div className={cn("h-px w-6 rounded", done ? "bg-[#8C6B6F]/60" : "bg-[#8C6B6F]/10")} />}
+          <div key={s.id} className={cn("flex items-center gap-1", i > 0 && "flex-1 min-w-0")}>
+            {i > 0 && <div className={cn("h-px flex-1 min-w-[6px] rounded", done ? "bg-[#8C6B6F]/60" : "bg-[#8C6B6F]/10")} />}
             <div className={cn(
-              "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border transition-all",
+              "shrink-0 flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-semibold border transition-all whitespace-nowrap",
               active ? "border-[#8C6B6F]/40 bg-[#8C6B6F]/10 text-[#8C6B6F]"
                 : done ? "border-[#4ade80]/30 bg-[#4ade80]/5 text-[#4ade80]"
                 : "border-[#8C6B6F]/15 text-[#1A1A1A]/25"
             )}>
               {done ? <Check size={10} /> : <span>{i + 1}</span>}
-              {s.label}
+              <span className="hidden sm:inline">{s.label}</span>
             </div>
           </div>
         );
