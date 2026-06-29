@@ -656,6 +656,11 @@ const Checkout = () => {
                     </button>
                   </div>
                 ))}
+                {!bankDetails.clabe && !bankDetails.bank && !(bankDetails.account_holder ?? bankDetails.accountHolder) && (
+                  <p className="text-sm text-[#A8473F] bg-[#F3DEDA] rounded-lg px-3 py-2 mt-2">
+                    Aún no hay datos bancarios configurados. Avísale al estudio para que los registre en Admin → Datos bancarios.
+                  </p>
+                )}
               </div>
               <p className="text-xs text-[#3D3A3A] text-center">Toca cualquier dato para copiarlo al portapapeles</p>
               <button onClick={() => setStep("upload")} className="w-full py-3.5 rounded-xl font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 transition-opacity text-sm tracking-wide uppercase">

@@ -110,22 +110,21 @@ function normalizeBankInfo(rawValue) {
 
   const holderLower = candidate.account_holder.toLowerCase();
   const clabeDigits = digitsOnly(candidate.clabe);
-  const accountDigits = digitsOnly(candidate.account_number);
-  const shouldUseDefault =
-    !candidate.bank ||
-    !candidate.account_holder ||
-    clabeDigits.length !== 18 ||
-    (accountDigits && accountDigits.length < 10) ||
+  // Solo descartar datos DEMO/placeholder heredados (de Balance). NO blanquear por
+  // longitud ni por campos vacíos: si el admin guardó datos, deben mostrarse para
+  // que el cliente los vea (y el admin pueda corregirlos). Antes, una CLABE que no
+  // fuera de 18 dígitos borraba TODO porque el default de TEP está vacío.
+  const isDemoPlaceholder =
     clabeDigits === "012180001234567890" ||
     clabeDigits === "012180012345678901" ||
     clabeDigits === "710180000068980" ||
     holderLower.includes("balance studio");
 
-  const base = shouldUseDefault ? DEFAULT_BANK_INFO : candidate;
-  const formattedAccount = formatAccountNumber(base.account_number || DEFAULT_BANK_INFO.account_number);
-  const formattedClabe = formatClabe(base.clabe || DEFAULT_BANK_INFO.clabe);
-  const holder = String(base.account_holder || DEFAULT_BANK_INFO.account_holder).trim();
-  const bank = String(base.bank || DEFAULT_BANK_INFO.bank).trim();
+  const base = isDemoPlaceholder ? DEFAULT_BANK_INFO : candidate;
+  const formattedAccount = formatAccountNumber(base.account_number || "");
+  const formattedClabe = formatClabe(base.clabe || "");
+  const holder = String(base.account_holder || "").trim();
+  const bank = String(base.bank || "").trim();
 
   return {
     bank,
