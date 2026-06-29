@@ -11,6 +11,8 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft } from "lucide-react";
 import { useState } from "react";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
+import InstallAppPrompt from "@/components/InstallAppPrompt";
 
 const ProfilePreferences = () => {
   const navigate = useNavigate();
@@ -34,6 +36,8 @@ const ProfilePreferences = () => {
     },
     onError: () => toast({ title: "Error al guardar", variant: "destructive" }),
   });
+
+  const push = usePushNotifications();
 
   const items = [
     { key: "receiveReminders" as const, label: "Recordatorios de clase", desc: "Recibe un recordatorio antes de cada clase" },
@@ -62,6 +66,34 @@ const ProfilePreferences = () => {
                 />
               </div>
             ))}
+          </div>
+          <div className="rounded-xl border border-[#8C6B6F]/15 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">Notificaciones en este dispositivo</Label>
+                <p className="text-xs text-muted-foreground">
+                  Recibe avisos aunque no tengas la app abierta.
+                </p>
+              </div>
+              {(push.status === "active" || push.status === "inactive") && (
+                <Switch
+                  checked={push.status === "active"}
+                  disabled={push.isBusy}
+                  onCheckedChange={(v) => (v ? push.enable() : push.disable())}
+                />
+              )}
+            </div>
+            {push.status === "needs-install-ios" && <InstallAppPrompt />}
+            {push.status === "denied" && (
+              <p className="text-xs text-muted-foreground">
+                Bloqueaste las notificaciones. Actívalas desde los ajustes de tu navegador para este sitio.
+              </p>
+            )}
+            {push.status === "unsupported" && (
+              <p className="text-xs text-muted-foreground">
+                Este dispositivo o navegador no permite notificaciones.
+              </p>
+            )}
           </div>
           <Button
             className="w-full bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:from-[#8C6B6F]/90 hover:to-[#D9B5BA]/90 text-white font-medium"

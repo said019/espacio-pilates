@@ -76,7 +76,7 @@ const Privacidad = () => {
               <li>Gestión de reservaciones y asistencia a clases.</li>
               <li>Procesamiento de pagos y facturación.</li>
               <li>Administración de paquetes, membresías y programas de lealtad.</li>
-              <li>Contacto para confirmaciones, recordatorios y notificaciones del servicio.</li>
+              <li>Contacto para confirmaciones, recordatorios y notificaciones del servicio. Si usted lo activa, esto incluye el envío de notificaciones push a su dispositivo para avisos operativos (recordatorios de clase, confirmaciones de reserva y comunicados del estudio); puede desactivar estas notificaciones en cualquier momento desde sus preferencias de cuenta o los ajustes de su navegador.</li>
               <li>Garantizar la seguridad durante las clases, conociendo su estado de salud.</li>
             </ul>
             <p>Finalidades secundarias (opcionales):</p>
