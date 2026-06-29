@@ -1,5 +1,5 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useSearchParams } from "react-router-dom";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import api from "@/lib/api";
@@ -9,10 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Clock, CheckCircle, XCircle, AlertTriangle, ShoppingBag, CreditCard, Loader2 } from "lucide-react";
+import { Upload, Clock, CheckCircle, XCircle, AlertTriangle, ShoppingBag, CreditCard, Loader2, Ban } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; icon: any; className: string }> = {
-  pending_payment:      { label: "Subir comprobante",  icon: Upload,        className: "border-[#E5CF9F] text-[#B5832F] bg-[#F4EAD6]" },
+  pending_payment:      { label: "Pendiente de pago",  icon: Clock,         className: "border-[#E5CF9F] text-[#B5832F] bg-[#F4EAD6]" },
   pending_verification: { label: "En revisión",        icon: Clock,         className: "border-[#CCCFD6] text-[#6B7480] bg-[#E6E8EC]" },
   approved:             { label: "Aprobada",           icon: CheckCircle,   className: "border-[#CFD4B6] text-[#6E7F4F] bg-[#ECEEDF]" },
   rejected:             { label: "Rechazada",          icon: XCircle,       className: "border-[#E2B7B0] text-[#A8473F] bg-[#F3DEDA]" },
@@ -22,6 +22,8 @@ const STATUS_CONFIG: Record<string, { label: string; icon: any; className: strin
 
 const MyOrders = () => {
   const { toast } = useToast();
+  const qc = useQueryClient();
+  const navigate = useNavigate();
   const [params] = useSearchParams();
   const checkoutResult = params.get("checkout"); // 'success' | 'failure' | 'pending' | null
 
@@ -39,18 +41,14 @@ const MyOrders = () => {
 
   const orders: any[] = Array.isArray(data?.data) ? data.data : [];
 
-  const retryMutation = useMutation({
-    mutationFn: async (order: any) => {
-      if (order.mp_checkout_url) return { mp_checkout_url: order.mp_checkout_url };
-      const res = await api.post(`/orders/${order.id}/pay-with-card`);
-      return res.data?.data ?? res.data;
-    },
-    onSuccess: (d: any) => {
-      if (d?.mp_checkout_url) window.location.href = d.mp_checkout_url;
-      else toast({ title: "No se pudo reiniciar el pago", variant: "destructive" });
+  const cancelMutation = useMutation({
+    mutationFn: async (orderId: string) => (await api.post(`/orders/${orderId}/cancel`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["my-orders"] });
+      toast({ title: "Orden cancelada" });
     },
     onError: (err: any) =>
-      toast({ title: "Error al reintentar el pago", description: err?.response?.data?.message, variant: "destructive" }),
+      toast({ title: "No se pudo cancelar", description: err?.response?.data?.message, variant: "destructive" }),
   });
 
   return (
@@ -122,25 +120,35 @@ const MyOrders = () => {
                       </Badge>
                     </div>
 
-                    {o.status === "pending_payment" && o.payment_method === "card" && (
-                      <Button
-                        size="sm"
-                        className="mt-3 w-full sm:w-auto"
-                        disabled={retryMutation.isPending}
-                        onClick={() => retryMutation.mutate(o)}
-                      >
-                        {retryMutation.isPending
-                          ? <Loader2 size={14} className="mr-2 animate-spin" />
-                          : <CreditCard size={14} className="mr-2" />}
-                        Reintentar pago
-                      </Button>
-                    )}
-                    {o.status === "pending_payment" && o.payment_method !== "card" && (
-                      <Button asChild size="sm" className="mt-3 w-full sm:w-auto">
-                        <Link to={`/app/checkout?orderId=${o.id}`}>
-                          <Upload size={14} className="mr-2" />Subir comprobante
-                        </Link>
-                      </Button>
+                    {o.status === "pending_payment" && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {o.payment_method === "card" ? (
+                          <Button size="sm" onClick={() => navigate(`/app/pay/${o.id}`)}>
+                            <CreditCard size={14} className="mr-2" />Reintentar pago
+                          </Button>
+                        ) : (
+                          <Button asChild size="sm">
+                            <Link to={`/app/checkout?orderId=${o.id}`}>
+                              <Upload size={14} className="mr-2" />Subir comprobante
+                            </Link>
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={cancelMutation.isPending && cancelMutation.variables === o.id}
+                          onClick={() => {
+                            if (window.confirm("¿Cancelar esta orden? No podrás reactivarla.")) {
+                              cancelMutation.mutate(o.id);
+                            }
+                          }}
+                        >
+                          {cancelMutation.isPending && cancelMutation.variables === o.id
+                            ? <Loader2 size={14} className="mr-2 animate-spin" />
+                            : <Ban size={14} className="mr-2" />}
+                          Cancelar
+                        </Button>
+                      </div>
                     )}
 
                     {o.status === "pending_verification" && (

@@ -6,6 +6,8 @@ import {
   parseSignatureHeader,
   buildSignatureManifest,
   verifyWebhookSignature,
+  buildCardPaymentBody,
+  createCardPayment,
 } from "../mercadopago.js";
 import crypto from "crypto";
 
@@ -58,6 +60,64 @@ describe("createPreference", () => {
   it("lanza si falta MP_ACCESS_TOKEN", async () => {
     process.env.MP_ACCESS_TOKEN = "";
     await expect(createPreference({ orderId: "x", orderNumber: "x", planName: "P", amount: 1, userEmail: "" }))
+      .rejects.toThrow(/MP_ACCESS_TOKEN/);
+  });
+});
+
+describe("buildCardPaymentBody", () => {
+  const params = {
+    orderId: "ord-1", orderNumber: "ORD-001000", planName: "9 clases", amount: 1050,
+    token: "card_token_abc", paymentMethodId: "visa", issuerId: "310",
+    payer: { email: "a@b.com", identification: { type: "RFC", number: "XXXX" } },
+  };
+  const urls = { backendUrl: "https://api.test" };
+
+  it("usa el monto del servidor y MXN implícito vía transaction_amount", () => {
+    const body = buildCardPaymentBody(params, urls);
+    expect(body.transaction_amount).toBe(1050);
+    expect(body.token).toBe("card_token_abc");
+    expect(body.payment_method_id).toBe("visa");
+    expect(body.external_reference).toBe("ord-1");
+  });
+
+  it("fuerza contado (installments 1) sin importar lo que mande el cliente", () => {
+    expect(buildCardPaymentBody({ ...params, installments: 12 }, urls).installments).toBe(1);
+  });
+
+  it("notification_url apunta al backend y mete metadata + payer", () => {
+    const body = buildCardPaymentBody(params, urls);
+    expect(body.notification_url).toBe("https://api.test/webhooks/mercadopago");
+    expect(body.metadata).toEqual({ order_id: "ord-1", order_number: "ORD-001000" });
+    expect(body.payer.email).toBe("a@b.com");
+    expect(body.payer.identification).toEqual({ type: "RFC", number: "XXXX" });
+  });
+});
+
+describe("createCardPayment", () => {
+  beforeEach(() => {
+    process.env.MP_ACCESS_TOKEN = "APP_USR-test";
+    process.env.BACKEND_URL = "https://api.test/";
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("mapea id/status/status_detail/external_reference", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 12345, status: "approved", status_detail: "accredited", external_reference: "ord-1" }),
+    })));
+    const r = await createCardPayment({ orderId: "ord-1", orderNumber: "ORD-1", planName: "P", amount: 100, token: "t", paymentMethodId: "visa", payer: { email: "a@b.com" } });
+    expect(r).toEqual({ id: 12345, status: "approved", status_detail: "accredited", external_reference: "ord-1" });
+  });
+
+  it("lanza error si la respuesta no es ok", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 400, text: async () => "bad" })));
+    await expect(createCardPayment({ orderId: "x", orderNumber: "x", planName: "P", amount: 1, token: "t", paymentMethodId: "visa", payer: {} }))
+      .rejects.toThrow(/MercadoPago payment error: 400/);
+  });
+
+  it("lanza si falta MP_ACCESS_TOKEN", async () => {
+    process.env.MP_ACCESS_TOKEN = "";
+    await expect(createCardPayment({ orderId: "x", orderNumber: "x", planName: "P", amount: 1, token: "t", paymentMethodId: "visa", payer: {} }))
       .rejects.toThrow(/MP_ACCESS_TOKEN/);
   });
 });

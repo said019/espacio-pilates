@@ -24,6 +24,7 @@ import ProfileEdit from "./pages/client/ProfileEdit";
 import ProfilePreferences from "./pages/client/ProfilePreferences";
 import Notifications from "./pages/client/Notifications";
 import MyOrders from "./pages/client/MyOrders";
+import CardPayment from "./pages/client/CardPayment";
 
 import AdminDashboard from "./pages/admin/Dashboard";
 import PlansList from "./pages/admin/plans/PlansList";
@@ -87,6 +88,7 @@ const App = () => (
           <Route path="/app/profile/edit" element={<ProfileEdit />} />
           <Route path="/app/profile/preferences" element={<ProfilePreferences />} />
           <Route path="/app/orders" element={<MyOrders />} />
+          <Route path="/app/pay/:orderId" element={<CardPayment />} />
           <Route path="/app/notifications" element={<Notifications />} />
 
           {/* Admin panel */}

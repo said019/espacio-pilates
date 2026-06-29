@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
 import ClientLayout from "@/components/layout/ClientLayout";
@@ -196,6 +196,7 @@ const Checkout = () => {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [step, setStep] = useState<Step>("select");
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("transfer");
@@ -290,12 +291,8 @@ const Checkout = () => {
       setOrderId(data.order_number ?? data.orderNumber ?? data.orderId ?? data.id);
       setBankDetails(data.bankDetails ?? data.bank_details);
       if (paymentMethod === "card") {
-        if (data.mp_checkout_url) {
-          window.location.href = data.mp_checkout_url;
-        } else {
-          toast({ title: "No se pudo iniciar el pago con tarjeta", description: "Reintenta desde Mis órdenes.", variant: "destructive" });
-          window.location.assign("/app/orders");
-        }
+        // Pago DENTRO de la app (Payment Brick), sin abrir navegador externo.
+        navigate(`/app/pay/${data.id}`);
         return;
       }
       setStep("bank");
