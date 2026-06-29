@@ -96,7 +96,7 @@ const Cancelacion = () => {
             <ul className="list-disc pl-6 space-y-2">
               <li>Los paquetes adquiridos <strong className="text-foreground">no son reembolsables</strong> bajo ninguna circunstancia una vez activados.</li>
               <li>Un paquete se considera activado al momento de la compra.</li>
-              <li>No se realizan extensiones de vigencia. Los paquetes vencen al fin del mes natural en que se compran.</li>
+              <li>No se realizan extensiones de vigencia. Los paquetes vencen al fin del mes natural en que se compran; las compras del día 26 en adelante vencen al fin del mes siguiente.</li>
               <li>Los paquetes no utilizados dentro de su vigencia expiran automáticamente.</li>
             </ul>
 

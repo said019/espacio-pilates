@@ -9297,13 +9297,17 @@ function addMonths(dateStr, months) {
 // contra esta fecha (selectMembershipForClass + reschedule).
 // Planes de largo plazo (p.ej. Inscripción 3650d) → meses de calendario.
 function calcMembershipEndDate(startStr, plan) {
-  // Los PAQUETES de clases (>=2 clases) vencen al FIN DEL MES de la fecha de
-  // inicio/compra, sin importar el día: una compra en julio vence el 31 de
-  // julio; una del 15 de julio también vence el 31 de julio. Los cargos sueltos
-  // (1 clase) y la inscripción conservan su vigencia por días.
+  // Los PAQUETES de clases (>=2 clases) vencen al FIN DEL MES de compra; pero
+  // las compras del día 26 en adelante vencen al fin del mes SIGUIENTE (gracia,
+  // para que a quien compra a fin de mes no le queden 1-2 días). Los cargos
+  // sueltos (1 clase) y la inscripción conservan su vigencia por días.
   const classLimit = Number(plan.class_limit ?? plan.classLimit ?? 0);
   if (classLimit >= 2) {
-    return endOfPurchaseMonth(startStr);
+    const [y, m, d] = String(startStr).split("-").map(Number);
+    if (d <= 25) return endOfPurchaseMonth(startStr);
+    const ny = m === 12 ? y + 1 : y;       // del 26 en adelante → mes siguiente
+    const nm = m === 12 ? 1 : m + 1;
+    return endOfPurchaseMonth(`${ny}-${String(nm).padStart(2, "0")}-01`);
   }
   const days = plan.duration_days || 30;
   if (days <= 31) {
