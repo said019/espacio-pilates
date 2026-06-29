@@ -147,7 +147,10 @@ function normalizeBankInfo(rawValue) {
 async function getConfiguredBankInfo(dbClient = pool) {
   // Use pool (not transaction client) to avoid aborting active transactions on error
   const safeClient = pool;
-  for (const table of ["system_settings", "settings"]) {
+  // Leer PRIMERO de `settings` (la tabla canónica que usa el admin para leer/guardar
+  // en getSettingValueWithDefaults / PUT /api/settings). `system_settings` es legacy
+  // y, si existe con un bank_info viejo/vacío, NO debe ensombrecer lo que el admin guardó.
+  for (const table of ["settings", "system_settings"]) {
     try {
       const settingsRes = await safeClient.query(
         `SELECT value FROM ${table} WHERE key = 'bank_info' LIMIT 1`
@@ -1205,6 +1208,19 @@ async function ensureSchema() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
       CREATE INDEX IF NOT EXISTS idx_order_items_order ON order_items(order_id);
+    `);
+    // ── Order PLAN items (carrito de planes/paquetes; distinto de order_items que es de productos) ──
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS order_plan_items (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        order_id    UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+        plan_id     UUID NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,
+        quantity    INTEGER NOT NULL DEFAULT 1 CHECK (quantity >= 1),
+        unit_price  DECIMAL(10,2) NOT NULL,
+        line_total  DECIMAL(10,2) NOT NULL,
+        created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_order_plan_items_order ON order_plan_items(order_id);
     `);
     // ── Payment proofs table ────────────────────────────────────────────────
     await pool.query(`
@@ -5023,6 +5039,62 @@ async function handlePaymentWebhook(mpPaymentId) {
   }
 }
 
+// Crea (de forma idempotente) las membresías de una orden, soportando CARRITO
+// (varios order_plan_items). Si la orden no tiene renglones, usa order.plan_id (1 plan).
+// Devuelve el id de la membresía principal (para registrar el pago / la consulta de complemento).
+// NO crea el registro en `payments` ni la consulta — eso lo hace cada llamador.
+async function createMembershipsForOrder(order, client, paymentMethod) {
+  // Idempotencia: si ya hay membresías para esta orden, solo reactivar y devolver la primera.
+  const existingMem = await client.query(
+    "SELECT id FROM memberships WHERE order_id = $1 ORDER BY created_at ASC", [order.id]
+  );
+  if (existingMem.rows.length) {
+    await client.query("UPDATE memberships SET status = 'active' WHERE order_id = $1", [order.id]);
+    return existingMem.rows[0].id;
+  }
+
+  // Lista de (plan, cantidad): del carrito, o fallback al plan principal.
+  const itemsRes = await client.query(
+    "SELECT plan_id, quantity FROM order_plan_items WHERE order_id = $1 ORDER BY created_at ASC", [order.id]
+  );
+  const units = [];
+  if (itemsRes.rows.length) {
+    for (const it of itemsRes.rows) {
+      const p = await client.query("SELECT * FROM plans WHERE id = $1", [it.plan_id]);
+      if (p.rows.length) units.push({ plan: p.rows[0], qty: Math.max(1, Number(it.quantity) || 1) });
+    }
+  } else if (order.plan_id) {
+    const p = await client.query("SELECT * FROM plans WHERE id = $1", [order.plan_id]);
+    if (p.rows.length) units.push({ plan: p.rows[0], qty: 1 });
+  }
+  if (!units.length) return null;
+
+  // Salvaguarda no-repetible (como hoy): cancela otras órdenes pendientes del mismo plan principal.
+  if (order.plan_id) {
+    await client.query(
+      `UPDATE orders SET status = 'cancelled', notes = COALESCE(notes,'') || ' [auto-cancelada: otra orden del mismo plan fue aprobada]'
+         WHERE user_id = $1 AND plan_id = $2 AND id != $3 AND status IN ('pending_payment','pending_verification')`,
+      [order.user_id, order.plan_id, order.id]
+    );
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let primaryId = null;
+  for (const { plan, qty } of units) {
+    const endStr = calcMembershipEndDate(todayStr, plan);
+    const classes = plan.class_limit === 0 ? null : (plan.class_limit ?? null);
+    for (let i = 0; i < qty; i++) {
+      const memRes = await client.query(
+        `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, order_id)
+         VALUES ($1,$2,'active',$3,$4,$5,$6,$7) RETURNING id`,
+        [order.user_id, plan.id, paymentMethod, todayStr, endStr, classes, order.id]
+      );
+      if (!primaryId) primaryId = memRes.rows[0].id;
+    }
+  }
+  return primaryId;
+}
+
 // Activa la membresía cuando MP aprueba el pago. Mirror de PUT /api/admin/orders/:id/verify.
 async function approveOrderFromMP(orderId, mpPaymentId) {
   const client = await pool.connect();
@@ -5054,47 +5126,30 @@ async function approveOrderFromMP(orderId, mpPaymentId) {
     );
     order = approvedRes.rows[0];
 
-    if (order.plan_id && plan && order.user_id) {
-      const todayStr = new Date().toISOString().slice(0, 10);
-      const endStr = calcMembershipEndDate(todayStr, plan);
-      const existingMem = await client.query("SELECT id FROM memberships WHERE order_id = $1", [order.id]);
-      let membershipId;
-      if (existingMem.rows.length) {
-        membershipId = existingMem.rows[0].id;
-        await client.query("UPDATE memberships SET status = 'active' WHERE order_id = $1", [order.id]);
-      } else {
+    if (order.user_id) {
+      // Crea las membresías (1 por unidad de cada renglón del carrito, o 1 si es plan suelto).
+      const membershipId = await createMembershipsForOrder(order, client, "card");
+      if (membershipId) {
+        // Registro contable: UN pago por orden (referenciando la membresía principal).
         await client.query(
-          `UPDATE orders SET status = 'cancelled', notes = COALESCE(notes,'') || ' [auto-cancelada: otra orden del mismo plan fue aprobada]'
-             WHERE user_id = $1 AND plan_id = $2 AND id != $3 AND status IN ('pending_payment','pending_verification')`,
-          [order.user_id, order.plan_id, order.id]
+          `INSERT INTO payments (user_id, membership_id, amount, currency, payment_method, reference, notes, status)
+           VALUES ($1,$2,$3,$4,'card',$5,$6,'completed')`,
+          [order.user_id, membershipId, order.total_amount, order.currency || "MXN", mpPaymentId, `MercadoPago ${mpPaymentId}`]
         );
-        const memRes = await client.query(
-          `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, order_id)
-           VALUES ($1,$2,'active','card',$3,$4,$5,$6) RETURNING id`,
-          [order.user_id, order.plan_id, todayStr, endStr, plan.class_limit === 0 ? null : (plan.class_limit ?? null), order.id]
-        );
-        membershipId = memRes.rows[0].id;
-      }
 
-      // Registro contable
-      await client.query(
-        `INSERT INTO payments (user_id, membership_id, amount, currency, payment_method, reference, notes, status)
-         VALUES ($1,$2,$3,$4,'card',$5,$6,'completed')`,
-        [order.user_id, membershipId, order.total_amount, order.currency || "MXN", mpPaymentId, `MercadoPago ${mpPaymentId}`]
-      );
-
-      // Consulta de complemento (igual que verify)
-      const compType = order.complement_type || null;
-      if (compType) {
-        const compInfo = COMPLEMENT_MAP[compType] || null;
-        if (compInfo) {
-          try {
-            await client.query(
-              `INSERT INTO consultations (membership_id, user_id, complement_type, complement_name, specialist, status)
-               VALUES ($1,$2,$3,$4,$5,'pending')`,
-              [membershipId, order.user_id, compType, compInfo.name, compInfo.specialist]
-            );
-          } catch (compErr) { console.error("[MP] consultations insert:", compErr.message); }
+        // Consulta de complemento (igual que verify)
+        const compType = order.complement_type || null;
+        if (compType) {
+          const compInfo = COMPLEMENT_MAP[compType] || null;
+          if (compInfo) {
+            try {
+              await client.query(
+                `INSERT INTO consultations (membership_id, user_id, complement_type, complement_name, specialist, status)
+                 VALUES ($1,$2,$3,$4,$5,'pending')`,
+                [membershipId, order.user_id, compType, compInfo.name, compInfo.specialist]
+              );
+            } catch (compErr) { console.error("[MP] consultations insert:", compErr.message); }
+          }
         }
       }
     }
@@ -12646,30 +12701,9 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
       order = approvedRes.rows[0];
       justApproved = true;
 
-      // Activate membership if this order is for a plan
-      if (order.plan_id && plan && order.user_id) {
-        const todayStr = new Date().toISOString().slice(0, 10);
-        const endStr = calcMembershipEndDate(todayStr, plan);
-        // Check if membership already exists for this order
-        const existingMem = await client.query(
-          "SELECT id FROM memberships WHERE order_id = $1", [order.id]
-        );
-        if (existingMem.rows.length) {
-          await client.query("UPDATE memberships SET status = 'active' WHERE order_id = $1", [order.id]);
-        } else {
-          // Cancel any other pending orders for the same plan+user to prevent duplicates
-          await client.query(
-            `UPDATE orders SET status = 'cancelled', notes = COALESCE(notes,'') || ' [auto-cancelada: otra orden del mismo plan fue aprobada]'
-             WHERE user_id = $1 AND plan_id = $2 AND id != $3
-               AND status IN ('pending_payment', 'pending_verification')`,
-            [order.user_id, order.plan_id, order.id]
-          );
-          await client.query(
-            `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, order_id)
-             VALUES ($1,$2,'active',$3,$4,$5,$6,$7)`,
-            [order.user_id, order.plan_id, order.payment_method || "transfer", todayStr, endStr, plan.class_limit === 0 ? null : (plan.class_limit ?? null), order.id]
-          );
-        }
+      // Activate membership(s) — soporta carrito (order_plan_items) o plan suelto.
+      if (order.user_id) {
+        await createMembershipsForOrder(order, client, order.payment_method || "transfer");
       }
 
       // ── Create consultation record if order has a complement ──
