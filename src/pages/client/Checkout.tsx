@@ -133,7 +133,7 @@ const PlanCard = ({
       <div className="flex flex-wrap gap-2 mt-2">
         {durationDays > 0 && (
           <span className="text-[10px] text-[#6B4F53] bg-[#D9B5BA]/15 border border-[#D9B5BA]/25 rounded-full px-2 py-0.5">
-            {durationDays} días
+            {Number(classLimit) >= 2 ? "Vence fin de mes" : `${durationDays} días`}
           </span>
         )}
         {Number(classLimit) > 0 && (

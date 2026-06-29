@@ -14,7 +14,7 @@ import crypto from "crypto";
 import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
-import { canCancel, canReschedule } from "./lib/bookingPolicy.js";
+import { canCancel, canReschedule, endOfPurchaseMonth } from "./lib/bookingPolicy.js";
 import { createPreference, createCardPayment, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
 import { isEmailIdentifier } from "./lib/authIdentity.js";
 import {
@@ -959,9 +959,9 @@ async function ensureSchema() {
     // activos (más TotalPass 154 admin-only, que se re-activa en su propio
     // bloque idempotente más abajo). No requiere UNIQUE(name).
     const VM_PLANS = [
-      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence 30 días después de la compra.",  price: 880,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 9 Clases",      desc: "9 clases al mes. Vence 30 días después de la compra.",  price: 1050, dur: 30,   cl: 9,  so: 2, feat: ["9 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence 30 días después de la compra.", price: 1400, dur: 30,   cl: 14, so: 3, feat: ["14 clases", "Vigencia: 30 días", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence al fin del mes de compra.",  price: 880,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 9 Clases",      desc: "9 clases al mes. Vence al fin del mes de compra.",  price: 1050, dur: 30,   cl: 9,  so: 2, feat: ["9 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence al fin del mes de compra.", price: 1400, dur: 30,   cl: 14, so: 3, feat: ["14 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
       { name: "Clase Extra",           desc: "Clase adicional para alumnas ya inscritas.",        price: 130,  dur: 30,   cl: 1,  so: 4, feat: ["1 clase extra", "Solo para inscritas"] },
       { name: "Clase Suelta / Visita", desc: "Clase individual sin inscripción.",                 price: 250,  dur: 7,    cl: 1,  so: 5, feat: ["1 clase", "Sin inscripción", "Si te inscribes se toma a cuenta"] },
       { name: "Inscripción",           desc: "Pago único de inscripción. Se re-paga tras ausencia mayor a 6 meses.", price: 500, dur: 3650, cl: 0, so: 6, feat: ["Pago único", "Requerida para paquetes"] },
@@ -9297,6 +9297,14 @@ function addMonths(dateStr, months) {
 // contra esta fecha (selectMembershipForClass + reschedule).
 // Planes de largo plazo (p.ej. Inscripción 3650d) → meses de calendario.
 function calcMembershipEndDate(startStr, plan) {
+  // Los PAQUETES de clases (>=2 clases) vencen al FIN DEL MES de la fecha de
+  // inicio/compra, sin importar el día: una compra en julio vence el 31 de
+  // julio; una del 15 de julio también vence el 31 de julio. Los cargos sueltos
+  // (1 clase) y la inscripción conservan su vigencia por días.
+  const classLimit = Number(plan.class_limit ?? plan.classLimit ?? 0);
+  if (classLimit >= 2) {
+    return endOfPurchaseMonth(startStr);
+  }
   const days = plan.duration_days || 30;
   if (days <= 31) {
     const d = new Date(startStr + "T12:00:00");

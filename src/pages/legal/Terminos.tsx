@@ -77,7 +77,7 @@ const Terminos = () => {
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">3. Paquetes y pagos</h2>
             <ul className="list-disc pl-6 space-y-2">
               <li>Los precios de los paquetes están expresados en pesos mexicanos (MXN) e incluyen IVA.</li>
-              <li>Todos los paquetes tienen una vigencia de <strong className="text-foreground">30 días naturales</strong> a partir de la primera clase tomada.</li>
+              <li>Todos los paquetes vencen al <strong className="text-foreground">fin del mes natural en que se compran</strong>, sin importar el día de compra (p. ej. una compra en julio vence el 31 de julio).</li>
               <li>Los paquetes <strong className="text-foreground">no son transferibles</strong> a otra persona.</li>
               <li>Los paquetes <strong className="text-foreground">no son reembolsables</strong> una vez adquiridos.</li>
               <li>Las clases no utilizadas dentro del periodo de vigencia se pierden sin derecho a reembolso ni extensión.</li>
