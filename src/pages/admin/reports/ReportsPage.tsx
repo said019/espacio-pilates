@@ -62,15 +62,8 @@ const ReportsPage = () => {
     queryFn: async () => (await api.get("/reports/retention")).data,
   });
 
-  const { data: totalpassData, isLoading: loadingTotalpass } = useQuery({
-    queryKey: ["reports-totalpass"],
-    queryFn: async () => (await api.get("/reports/totalpass")).data,
-  });
-
   const o = overview?.data ?? overview ?? {};
   const retention = retentionData?.data ?? {};
-  const tp = totalpassData?.data ?? {};
-  const tpTop: { name: string; email?: string; phone?: string; bookings: number; lastVisit?: string }[] = Array.isArray(tp.top) ? tp.top : [];
 
   const safeArray = (v: any) => (Array.isArray(v) ? v : []);
   const fmtMonth = (raw: any) => {
@@ -532,87 +525,6 @@ const ReportsPage = () => {
               </CardContent>
             </Card>
           </div>
-
-          {/* ── TotalPass — convenio externo ── */}
-          <Card className="mb-6 border-l-4" style={{ borderLeftColor: ACCENT.gold }}>
-            <CardHeader className="flex flex-row items-start justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Ticket size={18} style={{ color: ACCENT.gold }} />
-                  TotalPass
-                </CardTitle>
-                <p className="text-xs text-muted-foreground mt-1">Convenio externo · walk-ins linkeados al plan TotalPass</p>
-              </div>
-              {tp.uniqueClientsMonth > 0 && (
-                <Badge variant="outline" className="border-[#E5CF9F] bg-[#F4EAD6] text-[#B5832F]">
-                  {tp.uniqueClientsMonth} client{tp.uniqueClientsMonth === 1 ? "a" : "as"} este mes
-                </Badge>
-              )}
-            </CardHeader>
-            <CardContent>
-              {loadingTotalpass ? (
-                <Skeleton className="h-24 w-full" />
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-                    <div className="rounded-lg border border-[#8C6B6F]/15 bg-[#FBF7F4]/40 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Clientas únicas</p>
-                      <p className="text-lg font-bold tabular-nums">{tp.uniqueClients ?? 0}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{tp.uniqueClientsMonth ?? 0} este mes</p>
-                    </div>
-                    <div className="rounded-lg border border-[#8C6B6F]/15 bg-[#FBF7F4]/40 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Reservas</p>
-                      <p className="text-lg font-bold tabular-nums">{tp.bookingsTotal ?? 0}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{tp.bookingsMonth ?? 0} este mes</p>
-                    </div>
-                    <div className="rounded-lg border border-[#8C6B6F]/15 bg-[#FBF7F4]/40 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Órdenes cobradas</p>
-                      <p className="text-lg font-bold tabular-nums">{tp.ordersTotal ?? 0}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{tp.ordersMonth ?? 0} este mes</p>
-                    </div>
-                    <div className="rounded-lg border border-[#8C6B6F]/15 bg-[#FBF7F4]/40 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Ingresos TotalPass</p>
-                      <p className="text-lg font-bold tabular-nums">{formatCurrencyCompact(Number(tp.revenueTotal ?? 0))}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">{formatCurrencyCompact(Number(tp.revenueMonth ?? 0))} este mes</p>
-                    </div>
-                  </div>
-
-                  {tpTop.length === 0 ? (
-                    <p className="text-sm text-muted-foreground py-4 text-center">
-                      Aún no hay walk-ins cobrados con TotalPass.
-                    </p>
-                  ) : (
-                    <div>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Top clientas TotalPass
-                      </p>
-                      <div className="space-y-1.5">
-                        {tpTop.map((row, idx) => (
-                          <div
-                            key={`${row.name}-${idx}`}
-                            className="flex items-center justify-between rounded-lg border border-[#8C6B6F]/10 bg-white px-3 py-2"
-                          >
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium truncate">{row.name}</p>
-                              <p className="text-[11px] text-muted-foreground truncate">
-                                {row.email || row.phone || "—"}
-                                {row.lastVisit && (
-                                  <> · última: {new Date(row.lastVisit).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "2-digit", timeZone: "America/Mexico_City" })}</>
-                                )}
-                              </p>
-                            </div>
-                            <Badge variant="outline" className="shrink-0 border-[#E5CF9F] bg-[#F4EAD6] text-[#B5832F] tabular-nums">
-                              {row.bookings} clase{row.bookings !== 1 ? "s" : ""}
-                            </Badge>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </CardContent>
-          </Card>
 
           {/* ── Reviews + Operational stats ── */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
