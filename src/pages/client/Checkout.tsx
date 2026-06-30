@@ -131,7 +131,7 @@ const PlanCard = ({
         </ul>
       )}
       <div className="flex flex-wrap gap-2 mt-2">
-        {durationDays > 0 && (
+        {durationDays > 0 && durationDays < 365 && (
           <span className="text-[10px] text-[#6B4F53] bg-[#D9B5BA]/15 border border-[#D9B5BA]/25 rounded-full px-2 py-0.5">
             {Number(classLimit) >= 2 ? "Vence fin de mes" : `${durationDays} días`}
           </span>
@@ -238,6 +238,12 @@ const Checkout = () => {
   const inscriptionInfo = inscriptionData?.data ?? inscriptionData;
   const needsInscription: boolean = Boolean(inscriptionInfo?.needsInscription);
   const inscriptionPrice: number = Number(inscriptionInfo?.price ?? 500) || 500;
+  const hasPendingPackage: boolean = Boolean(inscriptionInfo?.hasPendingPackage);
+  // Puede comprar "Clase Extra" si ya está inscrita o tiene un paquete pendiente.
+  const canBuyClaseExtra: boolean = inscriptionInfo?.canBuyClaseExtra ?? !needsInscription;
+  // Mostrar la tarjeta de "Inscripción" solo si realmente necesita inscribirse y
+  // no tiene ya un paquete pendiente que se la esté cobrando (evita doble pago).
+  const showInscriptionCard: boolean = needsInscription && !hasPendingPackage;
 
   const rawPlans: any[] = Array.isArray(plansData?.data) ? plansData.data : Array.isArray(plansData) ? plansData : [];
   const allPlans = rawPlans
@@ -246,7 +252,9 @@ const Checkout = () => {
     .sort((a, b) => (a.sortOrder ?? a.sort_order ?? 99) - (b.sortOrder ?? b.sort_order ?? 99));
 
   const trialPlan = allPlans.find((p) => (p.name ?? "").toLowerCase().includes("muestra"));
-  const plans = allPlans.filter((p) => p !== trialPlan);
+  const plans = allPlans
+    .filter((p) => p !== trialPlan)
+    .filter((p) => showInscriptionCard || !/inscrip/i.test(String(p.name ?? "")));
 
   // ── Carrito: helpers ───────────────────────────────────────────────────────
   const planClassLimit = (p: any) => Number(p?.classLimit ?? p?.class_limit ?? 0);
@@ -286,7 +294,9 @@ const Checkout = () => {
   const itemsSubtotal = round2(lineRows.reduce((a, l) => a + l.lineTotal, 0));
   const codeDiscount = discountResult ? Number(discountResult.discount_amount ?? 0) : 0;
   const hasPackage = cart.some((c) => planClassLimit(c.plan) >= 2);
-  const showInscription = hasPackage && needsInscription;
+  const cartHasInscription = cart.some((c) => /inscrip/i.test(String(c.plan.name ?? "")));
+  // No mostrar el cargo de inscripción auto si ya va la Inscripción como renglón.
+  const showInscription = hasPackage && needsInscription && !cartHasInscription;
   const inscriptionAmount = showInscription ? inscriptionPrice : 0;
   const afterDiscount = round2(itemsSubtotal + inscriptionAmount - codeDiscount);
   // Recargo "uso de plataforma" (4%) SOLO para tarjeta — debe coincidir con el backend.
@@ -297,10 +307,11 @@ const Checkout = () => {
   // Plan principal (para validar el código y mostrar el nombre)
   const primaryPlan = cart.find((c) => planClassLimit(c.plan) >= 2)?.plan ?? cart[0]?.plan ?? null;
 
-  // "Clase Extra" solo para inscritas: se bloquea si hay clase extra, la clienta
-  // necesita inscripción y NO hay un paquete en el carrito que la inscriba.
+  // "Clase Extra" solo para inscritas: se bloquea SOLO si no puede comprarla (no
+  // inscrita ni con paquete pendiente) y el carrito no trae un paquete ni la
+  // Inscripción que la inscriban en la misma compra.
   const cartHasClaseExtra = cart.some((c) => /clase\s*extra/i.test(String(c.plan.name ?? "")));
-  const blockedClaseExtra = cartHasClaseExtra && needsInscription && !hasPackage;
+  const blockedClaseExtra = cartHasClaseExtra && !canBuyClaseExtra && !hasPackage && !cartHasInscription;
 
   const validateCodeMutation = useMutation({
     mutationFn: () => api.post("/discount-codes/validate", { code: discountCode, planId: primaryPlan?.id }),
@@ -512,7 +523,7 @@ const Checkout = () => {
 
                   {blockedClaseExtra && (
                     <div className="rounded-xl border border-amber-300/60 bg-amber-50 px-4 py-3 text-[12px] text-amber-800 leading-snug">
-                      La <strong>clase extra</strong> es solo para alumnas inscritas. Agrega un <strong>paquete</strong> a tu carrito o una <strong>Clase suelta / visita</strong>.
+                      La <strong>clase extra</strong> es solo para alumnas inscritas. Agrega un <strong>paquete</strong> o la <strong>Inscripción</strong> a tu carrito, o compra una <strong>Clase suelta / visita</strong>.
                     </div>
                   )}
                   <button

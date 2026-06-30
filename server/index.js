@@ -1437,10 +1437,11 @@ async function ensureSchema() {
     // ── orders: one-time inscription (enrollment) fee charged with a package ──
     // Idempotent column. Defaults to 0 so existing/non-package orders are unaffected.
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS inscription_amount DECIMAL(10,2) DEFAULT 0`).catch(() => { });
-    // ── plans: hide standalone "Inscripción" from the public catalog. It is no
-    //    longer buyable on its own — it's auto-added to package orders. Row stays
-    //    active so its price remains readable for the auto-add + landing fallback.
-    await pool.query(`UPDATE plans SET is_admin_only = true, updated_at = NOW() WHERE name = 'Inscripción'`).catch(() => { });
+    // ── plans: "Inscripción" IS buyable standalone by the client. Paying it on
+    //    its own enrolls the student (so "Clase Extra" unlocks) WITHOUT granting
+    //    any class credits. It is still auto-added as a fee to package orders for
+    //    students who buy a package first. Visible (not admin-only) and active.
+    await pool.query(`UPDATE plans SET is_admin_only = false, is_active = true, updated_at = NOW() WHERE name = 'Inscripción'`).catch(() => { });
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_orders_discount_code_id ON orders(discount_code_id)`).catch(() => { });
     // Make plan_id nullable (POS orders don't always have a plan)
     await pool.query(`ALTER TABLE orders ALTER COLUMN plan_id DROP NOT NULL`).catch(() => { });
@@ -1448,7 +1449,14 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE orders ALTER COLUMN user_id DROP NOT NULL`).catch(() => { });
     // ── memberships: add order_id column ─────────────────────────────────
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS order_id UUID`).catch(() => { });
-    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_memberships_order ON memberships(order_id) WHERE order_id IS NOT NULL`).catch(() => { });
+    // idx_memberships_order: NO debe ser único. Una orden de carrito crea VARIAS
+    // membresías con el mismo order_id (p.ej. "Paquete 9" + "Clase Extra ×3", o
+    // cantidades > 1). El índice único rompía "Verificar y activar" en esas órdenes
+    // (duplicate key → 500, la orden quedaba atascada en pending_verification). La
+    // idempotencia de aprobación ya está garantizada en código: createMembershipsForOrder
+    // reactiva si ya existen + el endpoint verify hace SELECT ... FOR UPDATE de la orden.
+    await pool.query(`DROP INDEX IF EXISTS idx_memberships_order`).catch(() => { });
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_memberships_order ON memberships(order_id) WHERE order_id IS NOT NULL`).catch(() => { });
     // ── memberships: add fallback name/limit override columns ─────────────
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS plan_name_override VARCHAR(255)`).catch(() => { });
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS class_limit_override INTEGER`).catch(() => { });
@@ -2951,6 +2959,30 @@ async function getInscriptionPrice(dbClient = pool) {
   } catch (err) {
     console.warn("[inscription] getInscriptionPrice query failed, using fallback:", err?.message || err);
     return INSCRIPTION_FALLBACK_PRICE;
+  }
+}
+
+// ¿La alumna tiene un PAQUETE de clases (class_limit >= 2) en una orden aún
+// pendiente (pagó pero el admin no la aprueba, o falta el comprobante)? En ese
+// caso ya está "inscribiéndose": se le permite comprar "Clase Extra" sin esperar
+// la aprobación. Cierra el hueco de la ventana pendiente. Money-path safe: ante
+// fallo de la consulta, devuelve false (no desbloquea de más).
+async function clientHasPendingPackage(userId, dbClient = pool) {
+  if (!userId) return false;
+  try {
+    const r = await dbClient.query(
+      `SELECT 1 FROM orders o
+         JOIN plans p ON p.id = o.plan_id
+        WHERE o.user_id = $1
+          AND o.status IN ('pending_payment','pending_verification')
+          AND COALESCE(p.class_limit, 0) >= 2
+        LIMIT 1`,
+      [userId]
+    );
+    return r.rows.length > 0;
+  } catch (err) {
+    console.warn("[inscription] clientHasPendingPackage query failed, defaulting to false:", err?.message || err);
+    return false;
   }
 }
 
@@ -4572,11 +4604,16 @@ app.get("/api/orders/:id", authMiddleware, async (req, res) => {
 // inscription (enrollment) fee on their next package purchase?
 app.get("/api/inscription-status", authMiddleware, async (req, res) => {
   try {
-    const [needsInscription, price] = await Promise.all([
+    const [needsInscription, price, hasPendingPackage] = await Promise.all([
       clientNeedsInscription(req.userId),
       getInscriptionPrice(),
+      clientHasPendingPackage(req.userId),
     ]);
-    return res.json({ data: { needsInscription, price } });
+    // Puede comprar "Clase Extra" si ya está inscrita (no necesita inscripción) o
+    // si tiene un paquete pendiente que la está inscribiendo. Refleja el gate del
+    // servidor para que el front bloquee/desbloquee exactamente igual.
+    const canBuyClaseExtra = !needsInscription || hasPendingPackage;
+    return res.json({ data: { needsInscription, price, hasPendingPackage, canBuyClaseExtra } });
   } catch (err) {
     console.error("GET inscription-status error:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -4628,7 +4665,10 @@ async function createCartOrder(req, res, paymentMethod) {
     }
 
     const hasPackage = loaded.some((l) => Number(l.plan.class_limit) >= 2);
+    const hasInscriptionItem = loaded.some((l) => String(l.plan.name).trim().toLowerCase() === INSCRIPTION_PLAN_NAME.toLowerCase());
     const needsInscription = await clientNeedsInscription(req.userId);
+    // ¿Un paquete pendiente ya la está inscribiendo? Solo se consulta si hace falta.
+    const hasPendingPackage = needsInscription ? await clientHasPendingPackage(req.userId, client) : false;
 
     // Validaciones por renglón
     for (const { plan, quantity } of loaded) {
@@ -4637,9 +4677,12 @@ async function createCartOrder(req, res, paymentMethod) {
         const conflict = await findNonRepeatablePlanConflict({ userId: req.userId, plan, client });
         if (conflict) { await client.query("ROLLBACK"); return res.status(409).json({ message: conflict.message }); }
       }
-      if (String(plan.name).trim().toLowerCase() === "clase extra" && needsInscription && !hasPackage) {
+      // "Clase Extra" solo para inscritas. Se permite si: ya está inscrita, hay un
+      // paquete en este mismo carrito, lleva la Inscripción en el carrito, o ya
+      // tiene un paquete pendiente que la inscribe.
+      if (String(plan.name).trim().toLowerCase() === "clase extra" && needsInscription && !hasPackage && !hasInscriptionItem && !hasPendingPackage) {
         await client.query("ROLLBACK");
-        return res.status(403).json({ message: "La clase extra es solo para alumnas inscritas. Agrega un paquete en la misma compra o compra una Clase suelta / visita." });
+        return res.status(403).json({ message: "La clase extra es solo para alumnas inscritas. Agrega un paquete o la Inscripción en la misma compra, o compra una Clase suelta / visita." });
       }
     }
 
@@ -4673,9 +4716,10 @@ async function createCartOrder(req, res, paymentMethod) {
       discount = dr.discountAmount; appliedDiscountCode = dr.code;
     }
 
-    // Inscripción una sola vez (si hay paquete y la clienta la necesita)
+    // Inscripción una sola vez (si hay paquete y la clienta la necesita). Si ya
+    // lleva la Inscripción como renglón explícito, NO se auto-agrega (evita doble cobro).
     let inscriptionAmount = 0;
-    if (hasPackage && needsInscription) {
+    if (hasPackage && needsInscription && !hasInscriptionItem) {
       inscriptionAmount = await getInscriptionPrice(client);
     }
 
@@ -4765,14 +4809,31 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       return res.status(409).json({ message: nonRepeatableConflict.message });
     }
 
+    const planNameLc = String(plan.name).trim().toLowerCase();
+    const isInscriptionPlan = planNameLc === INSCRIPTION_PLAN_NAME.toLowerCase();
+
     // ── Clase Extra: solo para alumnas inscritas ──────────────────────────
     // La "Clase Suelta / Visita" es el ÚNICO producto comprable SIN inscripción.
-    // La "Clase Extra" ($130) es un complemento para quien ya tiene membresía
-    // activa/reciente; si la alumna necesita inscripción, se bloquea (no se le
-    // permite "entrar" por clase extra).
-    if (String(plan.name).trim().toLowerCase() === "clase extra" && (await clientNeedsInscription(req.userId))) {
+    // La "Clase Extra" ($130) es para quien ya está inscrita (membresía activa/
+    // reciente) o se está inscribiendo (paquete pendiente). Si no, se bloquea.
+    if (planNameLc === "clase extra" && (await clientNeedsInscription(req.userId)) && !(await clientHasPendingPackage(req.userId, client))) {
       await client.query("ROLLBACK");
-      return res.status(403).json({ message: "La clase extra es solo para alumnas inscritas. Si aún no te inscribes, compra una Clase suelta / visita o un paquete." });
+      return res.status(403).json({ message: "La clase extra es solo para alumnas inscritas. Si aún no te inscribes, paga tu Inscripción, o compra una Clase suelta / visita o un paquete." });
+    }
+
+    // ── Inscripción: no permitir pagarla si ya está inscrita o si tiene un
+    //    paquete pendiente que ya se la está cobrando (evita doble cobro). ──
+    if (isInscriptionPlan) {
+      const alreadyEnrolled = !(await clientNeedsInscription(req.userId));
+      const pendingPkg = alreadyEnrolled ? false : await clientHasPendingPackage(req.userId, client);
+      if (alreadyEnrolled) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ message: "Ya estás inscrita. No necesitas pagar la inscripción de nuevo." });
+      }
+      if (pendingPkg) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ message: "Tu inscripción ya está incluida en el paquete que tienes pendiente de pago." });
+      }
     }
 
     // ── Block duplicate pending orders for the same plan ──
@@ -5296,7 +5357,10 @@ async function createMembershipsForOrder(order, client, paymentMethod) {
   let primaryId = null;
   for (const { plan, qty } of units) {
     const endStr = calcMembershipEndDate(todayStr, plan);
-    const classes = plan.class_limit === 0 ? null : (plan.class_limit ?? null);
+    // "Inscripción" sola: marca a la alumna como inscrita pero NO otorga clases.
+    // (Sin este caso, class_limit 0 se interpretaría como ilimitado → null.)
+    const isInscriptionPlan = String(plan.name).trim().toLowerCase() === INSCRIPTION_PLAN_NAME.toLowerCase();
+    const classes = isInscriptionPlan ? 0 : (plan.class_limit === 0 ? null : (plan.class_limit ?? null));
     for (let i = 0; i < qty; i++) {
       const memRes = await client.query(
         `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, order_id)
@@ -12873,6 +12937,7 @@ app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
       })),
     });
   } catch (err) {
+    console.error("[GET /admin/orders]", err);
     return res.status(500).json({ message: "Error interno" });
   }
 });
