@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -236,6 +237,11 @@ const NOTIFICATION_TEMPLATES: { key: string; label: string; icon: string; hint: 
   { key: "class_reminder_30m",       label: "⏰ Recordatorio 30 min antes",     icon: "🔔", hint: "Se envía 30 minutos antes de la clase. Vars: {name}", channels: ["whatsapp", "push"] },
 ];
 
+const CHANNEL_META: Record<"whatsapp" | "push", { label: string; icon: typeof MessageSquare; className: string }> = {
+  whatsapp: { label: "WhatsApp", icon: MessageSquare, className: "bg-[#ECEEDF] text-[#6E7F4F] border-[#CFD4B6]" },
+  push:     { label: "Push",     icon: BellDot,        className: "bg-[#F4EAD6] text-[#B5832F] border-[#E5CF9F]" },
+};
+
 const NotificationTemplates = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -383,6 +389,18 @@ const NotificationTemplates = () => {
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">
                   {tpl?.body ? tpl.body.slice(0, 80) + (tpl.body.length > 80 ? "…" : "") : <span className="italic opacity-60">Sin personalizar (usa plantilla por defecto)</span>}
                 </p>
+                <div className="flex gap-1 mt-1.5">
+                  {t.channels.map((c) => {
+                    const meta = CHANNEL_META[c];
+                    const Icon = meta.icon;
+                    return (
+                      <Badge key={c} variant="secondary" className={cn("text-[10px] gap-1 font-normal", meta.className)}>
+                        <Icon size={10} />
+                        {meta.label}
+                      </Badge>
+                    );
+                  })}
+                </div>
               </div>
               <Button size="icon" variant="ghost" className="shrink-0" onClick={() => openEdit(t.key)}>
                 <Pencil size={13} />
