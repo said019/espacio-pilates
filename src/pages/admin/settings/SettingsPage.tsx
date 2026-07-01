@@ -233,8 +233,8 @@ const NOTIFICATION_TEMPLATES: { key: string; label: string; icon: string; hint: 
   { key: "booking_cancelled",        label: "❌ Reserva cancelada",            icon: "🚫", hint: "Se envía al cancelar. Vars: {name}, {class}, {date}, {creditRestored}", channels: ["push"] },
   { key: "membership_activated",     label: "🎉 Membresía activada",           icon: "🏋️", hint: "Se envía al activar membresía. Vars: {name}, {plan}, {startDate}, {endDate}", channels: ["push"] },
   { key: "transfer_rejected",        label: "⚠️ Transferencia rechazada",      icon: "💳", hint: "Se envía cuando se rechaza un comprobante. Vars: {name}, {reason}", channels: ["push"] },
-  { key: "class_reminder_12h",       label: "⏰ Recordatorio 12h antes",        icon: "🔔", hint: "Se envía 12 horas antes de la clase. Vars: {name}", channels: ["whatsapp", "push"] },
-  { key: "class_reminder_30m",       label: "⏰ Recordatorio 30 min antes",     icon: "🔔", hint: "Se envía 30 minutos antes de la clase. Vars: {name}", channels: ["whatsapp", "push"] },
+  { key: "class_reminder_12h",       label: "⏰ Recordatorio 12h antes",        icon: "🔔", hint: "Se envía 12 horas antes de la clase. Vars: {name}", channels: ["whatsapp"] },
+  { key: "class_reminder_30m",       label: "⏰ Recordatorio 30 min antes",     icon: "🔔", hint: "Se envía 30 minutos antes de la clase. Vars: {name}", channels: ["whatsapp"] },
 ];
 
 const CHANNEL_META: Record<"whatsapp" | "push", { label: string; icon: typeof MessageSquare; className: string }> = {
