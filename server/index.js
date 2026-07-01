@@ -213,25 +213,9 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "Transferencia rechazada",
     body: "Hola {name}, no pudimos aprobar tu comprobante. Motivo: {reason}.",
   },
-  class_reminder: {
-    subject: "Recordatorio de clase",
-    body: "Hola {name}, te recordamos tu clase {class} a las {time}.",
-  },
-  renewal_reminder: {
-    subject: "Recordatorio de renovación",
-    body: "Hola {name}, tu plan {plan} está por vencer el {expiresAt}.",
-  },
   last_class_reminder: {
     subject: "Te queda 1 clase",
     body: "Hola {name} 💜 Te queda *1 clase* en tu plan {plan}. Renueva para seguir entrenando sin parar. 🤍",
-  },
-  welcome: {
-    subject: "Bienvenida a Tu Espacio Pilates",
-    body: "Hola {name}, bienvenida a Tu Espacio Pilates. ¡Nos encanta tenerte aquí!",
-  },
-  password_reset: {
-    subject: "Recuperación de contraseña",
-    body: "Hola {name}, usa este enlace para restablecer tu contraseña: {link}",
   },
 };
 
@@ -9875,9 +9859,8 @@ const PUSH_TEMPLATE_URLS = {
   booking_waitlist: "/app/bookings",
   booking_waitlist_promoted: "/app/bookings",
   booking_cancelled: "/app/bookings",
-  class_reminder: "/app/bookings",
   membership_activated: "/app",
-  renewal_reminder: "/app",
+  transfer_rejected: "/app/orders",
   last_class_reminder: "/app",
 };
 
@@ -13261,6 +13244,13 @@ app.put("/api/admin/orders/:id/reject", adminMiddleware, async (req, res) => {
             console.error("[Reject WhatsApp]", waErr.response?.data || waErr.message);
           }
         }
+
+        // Push notification
+        sendConfiguredPushTemplate({
+          templateKey: "transfer_rejected",
+          userId: order.user_id,
+          vars: { name: userName, reason: rejectionReason },
+        }).catch((e) => console.error("[Push] transfer rejected:", e.message));
 
         // Email notification
         if (u.email) {
