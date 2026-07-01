@@ -9751,10 +9751,15 @@ function calcMembershipEndDate(startStr, plan) {
 // ─── Evolution API (WhatsApp) ─────────────────────────────────────────────────
 
 // Helper: normalise phone to WhatsApp format (521XXXXXXXXXX for MX)
+// WhatsApp/Baileys en México requiere el "1" después del 52 (521 + 10 dígitos).
+// Enviar sin el "1" (52 + 10) hace que Evolution acepte el mensaje pero no se
+// entregue nunca (falla silenciosa). Ver comentario y ejemplo de send-test.
 function normalisePhone(raw) {
   let phone = String(raw).replace(/\D/g, "");
-  if (phone.startsWith("52") && phone.length === 12) return phone;
-  if (phone.length === 10) return "52" + phone;
+  if (phone.startsWith("00")) phone = phone.slice(2); // prefijo internacional 00
+  if (phone.startsWith("521") && phone.length === 13) return phone;      // ya correcto
+  if (phone.startsWith("52") && phone.length === 12) return "521" + phone.slice(2); // 52+10 → 521+10
+  if (phone.length === 10) return "521" + phone;                          // local → 521+10
   return phone;
 }
 
@@ -9785,7 +9790,18 @@ async function sendWhatsAppNow(number, text) {
     return { skipped: true };
   }
   const payload = { number, text };
-  return evolutionApi.post(`/message/sendText/${EVOLUTION_INSTANCE}`, payload);
+  try {
+    const r = await evolutionApi.post(`/message/sendText/${EVOLUTION_INSTANCE}`, payload);
+    console.log(`[WhatsApp] ✓ → ${number} (msg=${r.data?.key?.id || r.data?.status || "ok"})`);
+    return r;
+  } catch (err) {
+    console.error(
+      `[WhatsApp] ✗ → ${number}`,
+      err.response?.status || "",
+      JSON.stringify(err.response?.data || err.message || "").slice(0, 300)
+    );
+    throw err;
+  }
 }
 
 function queueWhatsAppSend(number, text) {
