@@ -221,15 +221,19 @@ const WhatsAppSettings = () => {
 };
 
 // ── Notification Templates Section ─────────────────────────────────────────
-const NOTIFICATION_TEMPLATES = [
-  { key: "booking_confirmed",     label: "✅ Reserva confirmada",         icon: "📅", hint: "Se envía al confirmar una reserva. Vars: {name}, {class}, {date}, {time}" },
-  { key: "booking_cancelled",     label: "❌ Reserva cancelada",          icon: "🚫", hint: "Se envía al cancelar. Vars: {name}, {class}, {date}, {creditRestored}" },
-  { key: "membership_activated",  label: "🎉 Membresía activada",         icon: "🏋️", hint: "Se envía al activar membresía. Vars: {name}, {plan}, {startDate}, {endDate}" },
-  { key: "transfer_rejected",     label: "⚠️ Transferencia rechazada",    icon: "💳", hint: "Se envía cuando se rechaza un comprobante. Vars: {name}, {reason}" },
-  { key: "class_reminder",        label: "⏰ Recordatorio de clase",       icon: "🔔", hint: "Se envía horas antes de la clase. Vars: {name}, {class}, {time}" },
-  { key: "renewal_reminder",      label: "🔄 Recordatorio de renovación", icon: "📆", hint: "Se envía cuando la membresía está por vencer. Vars: {name}, {plan}, {expiresAt}" },
-  { key: "welcome",               label: "👋 Bienvenida",                 icon: "🌟", hint: "Se envía al registrarse. Vars: {name}" },
-  { key: "password_reset",        label: "🔐 Recuperación de contraseña", icon: "🔑", hint: "Se envía para restablecer contraseña. Vars: {name}, {link}" },
+// channels: canal(es) por los que ESTE mensaje realmente le llega a la alumna hoy.
+// Mantener sincronizado con WHATSAPP_ALLOWED_TEMPLATES en server/index.js si esa
+// lista cambia (protege el número de WhatsApp de baneo por volumen — no todo lo
+// que "intenta" WhatsApp en el backend efectivamente sale por ese canal).
+const NOTIFICATION_TEMPLATES: { key: string; label: string; icon: string; hint: string; channels: ("whatsapp" | "push")[] }[] = [
+  { key: "booking_confirmed",        label: "✅ Reserva confirmada",           icon: "📅", hint: "Se envía al confirmar una reserva. Vars: {name}, {class}, {date}, {time}", channels: ["push"] },
+  { key: "booking_waitlist",         label: "🕐 Entraste a lista de espera",   icon: "📋", hint: "Se envía al quedar en lista de espera. Vars: {name}, {class}, {date}, {time}", channels: ["push"] },
+  { key: "booking_waitlist_promoted",label: "🎉 Se liberó tu lugar",           icon: "🎊", hint: "Se envía cuando se libera un lugar y pasas a confirmada. Vars: {name}, {class}, {date}, {time}", channels: ["whatsapp", "push"] },
+  { key: "booking_cancelled",        label: "❌ Reserva cancelada",            icon: "🚫", hint: "Se envía al cancelar. Vars: {name}, {class}, {date}, {creditRestored}", channels: ["push"] },
+  { key: "membership_activated",     label: "🎉 Membresía activada",           icon: "🏋️", hint: "Se envía al activar membresía. Vars: {name}, {plan}, {startDate}, {endDate}", channels: ["push"] },
+  { key: "transfer_rejected",        label: "⚠️ Transferencia rechazada",      icon: "💳", hint: "Se envía cuando se rechaza un comprobante. Vars: {name}, {reason}", channels: ["push"] },
+  { key: "class_reminder_12h",       label: "⏰ Recordatorio 12h antes",        icon: "🔔", hint: "Se envía 12 horas antes de la clase. Vars: {name}", channels: ["whatsapp", "push"] },
+  { key: "class_reminder_30m",       label: "⏰ Recordatorio 30 min antes",     icon: "🔔", hint: "Se envía 30 minutos antes de la clase. Vars: {name}", channels: ["whatsapp", "push"] },
 ];
 
 const NotificationTemplates = () => {
