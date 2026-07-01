@@ -419,11 +419,11 @@ const NotificationTemplates = () => {
           <div className="space-y-4 py-2">
             <p className="text-xs text-muted-foreground bg-muted rounded-lg px-3 py-2">{currentTpl?.hint}</p>
             <div className="space-y-1">
-              <Label>Asunto (email)</Label>
-              <Input value={editSubject} onChange={(e) => setEditSubject(e.target.value)} placeholder="Asunto del email..." />
+              <Label>Título (notificación push)</Label>
+              <Input value={editSubject} onChange={(e) => setEditSubject(e.target.value)} placeholder="Título de la notificación..." />
             </div>
             <div className="space-y-1">
-              <Label>Cuerpo del mensaje (WhatsApp / Email)</Label>
+              <Label>Cuerpo del mensaje (WhatsApp / Push)</Label>
               <Textarea rows={6} value={editText} onChange={(e) => setEditText(e.target.value)} placeholder="Escribe el mensaje aquí..." />
               <p className="text-xs text-muted-foreground">{editText.length} caracteres</p>
             </div>
