@@ -5985,6 +5985,9 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
   const isTrialSingleSession = hasMembership && String(membership.repeat_key || "").startsWith("trial_single_session");
   const nonTransferable = hasMembership && parseBooleanFlag(membership.is_non_transferable);
   const nonRepeatable = hasMembership && parseBooleanFlag(membership.is_non_repeatable);
+  const classesRemaining = hasMembership && !isUnlimited
+    ? Math.max(0, Number(membership.classes_remaining ?? classLimit ?? 0))
+    : 0;
 
   // Header label
   let passHeader = "TU ESPACIO PILATES";
@@ -6114,12 +6117,14 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
     }
   }
 
-  // Row 5: Points
-  textModules.push({
-    id: "puntos",
-    header: "PUNTOS TEP",
-    body: `${points.toLocaleString("es-MX")} pts`,
-  });
+  // Row 5: Clases restantes (Tu Espacio Pilates no maneja puntos ni lealtad)
+  if (hasMembership) {
+    textModules.push({
+      id: "clases_restantes",
+      header: "CLASES RESTANTES",
+      body: isUnlimited ? "Ilimitado" : `${classesRemaining}`,
+    });
+  }
 
   const infoRows = [];
   if (compactEventMode) {
@@ -6132,7 +6137,7 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
     infoRows.push({
       columns: [
         { label: "Código", value: activeEventPass?.passCode || "—" },
-        { label: "Puntos", value: String(points) },
+        { label: "Horario", value: eventSchedule || "—" },
       ],
     });
   } else if (hasEventPass) {
@@ -6166,7 +6171,7 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
     infoRows.push({
       columns: [
         { label: "Miembro", value: userName },
-        { label: "Puntos", value: String(points) },
+        { label: "Estado", value: "Sin membresía activa" },
       ],
     });
   }
@@ -6183,10 +6188,12 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
       type: "QR_CODE",
       value: qrCode,
     },
-    loyaltyPoints: {
-      balance: { int: points },
-      label: "PUNTOS",
-    },
+    ...(hasMembership ? {
+      loyaltyPoints: {
+        balance: isUnlimited ? { string: "Ilimitado" } : { int: classesRemaining },
+        label: isUnlimited ? "MEMBRESÍA" : "CLASES RESTANTES",
+      },
+    } : {}),
     header: {
       defaultValue: { language: "es", value: passHeader },
     },
@@ -7301,7 +7308,6 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
 
   backFields.push(
     { key: "cliente", label: "CLIENTE", value: userName },
-    { key: "puntos", label: "PUNTOS TEP", value: `${points.toLocaleString("es-MX")} pts` },
     { key: "web", label: "RESERVAR EN LÍNEA", value: `${SITE_URL}/app/bookings` },
     {
       key: "terms",
@@ -7379,7 +7385,13 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     labelColor: passAccent,
     storeCard: {
       headerFields: [
-        { key: "points", label: "PUNTOS", value: points, textAlignment: "PKTextAlignmentRight", changeMessage: "Ahora tienes %@ puntos" },
+        {
+          key: "clases",
+          label: hasEventPass ? "PASE" : hasMembership ? (isUnlimited ? "MEMBRESÍA" : "CLASES") : "PASE",
+          value: hasEventPass ? "Evento" : hasMembership ? (isUnlimited ? "Ilimitado" : String(classesRemaining)) : "—",
+          textAlignment: "PKTextAlignmentRight",
+          changeMessage: hasMembership && !isUnlimited ? "Te quedan %@ clases" : undefined,
+        },
       ],
       primaryFields: hasEventPass
         ? (showFullFrontTextFields ? primaryFields : compactPrimaryFields)
@@ -7737,8 +7749,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;b
   </div>
   <div class="name">${userName}</div>
   <div class="points-section">
-    <div class="points-label">Puntos acumulados</div>
-    <div class="points">${points}</div>
+    <div class="points-label">Clases restantes</div>
+    <div class="points">${membership ? ((membership.class_limit === null || membership.class_limit >= 9999) ? "∞" : (membership.classes_remaining ?? 0)) : "—"}</div>
     <div class="points-sub">Tu Espacio Pilates</div>
   </div>
   <div class="qr-section">
