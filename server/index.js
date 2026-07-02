@@ -13409,7 +13409,22 @@ app.get("/api/payments", adminMiddleware, async (req, res) => {
         o.payment_provider AS provider,
         o.status::text AS status,
         o.created_at,
-        CASE WHEN o.user_id IS NULL THEN 'walkin' ELSE 'order' END AS source
+        CASE WHEN o.user_id IS NULL THEN 'walkin' ELSE 'order' END AS source,
+        o.order_number,
+        o.subtotal,
+        o.inscription_amount,
+        o.discount_amount,
+        o.platform_fee,
+        o.paid_at,
+        o.payment_method,
+        COALESCE((
+          SELECT json_agg(json_build_object(
+                   'plan_id', i.plan_id, 'plan_name', ip.name,
+                   'quantity', i.quantity, 'unit_price', i.unit_price, 'line_total', i.line_total
+                 ) ORDER BY i.created_at)
+          FROM order_plan_items i JOIN plans ip ON ip.id = i.plan_id
+          WHERE i.order_id = o.id
+        ), '[]'::json) AS items
       FROM orders o
       LEFT JOIN users u ON o.user_id = u.id
       LEFT JOIN plans p ON o.plan_id = p.id
@@ -13430,7 +13445,15 @@ app.get("/api/payments", adminMiddleware, async (req, res) => {
         NULL::text AS provider,
         m.status::text AS status,
         m.created_at,
-        'membership' AS source
+        'membership' AS source,
+        NULL::text AS order_number,
+        NULL::numeric AS subtotal,
+        NULL::numeric AS inscription_amount,
+        NULL::numeric AS discount_amount,
+        NULL::numeric AS platform_fee,
+        NULL::timestamptz AS paid_at,
+        m.payment_method,
+        '[]'::json AS items
       FROM memberships m
       LEFT JOIN users u ON m.user_id = u.id
       LEFT JOIN plans p ON m.plan_id = p.id
