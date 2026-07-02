@@ -10,9 +10,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, User, Package, CheckCircle2, CreditCard, Banknote, ArrowRight, ChevronLeft, History, Sparkles, Clock, XCircle, Eye, Download } from "lucide-react";
+import { Loader2, Search, User, Package, CheckCircle2, CreditCard, Banknote, ArrowRight, ChevronLeft, History, Sparkles, Clock, XCircle, Eye, Download, FileText } from "lucide-react";
 import { useDebounce } from "@/hooks/use-debounce";
 import { cn } from "@/lib/utils";
+import { DatePicker } from "@/components/ui/date-picker";
+import { ReceiptDialog } from "@/components/ReceiptDialog";
 
 // ── Helpers ──────────────────────────────────────────────
 const PAYMENT_METHODS = [
@@ -594,11 +596,33 @@ const PendingOrders = () => {
 
 // ── Payments History ──────────────────────────────────────
 const PaymentsHistory = () => {
+  const [search, setSearch] = useState("");
+  const [method, setMethod] = useState<"all" | "cash" | "transfer" | "card">("all");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [receiptOrder, setReceiptOrder] = useState<any | null>(null);
+  const filtersActive = Boolean(search || method !== "all" || from || to);
+
   const { data } = useQuery<{ data: any[]; total?: number }>({
-    queryKey: ["payments"],
-    queryFn: async () => (await api.get("/payments")).data,
+    // Fechas server-side: re-consulta al cambiar el rango (endDate con T23:59:59
+    // para incluir el día completo — el <= del server cortaría a medianoche).
+    queryKey: ["payments", from, to],
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+      if (from) params.startDate = from;
+      if (to) params.endDate = `${to}T23:59:59`;
+      return (await api.get("/payments", { params })).data;
+    },
   });
   const payments = Array.isArray(data?.data) ? data.data : [];
+
+  // Nombre y método se filtran client-side sobre lo cargado.
+  const filtered = payments.filter((p: any) => {
+    const name = String(p.userName ?? p.user_name ?? "").toLowerCase();
+    if (search && !name.includes(search.trim().toLowerCase())) return false;
+    if (method !== "all" && String(p.method) !== method) return false;
+    return true;
+  });
 
   const methodStyles: Record<string, string> = {
     cash: "text-[#3D3A3A] border-[#8C6B6F]/30 bg-[#8C6B6F]/10",
@@ -620,28 +644,71 @@ const PaymentsHistory = () => {
   const fmtDate = (d: string) =>
     new Date(d).toLocaleString("es-MX", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
-  const total = payments.reduce((s: number, p: any) => s + Number(p.total_amount ?? p.amount ?? 0), 0);
-
-  if (!payments.length) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <History size={32} className="text-[#1A1A1A]/10 mb-3" />
-        <p className="text-[#1A1A1A]/30 text-sm">Sin pagos registrados aún</p>
-      </div>
-    );
-  }
+  const total = filtered.reduce((s: number, p: any) => s + Number(p.total_amount ?? p.amount ?? 0), 0);
 
   return (
     <div className="space-y-3">
-      {/* Resumen */}
-      <div className="flex items-center justify-between px-1">
-        <p className="text-xs text-[#1A1A1A]/40">{payments.length} {payments.length === 1 ? "pago" : "pagos"}</p>
-        <p className="text-xs text-[#1A1A1A]/40">
-          Total: <span className="font-bold text-[#8C6B6F]">${total.toLocaleString("es-MX")} MXN</span>
-        </p>
+      {/* ── Filtros ── */}
+      <div className="rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-3 space-y-3">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8C6B6F]/50" />
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar por nombre..." className="pl-9" />
+          </div>
+          <div className="flex gap-2">
+            <DatePicker value={from} onChange={setFrom} placeholder="Desde" className="w-full sm:w-36" />
+            <DatePicker value={to} onChange={setTo} placeholder="Hasta" className="w-full sm:w-36" min={from || undefined} />
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {([["all", "Todos"], ["cash", "Efectivo"], ["transfer", "Transferencia"], ["card", "Tarjeta"]] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setMethod(key)}
+              className={cn(
+                "text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-colors",
+                method === key
+                  ? "text-white bg-[#8C6B6F] border-[#8C6B6F]"
+                  : "text-[#8C6B6F] border-[#8C6B6F]/25 bg-white hover:bg-[#8C6B6F]/10"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+          {filtersActive && (
+            <button
+              type="button"
+              onClick={() => { setSearch(""); setMethod("all"); setFrom(""); setTo(""); }}
+              className="text-[11px] text-[#A8473F] underline underline-offset-2 ml-auto"
+            >
+              Limpiar filtros
+            </button>
+          )}
+        </div>
       </div>
 
-      {payments.map((p: any) => {
+      {payments.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <History size={32} className="text-[#1A1A1A]/10 mb-3" />
+          <p className="text-[#1A1A1A]/30 text-sm">Sin pagos registrados aún</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-14 text-center">
+          <History size={28} className="text-[#1A1A1A]/10 mb-3" />
+          <p className="text-[#1A1A1A]/30 text-sm">Sin pagos que coincidan con el filtro</p>
+        </div>
+      ) : (
+        <>
+          {/* Resumen */}
+          <div className="flex items-center justify-between px-1">
+            <p className="text-xs text-[#1A1A1A]/40">{filtered.length} {filtered.length === 1 ? "pago" : "pagos"}</p>
+            <p className="text-xs text-[#1A1A1A]/40">
+              Total: <span className="font-bold text-[#8C6B6F]">${total.toLocaleString("es-MX")} MXN</span>
+            </p>
+          </div>
+
+          {filtered.map((p: any) => {
         const name = p.userName ?? p.user_name ?? "—";
         const plan = p.planName ?? p.plan_name ?? "—";
         const date = p.created_at ?? p.createdAt;
@@ -675,10 +742,19 @@ const PaymentsHistory = () => {
               <span className={cn("text-[11px] font-semibold px-2.5 py-1 rounded-full border inline-flex items-center gap-1", methodStyles[method] ?? "text-[#1A1A1A]/40 border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.06]")}>
                 <MIcon size={11} /> {methodLabels[method] ?? method ?? "—"}
               </span>
+              {p.source === "order" && (
+                <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => setReceiptOrder(p)}>
+                  <FileText size={12} className="mr-1.5" />Comprobante
+                </Button>
+              )}
             </div>
           </div>
         );
       })}
+        </>
+      )}
+
+      <ReceiptDialog order={receiptOrder} onClose={() => setReceiptOrder(null)} />
     </div>
   );
 };
