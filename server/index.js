@@ -5374,6 +5374,9 @@ async function sendReceiptForApprovedOrder(order) {
     const uRes = await pool.query("SELECT email, display_name FROM users WHERE id = $1", [order.user_id]);
     const u = uRes.rows[0];
     if (!u?.email) return;
+    // Claim ANTES de enviar (mismo trade-off que class_reminder_sent): si el envío
+    // falla después del claim, NO hay reintento — aceptado porque la clienta siempre
+    // puede ver/imprimir su comprobante en la app (no depende de receipt_sent_at).
     const claim = await pool.query(
       "UPDATE orders SET receipt_sent_at = NOW() WHERE id = $1 AND receipt_sent_at IS NULL RETURNING id",
       [order.id]
@@ -5387,8 +5390,9 @@ async function sendReceiptForApprovedOrder(order) {
     );
     let items = itemsRes.rows.map((r) => ({ planName: r.plan_name, quantity: r.quantity, lineTotal: r.line_total }));
     if (!items.length && order.plan_id) {
-      // Orden vieja de 1 plan (sin renglones): el subtotal incluye la inscripción,
-      // así que el renglón del plan es subtotal − inscripción.
+      // Orden sin order_plan_items (compra de 1 plan sin carrito — camino actual de
+      // POST /api/orders con planId suelto, e histórica): el subtotal incluye la
+      // inscripción, así que el renglón del plan es subtotal − inscripción.
       const pRes = await pool.query("SELECT name FROM plans WHERE id = $1", [order.plan_id]);
       items = [{
         planName: pRes.rows[0]?.name || "Plan",
