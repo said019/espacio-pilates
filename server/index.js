@@ -5912,19 +5912,30 @@ async function ensureGoogleWalletClass() {
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       });
       console.log("✅ Google Wallet loyalty class updated:", GW_CLASS_ID);
+      return { ok: true, mode: "updated" };
     } catch (getErr) {
       if (getErr.response?.status === 404) {
         // Create new class
-        await axios.post("https://walletobjects.googleapis.com/walletobjects/v1/loyaltyClass", classObj, {
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        });
-        console.log("✅ Google Wallet loyalty class created:", GW_CLASS_ID);
-      } else {
-        throw getErr;
+        try {
+          await axios.post("https://walletobjects.googleapis.com/walletobjects/v1/loyaltyClass", classObj, {
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          });
+          console.log("✅ Google Wallet loyalty class created:", GW_CLASS_ID);
+          return { ok: true, mode: "created" };
+        } catch (postErr) {
+          const detail = postErr.response?.data?.error || postErr.message;
+          console.error("⚠️  Google Wallet class CREATE error:", detail);
+          return { ok: false, mode: "create_failed", status: postErr.response?.status, detail };
+        }
       }
+      const detail = getErr.response?.data?.error || getErr.message;
+      console.error("⚠️  Google Wallet class GET error:", detail);
+      return { ok: false, mode: "get_failed", status: getErr.response?.status, detail };
     }
   } catch (err) {
-    console.error("⚠️  Google Wallet class setup error:", err.response?.data || err.message);
+    const detail = err.response?.data || err.message;
+    console.error("⚠️  Google Wallet class setup error:", detail);
+    return { ok: false, mode: "error", detail };
   }
 }
 
@@ -6338,12 +6349,11 @@ app.get("/api/wallet/google/diagnostics", adminMiddleware, async (_req, res) => 
       } catch (getErr) {
         const st = getErr.response?.status;
         if (st === 404) {
-          try {
-            await ensureGoogleWalletClass();
-            const g2 = await axios.get(classUrl, { headers: { Authorization: `Bearer ${token}` } });
-            classTest = `⚠️ FALTABA → creada ahora (reviewStatus=${g2.data?.reviewStatus})`;
-          } catch (createErr) {
-            classTest = `❌ FALTA y crear FALLÓ: HTTP ${createErr.response?.status} — ${JSON.stringify(createErr.response?.data?.error || createErr.message).slice(0, 400)}`;
+          const r = await ensureGoogleWalletClass();
+          if (r?.ok) {
+            classTest = `⚠️ FALTABA → creada ahora (mode=${r.mode})`;
+          } else {
+            classTest = `❌ FALTA y crear FALLÓ: mode=${r?.mode} status=${r?.status} — ${JSON.stringify(r?.detail).slice(0, 500)}`;
           }
         } else {
           classTest = `❌ GET de la clase falló: HTTP ${st} — ${JSON.stringify(getErr.response?.data?.error || getErr.message).slice(0, 400)}`;
@@ -7203,6 +7213,11 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     );
   }
 
+  // NOMBRE (solo el nombre) — siempre visible en el frente, tenga o no membresía.
+  if (!hasEventPass) {
+    auxiliaryFields.push({ key: "client_name", label: "NOMBRE", value: firstName });
+  }
+
   if (hasMembership) {
     secondaryFields.push({
       key: "plan_name",
@@ -7216,11 +7231,6 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
         value: nextClassShort,
       });
     }
-    auxiliaryFields.push({
-      key: "client_name",
-      label: "NOMBRE",
-      value: firstName,
-    });
     if (membership.end_date) {
       const endDate = new Date(membership.end_date);
       const daysLeft = Math.max(0, Math.ceil((endDate - new Date()) / (1000 * 60 * 60 * 24)));
