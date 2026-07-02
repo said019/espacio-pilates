@@ -4301,6 +4301,11 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
           vars: { name: waName, class: waClass, date: waDate, time: waTime },
           fallbackMessage: `Hola ${waName}, reagendaste tu reserva. Ahora tienes ${waClass} (${waDate} ${waTime}).`,
         }).catch((e) => console.error("[WA] booking rescheduled:", e.message));
+        sendConfiguredPushTemplate({
+          templateKey: "booking_confirmed",
+          userId: req.userId,
+          vars: { name: waName, class: waClass, date: waDate, time: waTime },
+        }).catch((e) => console.error("[Push] booking rescheduled:", e.message));
       }
     } catch (notifyErr) {
       console.error("[Reschedule] notify query error:", notifyErr.message);
@@ -12145,6 +12150,11 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
             ? waitlistJoinFallback(waName, waClass, waDate, waTime)
             : `Hola ${waName}, tu reserva para ${waClass} (${waDate} ${waTime}) está confirmada.`,
         }).catch((e) => console.error("[WA] booking confirmed (admin):", e.message));
+        sendConfiguredPushTemplate({
+          templateKey: isWaitlist ? "booking_waitlist" : "booking_confirmed",
+          userId,
+          vars: { name: waName, class: waClass, date: waDate, time: waTime },
+        }).catch((e) => console.error("[Push] booking confirmed (admin):", e.message));
       }
     } catch (emailErr) {
       console.error("[Email] booking confirmed (admin) query error:", emailErr.message);
