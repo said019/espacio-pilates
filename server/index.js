@@ -33,6 +33,7 @@ import {
   sendRenewalReminder,
   sendPasswordResetEmail,
   sendClientWelcomeWithCredentials,
+  sendPaymentReceipt,
 } from "./emailService.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1421,6 +1422,8 @@ async function ensureSchema() {
     // ── orders: one-time inscription (enrollment) fee charged with a package ──
     // Idempotent column. Defaults to 0 so existing/non-package orders are unaffected.
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS inscription_amount DECIMAL(10,2) DEFAULT 0`).catch(() => { });
+    // ── orders: marca de comprobante de pago enviado (anti-duplicado del recibo) ──
+    await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS receipt_sent_at TIMESTAMPTZ`).catch(() => { });
     // ── plans: "Inscripción" IS buyable standalone by the client. Paying it on
     //    its own enrolls the student (so "Clase Extra" unlocks) WITHOUT granting
     //    any class credits. It is still auto-added as a fee to package orders for
@@ -5357,6 +5360,59 @@ async function createMembershipsForOrder(order, client, paymentMethod) {
   return primaryId;
 }
 
+// ─── Comprobante de pago (constancia informal) ───────────────────────────────
+// Envía el comprobante de una orden APROBADA exactamente una vez, desde cualquier
+// camino de aprobación (verify admin o MercadoPago). Claim atómico sobre
+// orders.receipt_sent_at: si otro proceso ya lo tomó, no reenvía. Sin user_id
+// (walk-in POS) o sin email (registro solo con teléfono) NO se envía NI se
+// reclama — así un futuro re-disparo manual sigue siendo posible. Es
+// transaccional: NO lo gatea areEmailNotificationsEnabled(). Fire-and-forget:
+// nunca rompe la aprobación.
+async function sendReceiptForApprovedOrder(order) {
+  try {
+    if (!order?.id || !order.user_id) return;
+    const uRes = await pool.query("SELECT email, display_name FROM users WHERE id = $1", [order.user_id]);
+    const u = uRes.rows[0];
+    if (!u?.email) return;
+    const claim = await pool.query(
+      "UPDATE orders SET receipt_sent_at = NOW() WHERE id = $1 AND receipt_sent_at IS NULL RETURNING id",
+      [order.id]
+    );
+    if (!claim.rows.length) return; // ya se envió antes
+    const itemsRes = await pool.query(
+      `SELECT i.quantity, i.line_total, p.name AS plan_name
+         FROM order_plan_items i JOIN plans p ON p.id = i.plan_id
+        WHERE i.order_id = $1 ORDER BY i.created_at`,
+      [order.id]
+    );
+    let items = itemsRes.rows.map((r) => ({ planName: r.plan_name, quantity: r.quantity, lineTotal: r.line_total }));
+    if (!items.length && order.plan_id) {
+      // Orden vieja de 1 plan (sin renglones): el subtotal incluye la inscripción,
+      // así que el renglón del plan es subtotal − inscripción.
+      const pRes = await pool.query("SELECT name FROM plans WHERE id = $1", [order.plan_id]);
+      items = [{
+        planName: pRes.rows[0]?.name || "Plan",
+        quantity: 1,
+        lineTotal: Number(order.subtotal || 0) - Number(order.inscription_amount || 0),
+      }];
+    }
+    await sendPaymentReceipt({
+      to: u.email,
+      name: u.display_name || "Alumna",
+      orderNumber: order.order_number,
+      paidAt: order.paid_at || new Date().toISOString(),
+      items,
+      inscriptionAmount: Number(order.inscription_amount || 0),
+      discountAmount: Number(order.discount_amount || 0),
+      platformFee: Number(order.platform_fee || 0),
+      total: Number(order.total_amount || 0),
+      paymentMethod: order.payment_method,
+    });
+  } catch (e) {
+    console.error("[Receipt] comprobante de pago:", e.message);
+  }
+}
+
 // Activa la membresía cuando MP aprueba el pago. Mirror de PUT /api/admin/orders/:id/verify.
 async function approveOrderFromMP(orderId, mpPaymentId) {
   const client = await pool.connect();
@@ -5464,6 +5520,7 @@ async function approveOrderFromMP(orderId, mpPaymentId) {
           }).catch((e) => console.error("[Push] MP approve:", e.message));
         }
       }
+      sendReceiptForApprovedOrder(order).catch(() => { });
       if (order.user_id) triggerWalletPassSync(order.user_id, "mp_payment_approved");
     } catch (notifyErr) {
       console.error("[MP] post-commit notify error:", notifyErr.message);
@@ -13072,6 +13129,9 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
         console.error("[Email] admin order verify query:", emailErr.message);
       }
     }
+
+    // Comprobante de pago (una sola vez; re-verificar no lo duplica)
+    if (justApproved) sendReceiptForApprovedOrder(order).catch(() => { });
 
     // Award loyalty points for purchase
     if (justApproved && order.user_id && order.total_amount > 0) {
