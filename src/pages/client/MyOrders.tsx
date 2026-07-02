@@ -195,7 +195,12 @@ const MyOrders = () => {
           {/* ── Comprobante de pago (vista imprimible) ── */}
           <Dialog open={!!receiptOrder} onOpenChange={(v) => !v && setReceiptOrder(null)}>
             <DialogContent className="max-w-md">
-              <style>{`@media print { body * { visibility: hidden; } .receipt-print, .receipt-print * { visibility: visible; } .receipt-print { position: absolute; left: 0; top: 0; width: 100%; } }`}</style>
+              <style>{`@media print {
+                body * { visibility: hidden; }
+                .receipt-print, .receipt-print * { visibility: visible; }
+                [role="dialog"] { position: static !important; transform: none !important; max-height: none !important; max-width: none !important; overflow: visible !important; border: 0 !important; box-shadow: none !important; }
+                .receipt-print { position: absolute; left: 0; top: 0; width: 100%; }
+              }`}</style>
               {receiptOrder && (
                 <div className="receipt-print space-y-4">
                   <DialogHeader>
@@ -246,7 +251,7 @@ const MyOrders = () => {
                     )}
                     <div className="flex justify-between px-3 py-2 font-semibold">
                       <span>
-                        Total pagado ({receiptOrder.payment_method === "cash" ? "Efectivo" : receiptOrder.payment_method === "transfer" ? "Transferencia" : "Tarjeta"})
+                        Total pagado ({receiptOrder.payment_method === "cash" ? "Efectivo" : receiptOrder.payment_method === "transfer" ? "Transferencia" : receiptOrder.payment_method === "card" ? "Tarjeta" : receiptOrder.payment_method})
                       </span>
                       <span className="tabular-nums">${Number(receiptOrder.total_amount).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN</span>
                     </div>
