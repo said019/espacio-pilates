@@ -5756,8 +5756,9 @@ const SITE_URL = process.env.SITE_URL || "https://www.tuespaciopilates.com.mx";
 const GW_ISSUER_ID = process.env.GOOGLE_ISSUER_ID || "";
 const GW_ISSUER_NAME = process.env.GOOGLE_ISSUER_NAME || "Tu Espacio Pilates";
 const GW_PROGRAM_NAME = process.env.GOOGLE_PROGRAM_NAME || "Tu Espacio Pilates Club";
-const GW_HEX_BG = process.env.GOOGLE_HEX_BACKGROUND_COLOR || "#1A1A1A";
-const GW_HEX_BG_EVENT = process.env.GOOGLE_HEX_BACKGROUND_COLOR_EVENT || "#1F0047";
+// Fondo del pase de Google Wallet — paleta Tu Espacio Pilates (mauve-rosa / tinta cálida).
+const GW_HEX_BG = process.env.GOOGLE_HEX_BACKGROUND_COLOR || "#71545A";
+const GW_HEX_BG_EVENT = process.env.GOOGLE_HEX_BACKGROUND_COLOR_EVENT || "#3D2D31";
 
 /**
  * Parse the Google Service Account private key from various env var formats.
@@ -7072,17 +7073,13 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const isTrialSingleSession = hasMembership && String(membership.repeat_key || "").startsWith("trial_single_session");
   const nonTransferable = hasMembership && parseBooleanFlag(membership.is_non_transferable);
   const nonRepeatable = hasMembership && parseBooleanFlag(membership.is_non_repeatable);
-  const passAccent = hasEventPass
-    ? "rgb(231, 235, 110)"
-    : membershipCategory === "pilates"
-      ? "rgb(181, 191, 156)"
-      : membershipCategory === "bienestar"
-        ? "rgb(148, 134, 122)"
-        : membershipCategory === "funcional"
-          ? "rgb(178, 152, 218)"
-          : "rgb(181, 191, 156)";
-  const passForeground = hasEventPass ? "rgb(249, 247, 232)" : "rgb(247, 245, 255)";
-  const passBackground = hasEventPass ? "rgb(31, 0, 71)" : "rgb(20, 11, 31)";
+  // Paleta Tu Espacio Pilates — "Editorial Cálida con Sello": mauve-rosa (#71545A)
+  // + tinta sobre marfil (#FAF8F6) + hilo de oro (#B8915A). Membresía = mauve-rosa
+  // profundo; evento = tinta cálida (#3D2D31). Etiquetas en blush claro para que
+  // sigan legibles sobre el fondo oscuro.
+  const passAccent = "rgb(224, 206, 201)";                                        // blush claro (labelColor)
+  const passForeground = "rgb(250, 248, 246)";                                    // marfil #FAF8F6 (valores)
+  const passBackground = hasEventPass ? "rgb(61, 45, 49)" : "rgb(113, 84, 90)";   // evento tinta #3D2D31 · membresía mauve #71545A
   const classLimit = hasMembership ? Number(membership.class_limit ?? 0) : 0;
   const classesRemaining = hasMembership
     ? Math.max(0, Number(membership.classes_remaining ?? classLimit ?? 0))
