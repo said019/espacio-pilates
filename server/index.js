@@ -6222,6 +6222,14 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
 // ─── Routes: /api/wallet/google ─────────────────────────────────────────────
 
 // GET /api/wallet/google/save-url — returns Save URL for logged-in user
+// GET /api/wallet/availability — ¿qué wallets están operativos? (cliente autenticado)
+app.get("/api/wallet/availability", authMiddleware, async (_req, res) => {
+  return res.json({
+    apple: isAppleWalletConfigured(),   // true solo con certs nativos (.pkpass firmado)
+    google: isGoogleWalletConfigured(), // true solo con issuer + service account
+  });
+});
+
 app.get("/api/wallet/google/save-url", authMiddleware, async (req, res) => {
   if (!isGoogleWalletConfigured()) {
     return res.status(503).json({ message: "Google Wallet no configurado", detail: { issuer: !!GW_ISSUER_ID, email: !!GW_SA_EMAIL, key: !!GW_SA_PRIVATE_KEY } });
