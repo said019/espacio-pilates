@@ -416,6 +416,23 @@ const ClientDetail = () => {
     onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al restablecer", variant: "destructive" }),
   });
 
+  const [pushOpen, setPushOpen] = useState(false);
+  const [pushTitle, setPushTitle] = useState("");
+  const [pushBody, setPushBody] = useState("");
+  const { data: pushInfo } = useQuery({
+    queryKey: ["push-user-devices", id],
+    queryFn: async () => (await api.get(`/admin/push/user/${id}/devices`)).data,
+    enabled: pushOpen,
+  });
+  const sendPushMutation = useMutation({
+    mutationFn: () => api.post(`/admin/push/user/${id}`, { title: pushTitle, body: pushBody }),
+    onSuccess: (res: any) => {
+      toast({ title: "Notificación enviada", description: `Entregada a ${res?.data?.sent ?? 0} dispositivo(s).` });
+      setPushOpen(false); setPushTitle(""); setPushBody("");
+    },
+    onError: (e: any) => toast({ title: e?.response?.data?.message ?? "No se pudo enviar", variant: "destructive" }),
+  });
+
   const startEditing = () => {
     setForm({
       displayName: u?.displayName ?? "",
@@ -526,6 +543,13 @@ const ClientDetail = () => {
                 title="Perfil de la alumna"
                 action={!editing && !isLoading ? (
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPushOpen(true)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-valiance-mauve/30 px-3.5 py-2 text-[0.78rem] font-medium text-valiance-mauve transition-colors hover:bg-valiance-mauve hover:text-valiance-nude"
+                    >
+                      Enviar notificación
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -788,6 +812,38 @@ const ClientDetail = () => {
             </TabsContent>
           </Tabs>
         </div>
+
+        <Dialog open={pushOpen} onOpenChange={setPushOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Enviar notificación</DialogTitle>
+            </DialogHeader>
+            <p className="text-xs text-muted-foreground">
+              {pushInfo?.enabled === false
+                ? "Las notificaciones push no están configuradas en el servidor."
+                : `${pushInfo?.devices ?? 0} dispositivo(s) suscrito(s)${pushInfo?.pushReminders === false ? " · la alumna desactivó los recordatorios" : ""}.`}
+            </p>
+            <div className="space-y-3 py-1">
+              <div className="space-y-1">
+                <Label>Título</Label>
+                <Input value={pushTitle} maxLength={80} onChange={(e) => setPushTitle(e.target.value)} placeholder="Ej. Recordatorio" />
+              </div>
+              <div className="space-y-1">
+                <Label>Mensaje</Label>
+                <Textarea rows={4} value={pushBody} maxLength={240} onChange={(e) => setPushBody(e.target.value)} placeholder="Escribe el mensaje…" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPushOpen(false)}>Cancelar</Button>
+              <Button
+                onClick={() => sendPushMutation.mutate()}
+                disabled={sendPushMutation.isPending || !pushTitle || !pushBody || pushInfo?.enabled === false || (pushInfo?.devices ?? 0) === 0}
+              >
+                {sendPushMutation.isPending ? "Enviando…" : "Enviar"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </AdminLayout>
     </AuthGuard>
   );
