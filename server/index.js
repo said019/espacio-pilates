@@ -6325,6 +6325,35 @@ app.get("/api/wallet/google/diagnostics", adminMiddleware, async (_req, res) => 
     }
   }
 
+  // Verifica la CLASE de lealtad: ¿existe en Google? Si falta, intenta crearla y
+  // reporta el error REAL de Google (causa de "Could not find necessary class").
+  let classTest = "not tested";
+  if (isGoogleWalletConfigured()) {
+    try {
+      const token = await getGoogleWalletAccessToken();
+      const classUrl = `https://walletobjects.googleapis.com/walletobjects/v1/loyaltyClass/${GW_CLASS_ID}`;
+      try {
+        const g = await axios.get(classUrl, { headers: { Authorization: `Bearer ${token}` } });
+        classTest = `✅ EXISTE (id=${g.data?.id}, reviewStatus=${g.data?.reviewStatus})`;
+      } catch (getErr) {
+        const st = getErr.response?.status;
+        if (st === 404) {
+          try {
+            await ensureGoogleWalletClass();
+            const g2 = await axios.get(classUrl, { headers: { Authorization: `Bearer ${token}` } });
+            classTest = `⚠️ FALTABA → creada ahora (reviewStatus=${g2.data?.reviewStatus})`;
+          } catch (createErr) {
+            classTest = `❌ FALTA y crear FALLÓ: HTTP ${createErr.response?.status} — ${JSON.stringify(createErr.response?.data?.error || createErr.message).slice(0, 400)}`;
+          }
+        } else {
+          classTest = `❌ GET de la clase falló: HTTP ${st} — ${JSON.stringify(getErr.response?.data?.error || getErr.message).slice(0, 400)}`;
+        }
+      }
+    } catch (e) {
+      classTest = `❌ token error: ${e.message}`;
+    }
+  }
+
   return res.json({
     configured: isGoogleWalletConfigured(),
     issuerId: GW_ISSUER_ID ? `✅ ${GW_ISSUER_ID}` : "❌ missing",
@@ -6336,6 +6365,7 @@ app.get("/api/wallet/google/diagnostics", adminMiddleware, async (_req, res) => 
     programName: GW_PROGRAM_NAME,
     jwtSignTest,
     oauthTest,
+    classTest,
   });
 });
 
