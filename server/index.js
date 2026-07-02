@@ -7039,17 +7039,29 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const eventLocationLong = truncateWalletField(activeEventPass?.eventLocation || "Tu Espacio Pilates", 38);
   const eventCodeLabel = truncateWalletField(activeEventPass?.passCode || "—", 18);
   const eventRelevantDate = (() => {
-    if (!hasEventPass || !hasValidEventDate) return new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-    const startDate = new Date(eventDateObj);
-    if (eventStartTimeLabel) {
-      const [hh, mm] = eventStartTimeLabel.split(":").map((p) => Number(p));
-      if (Number.isFinite(hh) && Number.isFinite(mm)) {
-        startDate.setHours(hh, mm, 0, 0);
+    // Evento: la hora de inicio del evento.
+    if (hasEventPass && hasValidEventDate) {
+      const startDate = new Date(eventDateObj);
+      if (eventStartTimeLabel) {
+        const [hh, mm] = eventStartTimeLabel.split(":").map((p) => Number(p));
+        if (Number.isFinite(hh) && Number.isFinite(mm)) {
+          startDate.setHours(hh, mm, 0, 0);
+        }
+      } else {
+        startDate.setHours(10, 0, 0, 0);
       }
-    } else {
-      startDate.setHours(10, 0, 0, 0);
+      return startDate.toISOString();
     }
-    return startDate.toISOString();
+    // Membresía: la próxima clase reservada → Apple Wallet muestra el pase en la
+    // pantalla de bloqueo cerca de la clase (recordatorio nativo). Hora de México (UTC-6).
+    if (nextBooking?.date && nextBooking?.start_time) {
+      const dateStr = toDbDateString(new Date(nextBooking.date));
+      const timeStr = String(nextBooking.start_time).slice(0, 5);
+      const dt = new Date(`${dateStr}T${timeStr}:00-06:00`);
+      if (!Number.isNaN(dt.getTime())) return dt.toISOString();
+    }
+    // Sin próxima clase: lejos en el futuro (no relevante).
+    return new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
   })();
   const eventExpirationDate = (() => {
     if (!hasEventPass || !hasValidEventDate) return null;
