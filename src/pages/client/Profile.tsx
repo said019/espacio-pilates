@@ -5,6 +5,7 @@ import ClientLayout from "@/components/layout/ClientLayout";
 import { ChevronRight, User, CreditCard, Bell, LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { WalletButtons } from "@/components/WalletButtons";
 
 const ProfileLink = ({
   to, icon: Icon, label, description, danger, accent,
@@ -131,6 +132,9 @@ const Profile = () => {
               accent="#FDF7F8"
             />
           </div>
+
+          {/* ── Mi pase (Wallet) ── */}
+          <WalletButtons />
 
           {/* ── Sesión ── */}
           <div className="space-y-2">
