@@ -15,10 +15,16 @@ export const ReceiptDialog = ({ order, onClose }: { order: any | null; onClose: 
   <Dialog open={!!order} onOpenChange={(v) => !v && onClose()}>
     <DialogContent className="max-w-md">
       <style>{`@media print {
+        /* Quitar TODA la app del flujo de impresión. Antes se usaba visibility:hidden,
+           que oculta pero CONSERVA la altura → imprimía la página completa del admin
+           en 6 hojas en blanco. display:none la elimina del flujo → 1 sola hoja. El
+           recibo vive en el portal de Radix (hermano de #root en <body>), no dentro. */
+        #root { display: none !important; }
         body * { visibility: hidden; }
         .receipt-print, .receipt-print * { visibility: visible; }
+        /* El diálogo (portal) pasa a flujo normal para definir la(s) página(s) del recibo. */
         [role="dialog"] { position: static !important; transform: none !important; max-height: none !important; max-width: none !important; overflow: visible !important; border: 0 !important; box-shadow: none !important; }
-        .receipt-print { position: absolute; left: 0; top: 0; width: 100%; }
+        .receipt-print { position: static !important; width: 100%; }
       }`}</style>
       {order && (
         <div className="receipt-print space-y-4">
@@ -27,6 +33,9 @@ export const ReceiptDialog = ({ order, onClose }: { order: any | null; onClose: 
           </DialogHeader>
           <div className="text-center space-y-0.5">
             <p className="font-semibold text-[#1A1A1A]">Tu Espacio Pilates · Villa Magna</p>
+            {(order.user_name || order.userName || order.guest_name) && (
+              <p className="text-sm text-[#1A1A1A]">A nombre de: <span className="font-medium">{order.user_name || order.userName || order.guest_name}</span></p>
+            )}
             {order.order_number && (
               <p className="text-xs font-mono text-[#8C6B6F]">Folio {order.order_number}</p>
             )}

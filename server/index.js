@@ -4441,6 +4441,7 @@ app.get("/api/orders", authMiddleware, async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT o.*, p.name AS plan_name, p.duration_days,
+              u.display_name AS user_name,
               COALESCE((
                 SELECT json_agg(json_build_object(
                          'plan_id', i.plan_id, 'plan_name', ip.name,
@@ -4451,6 +4452,7 @@ app.get("/api/orders", authMiddleware, async (req, res) => {
               ), '[]'::json) AS items
        FROM orders o
        JOIN plans p ON o.plan_id = p.id
+       LEFT JOIN users u ON u.id = o.user_id
        WHERE o.user_id = $1
        ORDER BY o.created_at DESC`,
       [req.userId]
