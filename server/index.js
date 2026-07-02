@@ -5756,8 +5756,8 @@ const SITE_URL = process.env.SITE_URL || "https://www.tuespaciopilates.com.mx";
 const GW_ISSUER_ID = process.env.GOOGLE_ISSUER_ID || "";
 const GW_ISSUER_NAME = process.env.GOOGLE_ISSUER_NAME || "Tu Espacio Pilates";
 const GW_PROGRAM_NAME = process.env.GOOGLE_PROGRAM_NAME || "Tu Espacio Pilates Club";
-// Fondo del pase de Google Wallet — paleta Tu Espacio Pilates (mauve-rosa / tinta cálida).
-const GW_HEX_BG = process.env.GOOGLE_HEX_BACKGROUND_COLOR || "#71545A";
+// Fondo del pase de Google Wallet — Tu Espacio Pilates: rosa claro (membresía) / tinta (evento).
+const GW_HEX_BG = process.env.GOOGLE_HEX_BACKGROUND_COLOR || "#D9B5BA";
 const GW_HEX_BG_EVENT = process.env.GOOGLE_HEX_BACKGROUND_COLOR_EVENT || "#3D2D31";
 
 /**
@@ -5894,10 +5894,7 @@ async function ensureGoogleWalletClass() {
         sourceUri: { uri: `${SITE_URL}/wallet-program-black.png` },
         contentDescription: { defaultValue: { language: "es", value: "Tu Espacio Pilates" } },
       },
-      heroImage: {
-        sourceUri: { uri: `${SITE_URL}/wallet-hero-black.png` },
-        contentDescription: { defaultValue: { language: "es", value: "Tu Espacio Pilates" } },
-      },
+      // Sin heroImage: el banner del medio traía arte de marca ajena (Ophelia).
       hexBackgroundColor: GW_HEX_BG,
       reviewStatus: "UNDER_REVIEW",
       countryCode: "MX",
@@ -7080,13 +7077,12 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const isTrialSingleSession = hasMembership && String(membership.repeat_key || "").startsWith("trial_single_session");
   const nonTransferable = hasMembership && parseBooleanFlag(membership.is_non_transferable);
   const nonRepeatable = hasMembership && parseBooleanFlag(membership.is_non_repeatable);
-  // Paleta Tu Espacio Pilates — "Editorial Cálida con Sello": mauve-rosa (#71545A)
-  // + tinta sobre marfil (#FAF8F6) + hilo de oro (#B8915A). Membresía = mauve-rosa
-  // profundo; evento = tinta cálida (#3D2D31). Etiquetas en blush claro para que
-  // sigan legibles sobre el fondo oscuro.
-  const passAccent = "rgb(224, 206, 201)";                                        // blush claro (labelColor)
-  const passForeground = "rgb(250, 248, 246)";                                    // marfil #FAF8F6 (valores)
-  const passBackground = hasEventPass ? "rgb(61, 45, 49)" : "rgb(113, 84, 90)";   // evento tinta #3D2D31 · membresía mauve #71545A
+  // Paleta Tu Espacio Pilates — "Editorial Cálida". Membresía: rosa claro (#D9B5BA)
+  // con tinta (#3A3832) para los valores y mauve-rosa (#71545A) para las etiquetas.
+  // Evento: tinta cálida (#3D2D31) con marfil. Sin franja/strip: pase limpio.
+  const passAccent = hasEventPass ? "rgb(224, 206, 201)" : "rgb(113, 84, 90)";      // labelColor: blush (evento) / mauve (membresía)
+  const passForeground = hasEventPass ? "rgb(250, 248, 246)" : "rgb(58, 56, 50)";   // valores: marfil (evento) / tinta (membresía)
+  const passBackground = hasEventPass ? "rgb(61, 45, 49)" : "rgb(217, 181, 186)";   // fondo: tinta (evento) / rosa claro #D9B5BA (membresía)
   const classLimit = hasMembership ? Number(membership.class_limit ?? 0) : 0;
   const classesRemaining = hasMembership
     ? Math.max(0, Number(membership.classes_remaining ?? classLimit ?? 0))
@@ -7487,51 +7483,16 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     "wallet-logo-black.png",
   ]);
 
-  const thumbPath = findAssetFile([
-    `wallet-thumb-${assetCategory}.png`,
-    "wallet-thumb-event.png",
-    `wallet-icon-${assetCategory}.png`,
-    "wallet-icon-event.png",
-    "pn-logo.png",
-  ]);
-  const thumb2xPath = findAssetFile([
-    `wallet-thumb-${assetCategory}@2x.png`,
-    "wallet-thumb-event@2x.png",
-    `wallet-thumb-${assetCategory}.png`,
-    "wallet-thumb-event.png",
-    `wallet-icon-${assetCategory}@2x.png`,
-    "wallet-icon-event@2x.png",
-    `wallet-icon-${assetCategory}.png`,
-    "wallet-icon-event.png",
-    "pn-logo.png",
-  ]);
+  // Sin thumbnail: la imagen superior-derecha traía arte de marca ajena. Pase limpio.
+  const thumbPath = null;
+  const thumb2xPath = null;
 
-  let dynamicStripName = "none";
-  let stripPath = null;
-  let strip2xPath = null;
-  let strip3xPath = null;
-  if (!hasEventPass) {
-    const stripCategory =
-      membershipCategory === "pilates" ? "pilates"
-        : membershipCategory === "bienestar" ? "bienestar"
-          : "mixto";
-    dynamicStripName = shouldUseStampStrip
-      ? `wallet-strip-${stripCategory}-t${stripStampState.total}-r${stripStampState.remaining}.png`
-      : `wallet-strip-${stripCategory}.png`;
-    const dynamicStripPath = shouldUseStampStrip
-      ? findAssetFile([dynamicStripName])
-      : null;
-    const stripCandidates = [`wallet-strip-${stripCategory}.png`, "wallet-strip-mixto.png"];
-    const strip2xCandidates = [`wallet-strip-${stripCategory}@2x.png`, "wallet-strip-mixto@2x.png"];
-    const strip3xCandidates = [`wallet-strip-${stripCategory}@3x.png`, "wallet-strip-mixto@3x.png"];
-    stripPath = dynamicStripPath || findAssetFile(stripCandidates);
-    strip2xPath = dynamicStripPath
-      ? findAssetFile([dynamicStripName.replace(".png", "@2x.png")])
-      : findAssetFile(strip2xCandidates);
-    strip3xPath = dynamicStripPath
-      ? findAssetFile([dynamicStripName.replace(".png", "@3x.png")])
-      : findAssetFile(strip3xCandidates);
-  }
+  // Sin strip: la franja del medio ("morado con iconos") era arte de marca ajena
+  // (Ophelia). El pase queda limpio: solo logo TEP + campos + QR sobre rosa claro.
+  const dynamicStripName = "none";
+  const stripPath = null;
+  const strip2xPath = null;
+  const strip3xPath = null;
 
   const readAssetBuffer = (assetPath) => (assetPath && fs.existsSync(assetPath) ? fs.readFileSync(assetPath) : null);
   const iconBuffer = readAssetBuffer(iconPath);
