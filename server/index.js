@@ -5985,6 +5985,7 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
   const classesRemaining = hasMembership && !isUnlimited
     ? Math.max(0, Number(membership.classes_remaining ?? classLimit ?? 0))
     : 0;
+  const firstName = (String(userName || "").trim().split(/\s+/)[0] || "Alumna");
 
   // Header label
   let passHeader = "TU ESPACIO PILATES";
@@ -6154,7 +6155,7 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
   if (hasMembership) {
     infoRows.push({
       columns: [
-        { label: "Miembro", value: userName },
+        { label: "Nombre", value: firstName },
         { label: "Plan", value: membership.plan_name || "—" },
       ],
     });
@@ -6179,7 +6180,7 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
     classId: GW_CLASS_ID,
     state: "ACTIVE",
     accountId: userId,
-    accountName: userName,
+    accountName: firstName,
     hexBackgroundColor: hasEventPass ? GW_HEX_BG_EVENT : GW_HEX_BG,
     barcode: {
       type: "QR_CODE",
@@ -7103,6 +7104,13 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const hasIconStampMode = hasMembership && !isUnlimited && stripStampState.total > 0;
   const membershipHeadline = isUnlimited ? "Membresía" : membershipCategoryLabel;
   const memberDisplayName = truncateWalletField(userName, 22);
+  const firstName = truncateWalletField(String(userName || "").trim().split(/\s+/)[0] || "Alumna", 18);
+  const nextClassShort = nextBooking
+    ? truncateWalletField(
+        `${nextBooking.class_name || "Clase"} · ${new Date(nextBooking.date).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })}${nextBooking.start_time ? ` ${String(nextBooking.start_time).slice(0, 5)}` : ""}`,
+        30,
+      )
+    : "";
   const planDisplayName = truncateWalletField(
     hasMembership ? (membership.plan_name || `${membershipCategoryLabel} ${isUnlimited ? "Ilimitado" : ""}`.trim()) : "",
     28,
@@ -7171,15 +7179,17 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
       label: "PLAN",
       value: planDisplayName || `${membershipCategoryLabel}${isUnlimited ? " ilimitado" : ""}`,
     });
-    secondaryFields.push({
-      key: "modalidad",
-      label: "MODALIDAD",
-      value: membershipCategoryLabel,
-    });
+    if (nextClassShort) {
+      secondaryFields.push({
+        key: "next_class_front",
+        label: "PRÓXIMA CLASE",
+        value: nextClassShort,
+      });
+    }
     auxiliaryFields.push({
       key: "client_name",
-      label: "CLIENTE",
-      value: memberDisplayName || "Miembro",
+      label: "NOMBRE",
+      value: firstName,
     });
     if (membership.end_date) {
       const endDate = new Date(membership.end_date);
