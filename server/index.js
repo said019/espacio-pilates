@@ -5856,7 +5856,7 @@ function parseGWServiceAccount() {
 const { email: _gwEmail, key: _gwKey } = parseGWServiceAccount();
 const GW_SA_EMAIL = _gwEmail;
 const GW_SA_PRIVATE_KEY = _gwKey;
-const GW_CLASS_ID = GW_ISSUER_ID ? `${GW_ISSUER_ID}.puntoneutro_loyalty_v1` : "";
+const GW_CLASS_ID = GW_ISSUER_ID ? `${GW_ISSUER_ID}.tep_loyalty_v1` : "";
 
 function isGoogleWalletConfigured() {
   return !!(GW_ISSUER_ID && GW_SA_EMAIL && GW_SA_PRIVATE_KEY);
@@ -5958,8 +5958,8 @@ function formatWalletEventSchedule(eventPass) {
 function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership, nextBooking, activeEventPass, passKind = "membership" }) {
   const isEventPass = String(passKind || "membership") === "event";
   const objectId = isEventPass
-    ? `${GW_ISSUER_ID}.pn_event_${String(activeEventPass?.eventId || "event").replace(/-/g, "")}_${userId.replace(/-/g, "")}`
-    : `${GW_ISSUER_ID}.pn_${userId.replace(/-/g, "")}`;
+    ? `${GW_ISSUER_ID}.tep_event_${String(activeEventPass?.eventId || "event").replace(/-/g, "")}_${userId.replace(/-/g, "")}`
+    : `${GW_ISSUER_ID}.tep_${userId.replace(/-/g, "")}`;
 
   // ── Determine pass type and details based on membership ──────────────────
   const hasMembership = !isEventPass && !!membership;
@@ -6491,11 +6491,11 @@ function isAppleApnsConfigured() {
 function buildAppleWalletSerialFromUserId(userId) {
   const cleaned = String(userId || "").trim();
   if (!cleaned) return "";
-  return `pn_${cleaned.replace(/-/g, "")}`;
+  return `tep_${cleaned.replace(/-/g, "")}`;
 }
 
 function parseUserIdFromAppleWalletSerial(serial) {
-  const raw = String(serial || "").replace(/^pn_/, "").trim();
+  const raw = String(serial || "").replace(/^tep_/, "").trim();
   if (!/^[0-9a-fA-F]{32}$/.test(raw)) return null;
   return raw.replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5").toLowerCase();
 }
