@@ -558,6 +558,7 @@ function __renderPreview(kind) {
 async function sendPaymentReceipt(opts) {
   const { to, name } = opts;
   const m = buildReceiptModel(opts);
+  const numSuffix = m.orderNumber ? ` ${m.orderNumber}` : "";
   const fmtMoney = (n) => `$${Number(n).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN`;
   const lineRows = m.lines.map((l) =>
     infoRow(`${l.planName}${l.quantity > 1 ? ` × ${l.quantity}` : ""}`, fmtMoney(l.amount))
@@ -567,7 +568,7 @@ async function sendPaymentReceipt(opts) {
   );
   const content = `
     ${h1("Comprobante de pago")}
-    ${p(`Hola ${String(name || "Alumna").split(" ")[0]}, gracias por tu pago. Aquí tienes tu comprobante.`)}
+    ${p(`Hola ${String(name || "").trim().split(/\s+/)[0] || "Alumna"}, gracias por tu pago. Aquí tienes tu comprobante.`)}
     ${infoTable([
       infoRow("Folio", m.orderNumber || "—"),
       infoRow("Fecha de pago", fmtDate(m.paidAt)),
@@ -577,12 +578,12 @@ async function sendPaymentReceipt(opts) {
     ${small(m.note)}
   `;
   const html = baseLayout({
-    preheader: `Comprobante de pago ${m.orderNumber || ""} — Tu Espacio Pilates`.trim(),
+    preheader: `Comprobante de pago${numSuffix} — Tu Espacio Pilates`,
     content,
     ctaUrl: `${SITE_URL}/app/orders`,
     ctaText: "Ver mis órdenes",
   });
-  await sendEmail({ to, subject: `Comprobante de pago ${m.orderNumber || ""} — Tu Espacio Pilates`.replace("  ", " "), html });
+  await sendEmail({ to, subject: `Comprobante de pago${numSuffix} — Tu Espacio Pilates`, html });
 }
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
