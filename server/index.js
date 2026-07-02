@@ -5753,6 +5753,11 @@ app.post("/api/loyalty/redeem", authMiddleware, async (req, res) => {
 // ─── Google Wallet helpers ──────────────────────────────────────────────────
 
 const SITE_URL = process.env.SITE_URL || "https://www.tuespaciopilates.com.mx";
+// Origen limpio (esquema+host, SIN path). Robustece imágenes/links del pase ante un
+// SITE_URL mal configurado con un path (p.ej. terminando en /auth/login) — que hacía
+// que Google rechazara la clase por "Invalid image URL".
+let SITE_ORIGIN;
+try { SITE_ORIGIN = new URL(SITE_URL).origin; } catch { SITE_ORIGIN = "https://www.tuespaciopilates.com.mx"; }
 const GW_ISSUER_ID = process.env.GOOGLE_ISSUER_ID || "";
 const GW_ISSUER_NAME = process.env.GOOGLE_ISSUER_NAME || "Tu Espacio Pilates";
 const GW_PROGRAM_NAME = process.env.GOOGLE_PROGRAM_NAME || "Tu Espacio Pilates Club";
@@ -5891,7 +5896,7 @@ async function ensureGoogleWalletClass() {
       issuerName: GW_ISSUER_NAME,
       programName: GW_PROGRAM_NAME,
       programLogo: {
-        sourceUri: { uri: `${SITE_URL}/wallet-program-black.png` },
+        sourceUri: { uri: `${SITE_ORIGIN}/wallet-program-black.png` },
         contentDescription: { defaultValue: { language: "es", value: "Tu Espacio Pilates" } },
       },
       // Sin heroImage: el banner del medio traía arte de marca ajena (Ophelia).
@@ -6209,9 +6214,9 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
     textModulesData: textModules,
     linksModuleData: {
       uris: [
-        { uri: `${SITE_URL}/app`, description: "Mi cuenta", id: "account_link" },
+        { uri: `${SITE_ORIGIN}/app`, description: "Mi cuenta", id: "account_link" },
         {
-          uri: `${SITE_URL}/app/bookings`,
+          uri: `${SITE_ORIGIN}/app/bookings`,
           description: hasEventPass ? "Mis Eventos" : "Reservar Clase",
           id: hasEventPass ? "events_link" : "book_link",
         },
@@ -7366,7 +7371,7 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
 
   backFields.push(
     { key: "cliente", label: "CLIENTE", value: userName },
-    { key: "web", label: "RESERVAR EN LÍNEA", value: `${SITE_URL}/app/bookings` },
+    { key: "web", label: "RESERVAR EN LÍNEA", value: `${SITE_ORIGIN}/app/bookings` },
     {
       key: "terms",
       label: "TÉRMINOS",
@@ -7474,7 +7479,7 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
         messageEncoding: "iso-8859-1",
       },
     ],
-    webServiceURL: `${SITE_URL}/api/wallet`,
+    webServiceURL: `${SITE_ORIGIN}/api/wallet`,
     authenticationToken: APPLE_AUTH_TOKEN,
     relevantDate: eventRelevantDate,
   };
