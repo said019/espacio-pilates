@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
@@ -7,9 +8,10 @@ import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
 import ClientLayout from "@/components/layout/ClientLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Clock, CheckCircle, XCircle, AlertTriangle, ShoppingBag, CreditCard, Loader2, Ban } from "lucide-react";
+import { Upload, Clock, CheckCircle, XCircle, AlertTriangle, ShoppingBag, CreditCard, Loader2, Ban, FileText, Printer } from "lucide-react";
 
 const STATUS_CONFIG: Record<string, { label: string; icon: any; className: string }> = {
   pending_payment:      { label: "Pendiente de pago",  icon: Clock,         className: "border-[#E5CF9F] text-[#B5832F] bg-[#F4EAD6]" },
@@ -26,6 +28,7 @@ const MyOrders = () => {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const checkoutResult = params.get("checkout"); // 'success' | 'failure' | 'pending' | null
+  const [receiptOrder, setReceiptOrder] = useState<any | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["my-orders"],
@@ -162,6 +165,14 @@ const MyOrders = () => {
                       </div>
                     )}
 
+                    {o.status === "approved" && (
+                      <div className="mt-3">
+                        <Button size="sm" variant="outline" onClick={() => setReceiptOrder(o)}>
+                          <FileText size={14} className="mr-2" />Ver comprobante
+                        </Button>
+                      </div>
+                    )}
+
                     {o.status === "pending_verification" && (
                       <p className="text-xs text-[#6B7480] mt-3 bg-[#E6E8EC] rounded-lg px-3 py-2">
                         {o.payment_method === "cash"
@@ -180,6 +191,76 @@ const MyOrders = () => {
               })}
             </div>
           )}
+
+          {/* ── Comprobante de pago (vista imprimible) ── */}
+          <Dialog open={!!receiptOrder} onOpenChange={(v) => !v && setReceiptOrder(null)}>
+            <DialogContent className="max-w-md">
+              <style>{`@media print { body * { visibility: hidden; } .receipt-print, .receipt-print * { visibility: visible; } .receipt-print { position: absolute; left: 0; top: 0; width: 100%; } }`}</style>
+              {receiptOrder && (
+                <div className="receipt-print space-y-4">
+                  <DialogHeader>
+                    <DialogTitle>Comprobante de pago</DialogTitle>
+                  </DialogHeader>
+                  <div className="text-center space-y-0.5">
+                    <p className="font-semibold text-[#1A1A1A]">Tu Espacio Pilates · Villa Magna</p>
+                    {receiptOrder.order_number && (
+                      <p className="text-xs font-mono text-[#8C6B6F]">Folio {receiptOrder.order_number}</p>
+                    )}
+                    <p className="text-xs text-[#3D3A3A]">
+                      {format(new Date(receiptOrder.paid_at || receiptOrder.updated_at || receiptOrder.created_at), "d MMM yyyy · HH:mm", { locale: es })}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-[#F0D0D5] divide-y divide-[#F0D0D5] text-sm">
+                    {(Array.isArray(receiptOrder.items) && receiptOrder.items.length
+                      ? receiptOrder.items.map((it: any) => ({
+                          label: `${it.plan_name}${Number(it.quantity) > 1 ? ` × ${it.quantity}` : ""}`,
+                          amount: Number(it.line_total),
+                        }))
+                      : [{
+                          label: receiptOrder.plan_name,
+                          amount: Number(receiptOrder.subtotal) - Number(receiptOrder.inscription_amount || 0),
+                        }]
+                    ).map((l, i) => (
+                      <div key={i} className="flex justify-between px-3 py-2">
+                        <span className="text-[#3D3A3A]">{l.label}</span>
+                        <span className="tabular-nums">${l.amount.toLocaleString("es-MX", { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    ))}
+                    {Number(receiptOrder.inscription_amount) > 0 && (
+                      <div className="flex justify-between px-3 py-2">
+                        <span className="text-[#3D3A3A]">Inscripción (pago único)</span>
+                        <span className="tabular-nums">${Number(receiptOrder.inscription_amount).toLocaleString("es-MX", { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                    {Number(receiptOrder.discount_amount) > 0 && (
+                      <div className="flex justify-between px-3 py-2">
+                        <span className="text-[#3D3A3A]">Descuento</span>
+                        <span className="tabular-nums">−${Number(receiptOrder.discount_amount).toLocaleString("es-MX", { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                    {Number(receiptOrder.platform_fee) > 0 && (
+                      <div className="flex justify-between px-3 py-2">
+                        <span className="text-[#3D3A3A]">Uso de plataforma (4% tarjeta)</span>
+                        <span className="tabular-nums">${Number(receiptOrder.platform_fee).toLocaleString("es-MX", { minimumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between px-3 py-2 font-semibold">
+                      <span>
+                        Total pagado ({receiptOrder.payment_method === "cash" ? "Efectivo" : receiptOrder.payment_method === "transfer" ? "Transferencia" : "Tarjeta"})
+                      </span>
+                      <span className="tabular-nums">${Number(receiptOrder.total_amount).toLocaleString("es-MX", { minimumFractionDigits: 2 })} MXN</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-[#8C6B6F] leading-snug">
+                    Este comprobante es una constancia de pago emitida por Tu Espacio Pilates. No es un comprobante fiscal (CFDI).
+                  </p>
+                  <Button size="sm" className="w-full print:hidden" onClick={() => window.print()}>
+                    <Printer size={14} className="mr-2" />Imprimir / Guardar PDF
+                  </Button>
+                </div>
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
       </ClientLayout>
     </ClientAuthGuard>
