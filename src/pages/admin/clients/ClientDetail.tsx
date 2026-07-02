@@ -435,9 +435,19 @@ const ClientDetail = () => {
   /* ── Derived / sorted history datasets ── */
   const bookingDate = (b: any) => pick(b, "startTime", "start_time", "classDate", "class_date") ?? pick(b, "created_at", "createdAt");
 
+  // Orden "más cercanas a hoy primero": próximas ascendente (hoy → mañana → …)
+  // arriba, y después las pasadas de la más reciente a la más vieja.
   const allBookings = asArray(bookings)
     .slice()
-    .sort((a, b) => new Date(bookingDate(b) ?? 0).getTime() - new Date(bookingDate(a) ?? 0).getTime());
+    .sort((a, b) => {
+      const now = Date.now();
+      const ta = new Date(bookingDate(a) ?? 0).getTime();
+      const tb = new Date(bookingDate(b) ?? 0).getTime();
+      const aFuture = ta >= now;
+      const bFuture = tb >= now;
+      if (aFuture !== bFuture) return aFuture ? -1 : 1; // próximas antes que pasadas
+      return aFuture ? ta - tb : tb - ta; // próximas asc; pasadas desc
+    });
 
   const cancelledBookings = allBookings.filter((b) => (b.status ?? "").toLowerCase() === "cancelled");
   const visibleBookings = bookingFilter === "cancelled" ? cancelledBookings : allBookings;

@@ -11954,7 +11954,19 @@ app.get("/api/bookings", adminMiddleware, async (req, res) => {
     if (userId) { params.push(userId); q += ` AND b.user_id = $${params.length}`; }
     if (status) { params.push(status); q += ` AND b.status = $${params.length}`; }
     if (classId) { params.push(classId); q += ` AND b.class_id = $${params.length}`; }
-    params.push(parseInt(limit)); q += ` ORDER BY b.created_at DESC LIMIT $${params.length}`;
+    // Orden "más cercanas a hoy primero": clases futuras ascendente (hoy → mañana → …),
+    // después las pasadas de la más reciente a la más vieja; sin clase (NULL) al final.
+    params.push(parseInt(limit));
+    q += ` ORDER BY
+             CASE WHEN c.date IS NULL THEN 2
+                  WHEN ((c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City') >= now() THEN 0
+                  ELSE 1 END,
+             CASE WHEN c.date IS NOT NULL AND ((c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City') >= now()
+                  THEN (c.date + c.start_time::time) END ASC,
+             CASE WHEN c.date IS NOT NULL AND ((c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City') < now()
+                  THEN (c.date + c.start_time::time) END DESC,
+             b.created_at DESC
+           LIMIT $${params.length}`;
     const r = await pool.query(q, params);
     return res.json({ data: r.rows.map(b => ({ ...b, userName: b.user_name, className: b.class_name, startTime: b.start_time, classDate: b.class_date })) });
   } catch (err) {

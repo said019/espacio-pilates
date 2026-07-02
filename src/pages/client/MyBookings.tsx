@@ -217,12 +217,14 @@ const MyBookings = () => {
   const bookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
   const now = new Date();
 
-  const upcoming = bookings.filter((b) =>
-    (b.status === "confirmed" || b.status === "waitlist") && new Date(b.start_time) >= now
-  );
-  const past = bookings.filter((b) =>
-    b.status === "checked_in" || b.status === "no_show" || new Date(b.start_time) < now
-  );
+  // Orden "más cercanas a hoy primero": próximas ascendente (la de hoy arriba),
+  // pasadas de la más reciente a la más vieja. Explícito para no depender del API.
+  const upcoming = bookings
+    .filter((b) => (b.status === "confirmed" || b.status === "waitlist") && new Date(b.start_time) >= now)
+    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+  const past = bookings
+    .filter((b) => b.status === "checked_in" || b.status === "no_show" || new Date(b.start_time) < now)
+    .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime());
   const cancelled = bookings.filter((b) => b.status === "cancelled");
   const cancelBooking = bookings.find((b) => b.id === cancelId) ?? null;
   const leavingWaitlist = cancelBooking?.status === "waitlist";
