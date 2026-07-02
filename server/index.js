@@ -9941,6 +9941,8 @@ const PUSH_TEMPLATE_URLS = {
   membership_activated: "/app",
   transfer_rejected: "/app/orders",
   last_class_reminder: "/app",
+  class_reminder_12h: "/app/bookings",
+  class_reminder_30m: "/app/bookings",
 };
 
 // Fan-out a todas las suscripciones de una alumna. Best-effort: poda muertas,
@@ -15479,7 +15481,10 @@ async function runClassReminderCron(mode = "morning") {
 async function runClassReminders() {
   try {
     const ns = await getSettingsValue("notification_settings", DEFAULT_NOTIFICATION_SETTINGS);
-    if (ns?.whatsapp_reminders === false || ns?.class_reminder_enabled === false) return;
+    // Solo el toggle de recordatorios de clase detiene TODO. El push NO depende
+    // del toggle de WhatsApp — sendConfiguredWhatsAppTemplate ya se auto-gatea con
+    // whatsapp_reminders internamente, así que el push sigue saliendo aunque WA esté off.
+    if (ns?.class_reminder_enabled === false) return;
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS class_reminder_sent (
@@ -15491,9 +15496,11 @@ async function runClassReminders() {
     `).catch(() => {});
 
     // Minutos hasta el inicio de cada clase (en hora de México) por reserva
-    // confirmada, con teléfono y recordatorios activados; ventana ±1 día.
+    // confirmada con recordatorios activados; ventana ±1 día. Se trae user_id para
+    // el push. Ya NO se exige teléfono: las alumnas sin phone reciben SOLO push
+    // (el WhatsApp con phone=null es no-op seguro).
     const res = await pool.query(`
-      SELECT b.id AS booking_id, u.phone, COALESCE(u.display_name,'Alumna') AS name,
+      SELECT b.id AS booking_id, b.user_id, u.phone, COALESCE(u.display_name,'Alumna') AS name,
              EXTRACT(EPOCH FROM (
                ((c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City') - now()
              )) / 60 AS mins_until
@@ -15502,7 +15509,6 @@ async function runClassReminders() {
       JOIN users u   ON b.user_id = u.id
       WHERE b.status = 'confirmed'
         AND c.status = 'scheduled'
-        AND u.phone IS NOT NULL
         AND u.receive_reminders IS NOT FALSE
         AND c.date BETWEEN CURRENT_DATE - 1 AND CURRENT_DATE + 1
         AND ((c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City') > now()
@@ -15544,6 +15550,11 @@ async function runClassReminders() {
           ? "Recordatorio de clase.\nHola 🌞🌙\n\nRecuerda que tienes una clase programada en las próximas 12 hrs, no te la pierdas 🩷"
           : "Tu clase comienza en 30 minutos, no te la pierdas 🩷",
       }).catch((e) => console.error("[WA] recordatorio clase:", e.message));
+      sendConfiguredPushTemplate({
+        templateKey: is12h ? "class_reminder_12h" : "class_reminder_30m",
+        userId: d.user_id,
+        vars: { name: d.name },
+      }).catch((e) => console.error("[Push] recordatorio clase:", e.message));
     }
 
     await pool.query(
