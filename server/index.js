@@ -15143,6 +15143,45 @@ app.post("/api/admin/push/broadcast", adminMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/admin/push/user/:userId/devices — cuántos dispositivos suscritos + preferencia
+app.get("/api/admin/push/user/:userId/devices", adminMiddleware, async (req, res) => {
+  try {
+    const dev = await pool.query(
+      "SELECT COUNT(*)::int AS devices FROM push_subscriptions WHERE user_id = $1",
+      [req.params.userId]
+    );
+    const pref = await pool.query("SELECT push_reminders FROM users WHERE id = $1", [req.params.userId]);
+    return res.json({
+      enabled: isPushConfigured(),
+      devices: dev.rows[0]?.devices ?? 0,
+      pushReminders: pref.rows[0]?.push_reminders !== false,
+    });
+  } catch (err) {
+    console.error("GET /admin/push/user/:userId/devices:", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/admin/push/user/:userId — push manual a UNA alumna (texto libre)
+app.post("/api/admin/push/user/:userId", adminMiddleware, async (req, res) => {
+  try {
+    if (!isPushConfigured()) return res.status(400).json({ message: "Push no configurado" });
+    const { title, body, url } = req.body || {};
+    if (!title || !body) return res.status(400).json({ message: "Falta título o mensaje" });
+    const r = await sendPushToUser(req.params.userId, {
+      title: String(title).slice(0, 80),
+      body: String(body).slice(0, 240),
+      url: url || "/app",
+      tag: "admin_manual",
+      respectPrefs: true,
+    });
+    return res.json(r); // { sent, failed, pruned }
+  } catch (err) {
+    console.error("POST /admin/push/user/:userId:", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // ─── Email test endpoint (admin only) ─────────────────────────────────────────
 app.post("/api/admin/test-emails", adminMiddleware, async (req, res) => {
   const testTo = req.body.to || "saidromero19@gmail.com";
