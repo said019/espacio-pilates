@@ -12352,7 +12352,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
           m.end_date ASC,
           m.created_at ASC
         LIMIT 1
-        FOR UPDATE`,
+        FOR UPDATE OF m`,
       [userId, clsCategory, needed]
     );
     const membership = memRes.rows[0];
