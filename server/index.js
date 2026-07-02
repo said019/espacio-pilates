@@ -6192,9 +6192,9 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
     textModulesData: textModules,
     linksModuleData: {
       uris: [
-        { uri: `${SITE_URL}/app/wallet`, description: "Mi Wallet", id: "wallet_link" },
+        { uri: `${SITE_URL}/app`, description: "Mi cuenta", id: "account_link" },
         {
-          uri: hasEventPass ? `${SITE_URL}/app/events` : `${SITE_URL}/app/bookings`,
+          uri: `${SITE_URL}/app/bookings`,
           description: hasEventPass ? "Mis Eventos" : "Reservar Clase",
           id: hasEventPass ? "events_link" : "book_link",
         },
