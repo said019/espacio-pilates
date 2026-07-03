@@ -6845,6 +6845,25 @@ function extractGoogleLoyaltyObjectFromSaveUrl(saveUrl) {
   return decoded?.payload?.loyaltyObjects?.[0] || null;
 }
 
+// Aviso push al pase de Google ya guardado. A diferencia del update silencioso del
+// objeto, addMessage con TEXT_AND_NOTIFY hace que Google muestre una notificación
+// en el teléfono de la alumna.
+async function addGoogleWalletNotifyMessage(objectId, { header, body } = {}) {
+  if (!isGoogleWalletConfigured() || !objectId) return { notified: false, reason: "not_configured" };
+  try {
+    const accessToken = await getGoogleWalletAccessToken();
+    await axios.post(
+      `https://walletobjects.googleapis.com/walletobjects/v1/loyaltyObject/${encodeURIComponent(objectId)}/addMessage`,
+      { message: { id: `msg_${Date.now()}`, header: String(header || "Tu Espacio Pilates").slice(0, 60), body: String(body || "").slice(0, 240), messageType: "TEXT_AND_NOTIFY" } },
+      { headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" } },
+    );
+    return { notified: true };
+  } catch (err) {
+    console.error("[Google Wallet] addMessage error:", err.response?.data || err.message);
+    return { notified: false, reason: err.message };
+  }
+}
+
 async function syncGoogleWalletObjectForUser(userId, { reason = "wallet_update" } = {}) {
   if (!isGoogleWalletConfigured()) {
     return { synced: false, reason: "google_wallet_not_configured" };
@@ -6863,13 +6882,14 @@ async function syncGoogleWalletObjectForUser(userId, { reason = "wallet_update" 
     const accessToken = await getGoogleWalletAccessToken();
     const headers = { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" };
     const objectIdPath = encodeURIComponent(loyaltyObject.id);
+    let mode;
     try {
       await axios.put(
         `https://walletobjects.googleapis.com/walletobjects/v1/loyaltyObject/${objectIdPath}`,
         loyaltyObject,
         { headers },
       );
-      return { synced: true, mode: "updated", objectId: loyaltyObject.id };
+      mode = "updated";
     } catch (err) {
       if (err.response?.status !== 404) throw err;
       await axios.post(
@@ -6877,8 +6897,18 @@ async function syncGoogleWalletObjectForUser(userId, { reason = "wallet_update" 
         loyaltyObject,
         { headers },
       );
-      return { synced: true, mode: "created", objectId: loyaltyObject.id };
+      mode = "created";
     }
+    // Aviso push al pase SOLO en reservas confirmadas (no en cancelaciones/check-in/etc.).
+    const GOOGLE_NOTIFY_REASONS = ["booking_created", "booking_promoted_from_waitlist", "booking_rescheduled", "admin_booking_created", "admin_bulk_month_booking_created"];
+    if (GOOGLE_NOTIFY_REASONS.some((r) => String(reason).includes(r))) {
+      const nb = snapshot.nextBooking;
+      const body = nb
+        ? `${nb.class_name || "Tu clase"}${nb.date ? " · " + new Date(nb.date).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" }) : ""}${nb.start_time ? " " + String(nb.start_time).slice(0, 5) : ""}`
+        : "Tu reserva quedó confirmada. ¡Te esperamos! 🩷";
+      await addGoogleWalletNotifyMessage(loyaltyObject.id, { header: "Reserva confirmada 🩷", body });
+    }
+    return { synced: true, mode, objectId: loyaltyObject.id };
   } catch (err) {
     console.error(`[Google Wallet] sync failed (${reason}) user=${userId}:`, err.response?.data || err.message);
     return { synced: false, reason: err.message || "google_sync_failed" };
