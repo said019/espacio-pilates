@@ -25,6 +25,7 @@ import {
   sendWebPush,
 } from "./lib/push.js";
 import { isEmailIdentifier } from "./lib/authIdentity.js";
+import { resolveStampLayout, shouldRenderStampStrip, renderStampStripPng } from "./lib/walletStamps.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -5998,7 +5999,7 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
           membershipCategory === "mixto" ? "Mixto" : "General";
   const isUnlimited = hasMembership && (membership.class_limit === null || membership.class_limit >= 9999);
   const classLimit = Number(membership?.class_limit ?? 0);
-  const hasIconStampMode = hasMembership && !isUnlimited && classLimit > 0;
+  const hasIconStampMode = shouldRenderStampStrip({ hasMembership, isUnlimited, hasEventPass, classLimit });
   const isPackage = hasMembership && !isUnlimited && membership.class_limit > 1;
   const isSingleClass = hasMembership && !isUnlimited && membership.class_limit === 1;
   const isTrialSingleSession = hasMembership && String(membership.repeat_key || "").startsWith("trial_single_session");
@@ -6599,22 +6600,6 @@ function findAssetFile(fileNames = []) {
     }
   }
   return null;
-}
-
-const WALLET_STRIP_TOTAL_BUCKETS = [1, 4, 8, 12, 16, 20];
-
-function resolveWalletStripStampState(classLimitRaw, classesRemainingRaw) {
-  const classLimit = Number(classLimitRaw ?? 0);
-  const classesRemaining = Math.max(0, Number(classesRemainingRaw ?? 0));
-  if (!Number.isFinite(classLimit) || classLimit <= 0) {
-    return { total: 0, remaining: 0 };
-  }
-  const nearestTotal = WALLET_STRIP_TOTAL_BUCKETS.reduce((best, current) =>
-    Math.abs(current - classLimit) < Math.abs(best - classLimit) ? current : best,
-    WALLET_STRIP_TOTAL_BUCKETS[0]);
-  const ratio = classLimit > 0 ? Math.min(1, Math.max(0, classesRemaining / classLimit)) : 0;
-  const remainingBucket = Math.min(nearestTotal, Math.max(0, Math.round(ratio * nearestTotal)));
-  return { total: nearestTotal, remaining: remainingBucket };
 }
 
 const appleApnsProviderTokenCache = {
