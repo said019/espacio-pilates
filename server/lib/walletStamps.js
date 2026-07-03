@@ -80,9 +80,16 @@ export async function renderStampStripPng({ total, remaining, widthPx, heightPx,
   const sourceBuffer = await loadSourceBuffer(sourcePath);
   const usedTotal = Math.max(0, total - remaining);
   const maxCols = Math.max(...rows);
-  const gap = Math.round(widthPx * 0.012);
-  const rowHeight = Math.floor((heightPx - gap * (rows.length - 1)) / rows.length);
-  const cellSize = Math.min(rowHeight, Math.floor((widthPx - gap * (maxCols - 1)) / maxCols));
+  // Margen de seguridad: sin esto, las estampas de los extremos quedan pegadas
+  // a x=0/x=widthPx y el recorte de esquinas redondeadas del pase (o la propia
+  // UI del dispositivo) se las come. 6% por lado dentro del área utilizable.
+  const marginX = Math.round(widthPx * 0.06);
+  const marginY = Math.round(heightPx * 0.06);
+  const availableWidth = widthPx - marginX * 2;
+  const availableHeight = heightPx - marginY * 2;
+  const gap = Math.round(availableWidth * 0.012);
+  const rowHeight = Math.floor((availableHeight - gap * (rows.length - 1)) / rows.length);
+  const cellSize = Math.min(rowHeight, Math.floor((availableWidth - gap * (maxCols - 1)) / maxCols));
 
   // cellSize es constante para toda la franja, así que solo hay 2 estampas
   // distintas posibles (fresca / usada) — se calculan una sola vez y se
