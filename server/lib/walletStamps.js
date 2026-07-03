@@ -65,11 +65,29 @@ async function buildStampTile(sourceBuffer, size, used) {
     .toBuffer();
 }
 
+// Panel redondeado en blush claro detrás de las estampas — mismo look que la
+// vista previa (rgba(255,255,255,.35) sobre el rosa claro del pase). Se
+// rasteriza como SVG con sharp; el resto del lienzo queda transparente para
+// que el fondo real del pase siga viéndose alrededor del panel.
+function buildPanelSvg(widthPx, heightPx, marginX, marginY) {
+  const w = widthPx - marginX * 2;
+  const h = heightPx - marginY * 2;
+  const r = Math.round(Math.min(w, h) * 0.12);
+  return Buffer.from(
+    `<svg width="${widthPx}" height="${heightPx}" xmlns="http://www.w3.org/2000/svg">
+      <rect x="${marginX}" y="${marginY}" width="${w}" height="${h}" rx="${r}" ry="${r}"
+            fill="rgba(255,255,255,0.35)" />
+    </svg>`
+  );
+}
+
 // Compone la franja completa: `remaining` estampas visibles (en tinta, al
 // final del recorrido), el resto apagadas (gris + 18% opacidad, al inicio),
-// leyendo de izquierda a derecha y de arriba hacia abajo. Devuelve un Buffer
-// PNG transparente de widthPx×heightPx. Si `total` es 0 (o resolveStampLayout
-// no produce filas), devuelve un lienzo transparente vacío sin lanzar.
+// leyendo de izquierda a derecha y de arriba hacia abajo, sobre un panel
+// redondeado en blush claro. Devuelve un Buffer PNG transparente de
+// widthPx×heightPx (transparente fuera del panel). Si `total` es 0 (o
+// resolveStampLayout no produce filas), devuelve un lienzo transparente
+// vacío sin lanzar (sin panel — no hay nada que enmarcar).
 export async function renderStampStripPng({ total, remaining, widthPx, heightPx, sourcePath = STAMP_SOURCE_PATH }) {
   const rows = resolveStampLayout(total);
   if (!rows.length) {
@@ -78,6 +96,9 @@ export async function renderStampStripPng({ total, remaining, widthPx, heightPx,
       .toBuffer();
   }
   const sourceBuffer = await loadSourceBuffer(sourcePath);
+  const panelMarginX = Math.round(widthPx * 0.03);
+  const panelMarginY = Math.round(heightPx * 0.03);
+  const panelSvg = buildPanelSvg(widthPx, heightPx, panelMarginX, panelMarginY);
   const usedTotal = Math.max(0, total - remaining);
   const maxCols = Math.max(...rows);
   // Margen de seguridad: sin esto, las estampas de los extremos quedan pegadas
@@ -114,7 +135,7 @@ export async function renderStampStripPng({ total, remaining, widthPx, heightPx,
   }
 
   return sharp({ create: { width: widthPx, height: heightPx, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
-    .composite(composites)
+    .composite([{ input: panelSvg }, ...composites])
     .png()
     .toBuffer();
 }
