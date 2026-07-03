@@ -6197,6 +6197,9 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
     });
   }
 
+  // Mismo serial tep_<hex> que usa Apple — identificador general de wallet.
+  const stampSerial = buildAppleWalletSerialFromUserId(userId);
+
   // ── Build loyaltyObject ──────────────────────────────────────────────────
   const loyaltyObject = {
     id: objectId,
@@ -6214,6 +6217,15 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
         balance: isUnlimited ? { string: "Ilimitado" } : { int: classesRemaining },
         label: isUnlimited ? "MEMBRESÍA" : "CLASES RESTANTES",
       },
+    } : {}),
+    ...(shouldRenderStampStrip({ hasMembership, isUnlimited, hasEventPass, classLimit }) ? {
+      imageModulesData: [{
+        id: "stamp_strip",
+        mainImage: {
+          sourceUri: { uri: `${BACKEND_ORIGIN}/api/wallet/stamp-strip/${stampSerial}?r=${classesRemaining}-${classLimit}` },
+          contentDescription: { defaultValue: { language: "es", value: "Clases restantes" } },
+        },
+      }],
     } : {}),
     header: {
       defaultValue: { language: "es", value: passHeader },
@@ -8080,6 +8092,41 @@ app.get("/api/wallet/v1/devices/:deviceId/registrations/:passTypeId", async (req
     });
   } catch (err) {
     console.error("Apple list passes error:", err);
+    return res.status(500).send();
+  }
+});
+
+// GET /api/wallet/stamp-strip/:serial — imagen pública de la franja de
+// estampas (la consume Google Wallet vía imageModulesData). Sin auth: Google
+// la pide directo, mismo patrón sin autenticación que el endpoint de abajo
+// (/api/wallet/v1/passes/:passTypeId/:serial). El :serial es el mismo
+// identificador tep_<hex> que ya usa Apple — no es específico de esa
+// plataforma pese al nombre de la función que lo parsea.
+app.get("/api/wallet/stamp-strip/:serial", async (req, res) => {
+  try {
+    const userId = parseUserIdFromAppleWalletSerial(req.params.serial);
+    if (!userId) return res.status(404).send();
+    const snapshot = await getWalletSnapshotForUser(userId);
+    if (!snapshot) return res.status(404).send();
+    const { membership } = snapshot;
+    const hasMembership = !!membership;
+    const isUnlimited = hasMembership && (membership.class_limit === null || membership.class_limit >= 9999);
+    const classLimit = hasMembership ? Number(membership.class_limit ?? 0) : 0;
+    const classesRemaining = hasMembership && !isUnlimited
+      ? Math.max(0, Number(membership.classes_remaining ?? classLimit ?? 0))
+      : 0;
+    const render = shouldRenderStampStrip({ hasMembership, isUnlimited, hasEventPass: false, classLimit });
+    const buffer = await renderStampStripPng({
+      total: render ? classLimit : 0,
+      remaining: render ? classesRemaining : 0,
+      widthPx: 1860,
+      heightPx: 610,
+    });
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    return res.send(buffer);
+  } catch (err) {
+    console.error("GET /api/wallet/stamp-strip/:serial error:", err.message);
     return res.status(500).send();
   }
 });
