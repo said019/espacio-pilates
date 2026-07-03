@@ -7166,8 +7166,7 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const classesRemaining = hasMembership
     ? Math.max(0, Number(membership.classes_remaining ?? classLimit ?? 0))
     : 0;
-  const stripStampState = resolveWalletStripStampState(classLimit, classesRemaining);
-  const hasIconStampMode = hasMembership && !isUnlimited && stripStampState.total > 0;
+  const hasIconStampMode = shouldRenderStampStrip({ hasMembership, isUnlimited, hasEventPass, classLimit });
   const membershipHeadline = isUnlimited ? "Membresía" : membershipCategoryLabel;
   const memberDisplayName = truncateWalletField(userName, 22);
   const firstName = truncateWalletField(String(userName || "").trim().split(/\s+/)[0] || "Alumna", 18);
@@ -7181,7 +7180,6 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     hasMembership ? (membership.plan_name || `${membershipCategoryLabel} ${isUnlimited ? "Ilimitado" : ""}`.trim()) : "",
     28,
   );
-  const shouldUseStampStrip = !hasEventPass && hasMembership && !isUnlimited && stripStampState.total > 0;
   const showFullFrontTextFields = hasEventPass
     ? parseBooleanFlag(process.env.APPLE_WALLET_SHOW_FRONT_TEXT_EVENT || false)
     : parseBooleanFlag(process.env.APPLE_WALLET_SHOW_FRONT_TEXT_MEMBERSHIP || false);
@@ -7575,13 +7573,6 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const thumbPath = null;
   const thumb2xPath = null;
 
-  // Sin strip: la franja del medio ("morado con iconos") era arte de marca ajena
-  // (Ophelia). El pase queda limpio: solo logo TEP + campos + QR sobre rosa claro.
-  const dynamicStripName = "none";
-  const stripPath = null;
-  const strip2xPath = null;
-  const strip3xPath = null;
-
   const readAssetBuffer = (assetPath) => (assetPath && fs.existsSync(assetPath) ? fs.readFileSync(assetPath) : null);
   const iconBuffer = readAssetBuffer(iconPath);
   const icon2xBuffer = readAssetBuffer(icon2xPath) || iconBuffer;
@@ -7591,9 +7582,15 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const logo3xBuffer = readAssetBuffer(logo3xPath) || logo2xBuffer || logoBuffer;
   const thumbBuffer = readAssetBuffer(thumbPath);
   const thumb2xBuffer = readAssetBuffer(thumb2xPath) || thumbBuffer;
-  const stripBuffer = readAssetBuffer(stripPath);
-  const strip2xBuffer = readAssetBuffer(strip2xPath) || stripBuffer;
-  const strip3xBuffer = readAssetBuffer(strip3xPath) || strip2xBuffer || stripBuffer;
+  const stripBuffer = hasIconStampMode
+    ? await renderStampStripPng({ total: classLimit, remaining: classesRemaining, widthPx: 375, heightPx: 123 })
+    : null;
+  const strip2xBuffer = hasIconStampMode
+    ? await renderStampStripPng({ total: classLimit, remaining: classesRemaining, widthPx: 750, heightPx: 246 })
+    : null;
+  const strip3xBuffer = hasIconStampMode
+    ? await renderStampStripPng({ total: classLimit, remaining: classesRemaining, widthPx: 1125, heightPx: 369 })
+    : null;
 
   console.log(
     "[Apple Wallet] Assets found — icon:", !!iconBuffer,
@@ -7605,8 +7602,7 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     "thumbnail:", !!thumbBuffer,
     "thumbnail@2x:", !!thumb2xBuffer,
     "strip:", !!stripBuffer,
-    "stripState:", `${stripStampState.remaining}/${stripStampState.total}`,
-    "stripAsset:", dynamicStripName,
+    "stripState:", hasIconStampMode ? `${classesRemaining}/${classLimit}` : "sin franja",
   );
 
   // Build file map for the pass
