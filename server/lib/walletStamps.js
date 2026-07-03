@@ -84,6 +84,13 @@ export async function renderStampStripPng({ total, remaining, widthPx, heightPx,
   const rowHeight = Math.floor((heightPx - gap * (rows.length - 1)) / rows.length);
   const cellSize = Math.min(rowHeight, Math.floor((widthPx - gap * (maxCols - 1)) / maxCols));
 
+  // cellSize es constante para toda la franja, así que solo hay 2 estampas
+  // distintas posibles (fresca / usada) — se calculan una sola vez y se
+  // reutiliza el mismo Buffer en cada posición que le toque, en vez de
+  // recomponer con sharp una vez por cada una de las hasta 14 estampas.
+  const freshTile = await buildStampTile(sourceBuffer, cellSize, false);
+  const usedTile = usedTotal > 0 ? await buildStampTile(sourceBuffer, cellSize, true) : null;
+
   const composites = [];
   let idx = 0;
   let y = Math.round((heightPx - (rowHeight * rows.length + gap * (rows.length - 1))) / 2);
@@ -91,8 +98,7 @@ export async function renderStampStripPng({ total, remaining, widthPx, heightPx,
     const rowWidth = count * cellSize + (count - 1) * gap;
     let x = Math.round((widthPx - rowWidth) / 2);
     for (let i = 0; i < count; i++) {
-      const used = idx < usedTotal;
-      const tile = await buildStampTile(sourceBuffer, cellSize, used);
+      const tile = idx < usedTotal ? usedTile : freshTile;
       composites.push({ input: tile, left: x, top: y });
       x += cellSize + gap;
       idx++;
