@@ -7582,15 +7582,16 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const logo3xBuffer = readAssetBuffer(logo3xPath) || logo2xBuffer || logoBuffer;
   const thumbBuffer = readAssetBuffer(thumbPath);
   const thumb2xBuffer = readAssetBuffer(thumb2xPath) || thumbBuffer;
-  const stripBuffer = hasIconStampMode
-    ? await renderStampStripPng({ total: classLimit, remaining: classesRemaining, widthPx: 375, heightPx: 123 })
-    : null;
-  const strip2xBuffer = hasIconStampMode
-    ? await renderStampStripPng({ total: classLimit, remaining: classesRemaining, widthPx: 750, heightPx: 246 })
-    : null;
-  const strip3xBuffer = hasIconStampMode
-    ? await renderStampStripPng({ total: classLimit, remaining: classesRemaining, widthPx: 1125, heightPx: 369 })
-    : null;
+  const [stripBuffer, strip2xBuffer, strip3xBuffer] = hasIconStampMode
+    ? await Promise.all([
+        renderStampStripPng({ total: classLimit, remaining: classesRemaining, widthPx: 375, heightPx: 123 })
+          .catch((err) => { console.error("[Apple Wallet] strip render error (1x):", err.message); return null; }),
+        renderStampStripPng({ total: classLimit, remaining: classesRemaining, widthPx: 750, heightPx: 246 })
+          .catch((err) => { console.error("[Apple Wallet] strip render error (2x):", err.message); return null; }),
+        renderStampStripPng({ total: classLimit, remaining: classesRemaining, widthPx: 1125, heightPx: 369 })
+          .catch((err) => { console.error("[Apple Wallet] strip render error (3x):", err.message); return null; }),
+      ])
+    : [null, null, null];
 
   console.log(
     "[Apple Wallet] Assets found — icon:", !!iconBuffer,
