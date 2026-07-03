@@ -5758,6 +5758,12 @@ const SITE_URL = process.env.SITE_URL || "https://www.tuespaciopilates.com.mx";
 // que Google rechazara la clase por "Invalid image URL".
 let SITE_ORIGIN;
 try { SITE_ORIGIN = new URL(SITE_URL).origin; } catch { SITE_ORIGIN = "https://www.tuespaciopilates.com.mx"; }
+// El webServiceURL de Apple (registro/actualización de pases por APNs) DEBE apuntar al
+// BACKEND: el dominio del frontend no enruta /api (devuelve el SPA). Sin esto, los pases
+// instalados no reciben updates de clases restantes/próxima clase.
+let BACKEND_ORIGIN;
+try { BACKEND_ORIGIN = new URL(process.env.BACKEND_URL || "https://web-production-b1a1d.up.railway.app").origin; }
+catch { BACKEND_ORIGIN = "https://web-production-b1a1d.up.railway.app"; }
 const GW_ISSUER_ID = process.env.GOOGLE_ISSUER_ID || "";
 const GW_ISSUER_NAME = process.env.GOOGLE_ISSUER_NAME || "Tu Espacio Pilates";
 const GW_PROGRAM_NAME = process.env.GOOGLE_PROGRAM_NAME || "Tu Espacio Pilates Club";
@@ -7479,7 +7485,7 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
         messageEncoding: "iso-8859-1",
       },
     ],
-    webServiceURL: `${SITE_ORIGIN}/api/wallet`,
+    webServiceURL: `${BACKEND_ORIGIN}/api/wallet`,
     authenticationToken: APPLE_AUTH_TOKEN,
     relevantDate: eventRelevantDate,
   };
