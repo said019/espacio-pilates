@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveStampLayout } from "../walletStamps.js";
+import { resolveStampLayout, shouldRenderStampStrip } from "../walletStamps.js";
 
 describe("resolveStampLayout", () => {
   it("total 0 o negativo → sin filas", () => {
@@ -21,5 +21,27 @@ describe("resolveStampLayout", () => {
   });
   it("total 20 (paquete futuro hipotético) → se acomoda solo (10 y 10)", () => {
     expect(resolveStampLayout(20)).toEqual([10, 10]);
+  });
+});
+
+describe("shouldRenderStampStrip", () => {
+  const base = { hasMembership: true, isUnlimited: false, hasEventPass: false, classLimit: 7 };
+
+  it("paquete real (7/9/14 clases) → sí", () => {
+    expect(shouldRenderStampStrip({ ...base, classLimit: 7 })).toBe(true);
+    expect(shouldRenderStampStrip({ ...base, classLimit: 9 })).toBe(true);
+    expect(shouldRenderStampStrip({ ...base, classLimit: 14 })).toBe(true);
+  });
+  it("Clase Extra / Suelta (1 clase) → no", () => {
+    expect(shouldRenderStampStrip({ ...base, classLimit: 1 })).toBe(false);
+  });
+  it("sin membresía → no", () => {
+    expect(shouldRenderStampStrip({ ...base, hasMembership: false })).toBe(false);
+  });
+  it("membresía ilimitada → no", () => {
+    expect(shouldRenderStampStrip({ ...base, isUnlimited: true })).toBe(false);
+  });
+  it("pase de evento → no", () => {
+    expect(shouldRenderStampStrip({ ...base, hasEventPass: true })).toBe(false);
   });
 });

@@ -14,3 +14,11 @@ export function resolveStampLayout(total) {
   const row1 = Math.ceil(n / 2);
   return [row1, n - row1];
 }
+
+// ¿Este pase debe llevar franja de estampas? No para: sin membresía, membresía
+// ilimitada, pases de evento, o paquetes de 1 sola clase (Clase Extra/Suelta —
+// una sola estampa no comunica nada; se deja solo el texto "1/1" que ya existe).
+export function shouldRenderStampStrip({ hasMembership, isUnlimited, hasEventPass, classLimit }) {
+  if (!hasMembership || isUnlimited || hasEventPass) return false;
+  return Number(classLimit) > 1;
+}
