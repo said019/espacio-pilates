@@ -23,6 +23,8 @@ import {
   buildPushPayload,
   shouldPruneSubscription,
   sendWebPush,
+  buildAdminSaleMessage,
+  buildAdminPendingMessage,
 } from "./lib/push.js";
 import { isEmailIdentifier } from "./lib/authIdentity.js";
 import { resolveStampLayout, shouldRenderStampStrip, renderStampStripPng } from "./lib/walletStamps.js";
@@ -10097,6 +10099,45 @@ async function sendPushToUser(userId, { title, body, url = "/", tag, respectPref
     return { sent, failed, pruned };
   } catch (e) {
     console.error("[sendPushToUser]", e.message);
+    return { sent: 0, failed: 0, pruned: 0 };
+  }
+}
+
+// Fan-out a TODAS las cuentas admin/super_admin suscritas (no filtra por
+// preferencia individual — el propio toggle en el panel admin ES la
+// preferencia). Best-effort, igual que sendPushToUser: nunca lanza, nunca
+// bloquea al caller.
+async function sendPushToAdmins({ title, body, url = "/admin/dashboard", tag } = {}) {
+  if (!isPushConfigured()) return { sent: 0, failed: 0, pruned: 0 };
+  try {
+    const subs = await pool.query(
+      `SELECT ps.id, ps.endpoint, ps.p256dh, ps.auth
+         FROM push_subscriptions ps
+         JOIN users u ON u.id = ps.user_id
+        WHERE u.role IN ('admin', 'super_admin')`
+    );
+    if (!subs.rows.length) return { sent: 0, failed: 0, pruned: 0 };
+    const payload = buildPushPayload({ title, body, url, tag });
+    let sent = 0, failed = 0, pruned = 0;
+    for (const row of subs.rows) {
+      const subscription = { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } };
+      try {
+        await sendWebPush(subscription, payload);
+        sent++;
+        pool.query("UPDATE push_subscriptions SET last_used_at = NOW() WHERE id = $1", [row.id]).catch(() => { });
+      } catch (err) {
+        if (shouldPruneSubscription(err)) {
+          pruned++;
+          pool.query("DELETE FROM push_subscriptions WHERE id = $1", [row.id]).catch(() => { });
+        } else {
+          failed++;
+          console.error("[Push admin] send error:", err?.statusCode || err?.message);
+        }
+      }
+    }
+    return { sent, failed, pruned };
+  } catch (e) {
+    console.error("[sendPushToAdmins]", e.message);
     return { sent: 0, failed: 0, pruned: 0 };
   }
 }
