@@ -8,7 +8,9 @@ import {
   LayoutDashboard, Package, CreditCard, Users, CalendarDays,
   BookOpen, DollarSign, BarChart3, Ticket,
   Settings, ChevronLeft, ChevronRight, ChevronDown, LogOut, Globe, Menu, X, UserSquare2,
+  Bell, BellOff,
 } from "lucide-react";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 const NAV_GROUPS = [
   {
@@ -66,6 +68,9 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
   const navigate = useNavigate();
   const logout = useAuthStore((s) => s.logout);
   const user = useAuthStore((s) => s.user as any);
+  const isAdminRole = user?.role === "admin" || user?.role === "super_admin";
+  const { status: pushStatus, isBusy: pushIsBusy, enable: enablePush, disable: disablePush } = usePushNotifications();
+  const showPushToggle = isAdminRole && !["unsupported", "needs-install-ios", "loading"].includes(pushStatus);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -268,6 +273,23 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
               En línea
             </span>
             <div className="hidden sm:block w-px h-4 bg-valiance-blush" />
+            {showPushToggle && (
+              <button
+                type="button"
+                onClick={pushStatus === "active" ? disablePush : enablePush}
+                disabled={pushIsBusy}
+                title={pushStatus === "active" ? "Notificaciones activas — clic para desactivar" : "Activar notificaciones de venta y pendientes"}
+                aria-label={pushStatus === "active" ? "Desactivar notificaciones" : "Activar notificaciones"}
+                className={cn(
+                  "flex items-center justify-center w-9 h-9 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed",
+                  pushStatus === "active"
+                    ? "text-valiance-mauve bg-valiance-blush/40"
+                    : "text-valiance-charcoal/55 hover:text-valiance-charcoal hover:bg-valiance-blush/40",
+                )}
+              >
+                {pushStatus === "active" ? <Bell size={16} strokeWidth={1.6} /> : <BellOff size={16} strokeWidth={1.6} />}
+              </button>
+            )}
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-9 h-9 rounded-full bg-valiance-mauve flex items-center justify-center font-display text-[0.92rem] text-valiance-nude">
                 {initials}
