@@ -4757,6 +4757,16 @@ async function createCartOrder(req, res, paymentMethod) {
 
     await client.query("COMMIT");
 
+    if (paymentMethod === "cash") {
+      pool.query("SELECT display_name FROM users WHERE id = $1", [req.userId])
+        .then((r) => sendPushToAdmins({
+          ...buildAdminPendingMessage({ clientName: r.rows[0]?.display_name || "Alumna", reason: "cash" }),
+          url: "/admin/payments?tab=pending",
+          tag: `admin_pending_${order.id}`,
+        }))
+        .catch((e) => console.error("[Push admin] cash order (cart):", e.message));
+    }
+
     // Tarjeta: preferencia de MP (por compatibilidad) — el Brick usa total_amount
     let mp_checkout_url = null;
     if (paymentMethod === "card") {
@@ -4966,6 +4976,16 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
 
     const order = orderRes.rows[0];
 
+    if (paymentMethod === "cash") {
+      pool.query("SELECT display_name FROM users WHERE id = $1", [req.userId])
+        .then((r) => sendPushToAdmins({
+          ...buildAdminPendingMessage({ clientName: r.rows[0]?.display_name || "Alumna", reason: "cash" }),
+          url: "/admin/payments?tab=pending",
+          tag: `admin_pending_${order.id}`,
+        }))
+        .catch((e) => console.error("[Push admin] cash order:", e.message));
+    }
+
     // ── Tarjeta: generar checkout de MercadoPago (fuera de la transacción) ──
     let mp_checkout_url = null;
     if (paymentMethod === "card") {
@@ -5057,6 +5077,13 @@ app.post("/api/orders/:id/proof", authMiddleware, upload.any(), async (req, res)
       "UPDATE orders SET status = 'pending_verification', paid_at = COALESCE(paid_at, NOW()) WHERE id = $1",
       [req.params.id]
     );
+    pool.query("SELECT display_name FROM users WHERE id = $1", [req.userId])
+      .then((r) => sendPushToAdmins({
+        ...buildAdminPendingMessage({ clientName: r.rows[0]?.display_name || "Alumna", reason: "proof" }),
+        url: "/admin/payments?tab=pending",
+        tag: `admin_pending_${req.params.id}`,
+      }))
+      .catch((e) => console.error("[Push admin] proof uploaded:", e.message));
     return res.json({ message: "Comprobante recibido — estamos verificando tu pago" });
   } catch (err) {
     console.error("POST orders/proof error:", err.message, err.stack);
