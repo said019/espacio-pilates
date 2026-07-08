@@ -5532,6 +5532,11 @@ async function approveOrderFromMP(orderId, mpPaymentId) {
               endDate: new Date(emailEndStr).toLocaleDateString("es-MX"),
             },
           }).catch((e) => console.error("[Push] MP approve:", e.message));
+          sendPushToAdmins({
+            ...buildAdminSaleMessage({ clientName: u.display_name || "Alumna", planName: planRow.name || "un plan" }),
+            url: "/admin/dashboard",
+            tag: `admin_sale_${order.id}`,
+          }).catch((e) => console.error("[Push admin] MP approve:", e.message));
         }
       }
       sendReceiptForApprovedOrder(order).catch(() => { });
@@ -13305,6 +13310,11 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
               endDate: new Date(emailEndStr).toLocaleDateString("es-MX"),
             },
           }).catch((e) => console.error("[Push] admin order verify:", e.message));
+          sendPushToAdmins({
+            ...buildAdminSaleMessage({ clientName: u.display_name || "Alumna", planName: plan.name || "un plan" }),
+            url: "/admin/dashboard",
+            tag: `admin_sale_${order.id}`,
+          }).catch((e) => console.error("[Push admin] order verify:", e.message));
         }
       } catch (emailErr) {
         console.error("[Email] admin order verify query:", emailErr.message);
