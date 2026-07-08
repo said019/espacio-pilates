@@ -15,6 +15,8 @@ import {
   buildPushPayload,
   shouldPruneSubscription,
   sendWebPush,
+  buildAdminSaleMessage,
+  buildAdminPendingMessage,
 } from "../push.js";
 
 const SUB = { endpoint: "https://push.example/abc", keys: { p256dh: "p", auth: "a" } };
@@ -86,5 +88,32 @@ describe("sendWebPush", () => {
       "mailto:espaciopilatesvm@gmail.com", "PUB", "PRIV"
     );
     expect(webpush.sendNotification).toHaveBeenCalledWith(SUB, "{\"title\":\"x\"}");
+  });
+});
+
+describe("buildAdminSaleMessage", () => {
+  it("arma título y cuerpo con nombre y plan", () => {
+    const msg = buildAdminSaleMessage({ clientName: "Ana López", planName: "Paquete 9 clases" });
+    expect(msg).toEqual({
+      title: "🎉 Nueva venta",
+      body: "Ana López compró Paquete 9 clases",
+    });
+  });
+});
+
+describe("buildAdminPendingMessage", () => {
+  it("mensaje de comprobante subido (reason: proof)", () => {
+    const msg = buildAdminPendingMessage({ clientName: "Ana López", reason: "proof" });
+    expect(msg).toEqual({
+      title: "📋 Pendiente por revisar",
+      body: "Ana López subió su comprobante — pendiente de revisar",
+    });
+  });
+  it("mensaje de pago en efectivo (reason: cash)", () => {
+    const msg = buildAdminPendingMessage({ clientName: "Ana López", reason: "cash" });
+    expect(msg).toEqual({
+      title: "📋 Pendiente por revisar",
+      body: "Ana López eligió pagar en efectivo — pendiente de confirmar",
+    });
   });
 });

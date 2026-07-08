@@ -42,3 +42,20 @@ export async function sendWebPush(subscription, payload) {
   await webpush.sendNotification(subscription, payload);
   return { sent: true };
 }
+
+// Mensajes fijos para push del lado admin — no pasan por notification_templates
+// (ese sistema es editable desde Configuración y es solo para clientas).
+// server/index.js decide desde dónde y cuándo llamarlos.
+export function buildAdminSaleMessage({ clientName, planName }) {
+  return {
+    title: "🎉 Nueva venta",
+    body: `${clientName} compró ${planName}`,
+  };
+}
+
+export function buildAdminPendingMessage({ clientName, reason }) {
+  const body = reason === "cash"
+    ? `${clientName} eligió pagar en efectivo — pendiente de confirmar`
+    : `${clientName} subió su comprobante — pendiente de revisar`;
+  return { title: "📋 Pendiente por revisar", body };
+}
