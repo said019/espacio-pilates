@@ -2,6 +2,7 @@ export interface BookingClient {
   id: string;
   class_id: string;
   class_type_name: string;
+  class_category?: string;
   instructor_name: string;
   start_time: string;
   end_time: string;

@@ -58,7 +58,9 @@ function normalizeSpecialties(value: unknown): string[] {
     try {
       const parsed = JSON.parse(trimmed);
       if (Array.isArray(parsed)) return parsed.map((s) => String(s).trim()).filter(Boolean);
-    } catch (_) {}
+    } catch (_) {
+      // A plain comma-separated value is expected when it is not valid JSON.
+    }
     return trimmed.split(",").map((s) => s.trim()).filter(Boolean);
   }
   return [];

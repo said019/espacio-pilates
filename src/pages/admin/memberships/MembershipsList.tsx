@@ -781,7 +781,7 @@ const MembershipsList = () => {
                 if (!selPlan) return null;
                 const basePrice = parseFloat(selPlan?.price ?? 0);
                 const isDiscount = selPM === "efectivo" || selPM === "transferencia";
-                let total = basePrice;
+                const total = basePrice;
                 let discountTotal: number | null = null;
                 if (isDiscount) {
                   const dp = selPlan?.discountPrice ?? selPlan?.discount_price;

@@ -253,6 +253,19 @@ const BookClasses = () => {
                           const start = startTime ? safeParse(startTime) : null;
                           const isPast = start ? isBefore(start, now) : true;
                           const isBooked = myBookedClassIds.has(cls.id as string);
+                          const className = typeof cls.class_type_name === "string" && cls.class_type_name
+                            ? cls.class_type_name
+                            : "Pilates";
+                          const classCategory = String(cls.class_category ?? "all").toLowerCase();
+                          const membershipCategoriesRaw = membership?.classCategories ?? membership?.class_categories;
+                          const membershipCategories = Array.isArray(membershipCategoriesRaw)
+                            ? membershipCategoriesRaw.map((value) => String(value).toLowerCase())
+                            : [String(membership?.classCategory ?? membership?.class_category ?? "all").toLowerCase()];
+                          const isPrenatalClass = classCategory === "prenatal" || className.toLowerCase() === "prenatal";
+                          const hasPrenatalAccess = membershipCategories.includes("prenatal");
+                          const hasRegularAccess = membershipCategories.some((category) => category !== "prenatal");
+                          const prenatalAccessMismatch = hasActive
+                            && (isPrenatalClass ? !hasPrenatalAccess : !hasRegularAccess);
 
                           // Availability — disciplina única, cupo 8.
                           const rawCurrent = cls.current_bookings;
@@ -265,7 +278,7 @@ const BookClasses = () => {
                           const isFull = hasAvailability && remaining === 0;
 
                           // Bookable only when not past, not full (unless already booked).
-                          const disabled = !isBooked && (isPast || isFull);
+                          const disabled = !isBooked && (isPast || isFull || prenatalAccessMismatch);
 
                           // Apparatus — 'reformer' | 'tower'; default reformer.
                           const rawApparatus =
@@ -276,7 +289,9 @@ const BookClasses = () => {
                           // Tower se conserva como excepción de aparato.
                           const classFocus =
                             typeof cls.focus === "string" && cls.focus ? cls.focus : theme;
-                          const apparatusLabel = isTower ? "Tower" : (classFocus || "Pilates");
+                          const apparatusLabel = isTower
+                            ? "Tower"
+                            : isPrenatalClass ? "Reformer" : (classFocus || "Pilates");
 
                           return (
                             <button
@@ -314,14 +329,14 @@ const BookClasses = () => {
                               </div>
 
                               <p className="font-display text-[0.95rem] leading-tight text-valiance-charcoal/80 mt-1.5">
-                                Pilates
+                                {className}
                               </p>
 
                               {/* Apparatus — Reformer (default) / Tower (lavender·gold accent) */}
                               <span
                                 className={cn(
                                   "mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.56rem] tracking-[0.12em] uppercase font-medium",
-                                  isTower
+                                  isTower || isPrenatalClass
                                     ? "bg-valiance-lavender/25 text-valiance-plum ring-1 ring-valiance-gold/30"
                                     : "bg-valiance-charcoal/[0.05] text-valiance-mauve ring-1 ring-valiance-charcoal/8"
                                 )}
@@ -329,7 +344,7 @@ const BookClasses = () => {
                                 <span
                                   className={cn(
                                     "w-1 h-1 rounded-full",
-                                    isTower ? "bg-valiance-gold" : "bg-valiance-mauve/60"
+                                    isTower || isPrenatalClass ? "bg-valiance-gold" : "bg-valiance-mauve/60"
                                   )}
                                 />
                                 {apparatusLabel}
@@ -339,6 +354,10 @@ const BookClasses = () => {
                               {isBooked ? (
                                 <p className="text-[0.6rem] tracking-[0.1em] uppercase text-valiance-gold font-medium mt-1.5">
                                   Reservada
+                                </p>
+                              ) : prenatalAccessMismatch ? (
+                                <p className="text-[0.6rem] text-valiance-mauve mt-1.5 leading-tight">
+                                  {isPrenatalClass ? "Requiere membresía Prenatal" : "Tu membresía es solo Prenatal"}
                                 </p>
                               ) : isFull ? (
                                 <p className="text-[0.6rem] text-valiance-mauve mt-1.5 leading-tight">

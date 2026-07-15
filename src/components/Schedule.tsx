@@ -60,7 +60,7 @@ function formatTime(iso: string) {
 // "07:00" → "7:00 am" — formato cálido y legible
 function prettyHHmm(hhmm: string) {
   const [hRaw, mRaw] = hhmm.split(":");
-  let h = Number(hRaw); const m = Number(mRaw ?? 0);
+  const h = Number(hRaw); const m = Number(mRaw ?? 0);
   if (Number.isNaN(h)) return hhmm;
   const ampm = h < 12 ? "am" : "pm";
   let hh = h % 12; if (hh === 0) hh = 12;

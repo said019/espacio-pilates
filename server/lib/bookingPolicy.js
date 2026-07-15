@@ -17,3 +17,12 @@ export function canReschedule({ nowMs, classStartMs, rescheduleHours = 3 }) {
   const hoursLeft = (classStartMs - nowMs) / 3600_000;
   return { allowed: hoursLeft >= rescheduleHours };
 }
+
+export function membershipStartDate(requestedStart, plan) {
+  const requested = String(requestedStart).slice(0, 10);
+  const rawStartsOn = plan?.starts_on ?? plan?.startsOn;
+  const startsOn = rawStartsOn instanceof Date
+    ? rawStartsOn.toISOString().slice(0, 10)
+    : String(rawStartsOn || "").slice(0, 10);
+  return startsOn && requested < startsOn ? startsOn : requested;
+}

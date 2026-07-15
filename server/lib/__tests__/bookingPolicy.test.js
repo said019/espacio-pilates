@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { endOfPurchaseMonth, canCancel, canReschedule } from '../bookingPolicy.js';
+import { endOfPurchaseMonth, canCancel, canReschedule, membershipStartDate } from '../bookingPolicy.js';
 
 describe('endOfPurchaseMonth', () => {
   it('devuelve el último día del mes de compra', () => {
@@ -43,5 +43,21 @@ describe('canReschedule', () => {
   });
   it('<3h: no reagenda', () => {
     expect(canReschedule({ nowMs: start - 2*H, classStartMs: start })).toEqual({ allowed: false });
+  });
+});
+
+describe('membershipStartDate', () => {
+  const prenatal = { starts_on: '2026-08-01' };
+
+  it('starts Prenatal on August 1 when purchased in July', () => {
+    expect(membershipStartDate('2026-07-15', prenatal)).toBe('2026-08-01');
+  });
+
+  it('keeps the purchase date after the launch', () => {
+    expect(membershipStartDate('2026-09-03', prenatal)).toBe('2026-09-03');
+  });
+
+  it('does not change regular plans', () => {
+    expect(membershipStartDate('2026-07-15', {})).toBe('2026-07-15');
   });
 });

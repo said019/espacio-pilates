@@ -50,6 +50,7 @@ interface ClassOption {
   id: string;
   start_time: string;
   class_type_name?: string;
+  class_category?: string;
   instructor_name?: string;
   current_bookings?: number;
   max_capacity?: number;
@@ -206,6 +207,13 @@ const MyBookings = () => {
     .filter((c) => {
       if (!c.start_time) return false;
       if (rescheduleBooking && c.id === rescheduleBooking.class_id) return false;
+      if (rescheduleBooking) {
+        const sourcePrenatal = rescheduleBooking.class_category === "prenatal"
+          || rescheduleBooking.class_type_name?.toLowerCase() === "prenatal";
+        const targetPrenatal = c.class_category === "prenatal"
+          || c.class_type_name?.toLowerCase() === "prenatal";
+        if (sourcePrenatal !== targetPrenatal) return false;
+      }
       if (new Date(c.start_time).getTime() <= nowTs) return false;
       const cap = c.max_capacity ?? c.capacity;
       const booked = c.current_bookings;

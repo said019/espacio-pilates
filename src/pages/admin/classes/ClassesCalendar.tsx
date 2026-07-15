@@ -61,7 +61,7 @@ interface ClassType {
   id: string;
   name: string;
   color: string;
-  category?: "reformer" | "barre" | "pilates" | "bienestar";
+  category?: "reformer" | "barre" | "pilates" | "bienestar" | "prenatal";
   defaultDuration?: number;
   durationMin?: number;
   maxCapacity?: number;
@@ -102,7 +102,7 @@ type ClassFormData = z.infer<typeof classSchema>;
 const typeSchema = z.object({
   name: z.string().min(1),
   color: z.string().default("#D1B9B4"),
-  category: z.enum(["reformer", "barre", "pilates", "bienestar"]).default("reformer"),
+  category: z.enum(["reformer", "barre", "pilates", "bienestar", "prenatal"]).default("reformer"),
   defaultDuration: z.coerce.number().min(1),
   maxCapacity: z.coerce.number().min(1),
   isActive: z.boolean().default(true),
@@ -1091,8 +1091,8 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
     form.reset({
       name: t.name,
       color: t.color,
-      category: (["reformer", "barre", "pilates", "bienestar"].includes(String(t.category))
-        ? (t.category as "reformer" | "barre" | "pilates" | "bienestar")
+      category: (["reformer", "barre", "pilates", "bienestar", "prenatal"].includes(String(t.category))
+        ? (t.category as "reformer" | "barre" | "pilates" | "bienestar" | "prenatal")
         : "reformer"),
       defaultDuration: t.defaultDuration ?? t.durationMin ?? 50,
       maxCapacity: t.maxCapacity ?? t.capacity ?? 10,
@@ -1136,6 +1136,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
                       {t.category === "barre" && <Badge className="bg-[#716D64]/15 text-[#716D64] border border-[#716D64]/25">Barre</Badge>}
                       {t.category === "bienestar" && <Badge className="bg-[#716D64]/20 text-[#716D64] border border-[#716D64]/30">Bienestar</Badge>}
                       {t.category === "pilates" && <Badge className="bg-[#D1B9B4]/20 text-[#716D64] border border-[#D1B9B4]/30">Pilates</Badge>}
+                      {t.category === "prenatal" && <Badge className="bg-[#F4EAD6] text-[#716D64] border border-[#E5CF9F]">Prenatal</Badge>}
                       {!t.category && <Badge variant="secondary">—</Badge>}
                       <Badge variant="outline">{(t.defaultDuration ?? t.durationMin ?? "—") + " min"}</Badge>
                       <Badge variant="outline">{(t.maxCapacity ?? t.capacity ?? "—") + " cupos"}</Badge>
@@ -1189,6 +1190,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
                     {t.category === "barre" && <Badge className="bg-[#716D64]/15 text-[#716D64] border border-[#716D64]/25">Barre</Badge>}
                     {t.category === "bienestar" && <Badge className="bg-[#716D64]/20 text-[#716D64] border border-[#716D64]/30">Bienestar</Badge>}
                     {t.category === "pilates" && <Badge className="bg-[#D1B9B4]/20 text-[#716D64] border border-[#D1B9B4]/30">Pilates</Badge>}
+                    {t.category === "prenatal" && <Badge className="bg-[#F4EAD6] text-[#716D64] border border-[#E5CF9F]">Prenatal</Badge>}
                     {!t.category && <Badge variant="secondary">—</Badge>}
                   </TableCell>
                   <TableCell>{(t.defaultDuration ?? t.durationMin ?? "—") + " min"}</TableCell>
@@ -1234,7 +1236,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
               <Label>Categoría</Label>
               <Select
                 value={form.watch("category")}
-                onValueChange={(v) => form.setValue("category", v as "reformer" | "barre" | "pilates" | "bienestar")}
+                onValueChange={(v) => form.setValue("category", v as "reformer" | "barre" | "pilates" | "bienestar" | "prenatal")}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar categoría" />
@@ -1243,6 +1245,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
                   <SelectItem value="reformer">Pilates Reformer</SelectItem>
                   <SelectItem value="barre">Barre</SelectItem>
                   <SelectItem value="bienestar">Bienestar</SelectItem>
+                  <SelectItem value="prenatal">Prenatal</SelectItem>
                   <SelectItem value="pilates">Pilates (legacy)</SelectItem>
                 </SelectContent>
               </Select>

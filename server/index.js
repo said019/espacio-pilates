@@ -14,7 +14,12 @@ import crypto from "crypto";
 import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
-import { canCancel, canReschedule, endOfPurchaseMonth } from "./lib/bookingPolicy.js";
+import { canCancel, canReschedule, endOfPurchaseMonth, membershipStartDate } from "./lib/bookingPolicy.js";
+import {
+  compatibleMembershipCategoriesForClass,
+  isMembershipCategoryCompatible,
+  normalizeClassCategory,
+} from "./lib/classAccess.js";
 import { createPreference, createCardPayment, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
 import { computeCartTotals } from "./lib/cartPricing.js";
 import {
@@ -491,7 +496,8 @@ pool.on("error", (err) => {
 
 // ─── Canonical weekly schedule (Tu Espacio Pilates VM) ──────────────────────
 // day_of_week: 1=Lun … 6=Sáb. Cada clase es apparatus='reformer' EXCEPTO
-// Viernes (5) 8:30 pm que es 'tower'. 23 slots en total. Esta es la ÚNICA
+// Viernes (5) 8:30 pm que es 'tower'. Prenatal inicia el 1-ago-2026 y tiene
+// sus propios slots martes/jueves 6:30 pm. Esta es la ÚNICA
 // fuente de verdad del horario: el seed inicial, el RESYNC versionado y la
 // generación de clases bookables leen de aquí.
 const SCHEDULE_SLOTS = [
@@ -502,6 +508,7 @@ const SCHEDULE_SLOTS = [
   { time_slot: "6:30 pm", day_of_week: 1, apparatus: "reformer" },
   { time_slot: "8:30 pm", day_of_week: 1, apparatus: "reformer" },
   // Martes (2)
+  { time_slot: "6:30 pm", day_of_week: 2, apparatus: "reformer", class_type_name: "Prenatal", starts_on: "2026-08-01" },
   { time_slot: "7:30 pm", day_of_week: 2, apparatus: "reformer" },
   // Miércoles (3)
   { time_slot: "7:00 am", day_of_week: 3, apparatus: "reformer" },
@@ -513,6 +520,7 @@ const SCHEDULE_SLOTS = [
   { time_slot: "8:30 pm", day_of_week: 3, apparatus: "reformer" },
   // Jueves (4)
   { time_slot: "5:30 pm", day_of_week: 4, apparatus: "reformer" },
+  { time_slot: "6:30 pm", day_of_week: 4, apparatus: "reformer", class_type_name: "Prenatal", starts_on: "2026-08-01" },
   { time_slot: "7:30 pm", day_of_week: 4, apparatus: "reformer" },
   // Viernes (5) — 8:30 pm = TOWER
   { time_slot: "7:00 am", day_of_week: 5, apparatus: "reformer" },
@@ -526,19 +534,26 @@ const SCHEDULE_SLOTS = [
   { time_slot: "9:00 am", day_of_week: 6, apparatus: "reformer" },
 ];
 
-// Insert the canonical 23 slots (class_type_name='Pilates') into schedule_slots.
+// Insert the canonical slots into schedule_slots. Regular rows default to
+// class_type_name='Pilates'; Prenatal rows carry their own type and start date.
 // Idempotent via ON CONFLICT DO NOTHING on the (time_slot, day_of_week) partial
 // unique index. Pass a pool or a client (within a txn) as `q`.
 async function buildScheduleSlotsInsert(q) {
   const values = [];
   const params = [];
   SCHEDULE_SLOTS.forEach((s, i) => {
-    const b = i * 4;
-    values.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4})`);
-    params.push(s.time_slot, s.day_of_week, "Pilates", s.apparatus);
+    const b = i * 5;
+    values.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5})`);
+    params.push(
+      s.time_slot,
+      s.day_of_week,
+      s.class_type_name || "Pilates",
+      s.apparatus,
+      s.starts_on || null,
+    );
   });
   await q.query(
-    `INSERT INTO schedule_slots (time_slot, day_of_week, class_type_name, apparatus)
+    `INSERT INTO schedule_slots (time_slot, day_of_week, class_type_name, apparatus, starts_on)
      VALUES ${values.join(", ")}
      ON CONFLICT DO NOTHING`,
     params,
@@ -572,22 +587,26 @@ function addScheduleMinutes(hhmm, mins) {
 // weeks. Idempotent: a class for a given (date, start_time) is only inserted if
 // one does not already exist (classes has no unique constraint on those cols,
 // so we can't rely on ON CONFLICT — we SELECT-then-skip instead). Each class
-// copies its slot's `apparatus`. Capacity is fixed at 8. Used by both the
+// copies its slot's `apparatus` and class-type capacity (8 for Studio/Prenatal). Used by both the
 // empty-DB seed and the versioned RESYNC.
 async function generateClassesFromSchedule({ weeks = 4 } = {}) {
-  const typeRes = await pool.query(
-    "SELECT id FROM class_types WHERE is_active = true ORDER BY sort_order ASC LIMIT 1"
-  );
   const instRes = await pool.query(
     "SELECT id FROM instructors WHERE is_active = true ORDER BY created_at ASC LIMIT 1"
   );
   const slotsRes = await pool.query(
-    "SELECT time_slot, day_of_week, apparatus FROM schedule_slots WHERE is_active = true"
+    `SELECT ss.time_slot, ss.day_of_week, ss.apparatus, ss.starts_on,
+            COALESCE(ss.class_type_id, ct.id) AS class_type_id,
+            COALESCE(ct.capacity, 8) AS capacity
+       FROM schedule_slots ss
+       LEFT JOIN class_types ct
+         ON ct.id = ss.class_type_id
+         OR (ss.class_type_id IS NULL AND LOWER(ct.name) = LOWER(ss.class_type_name))
+      WHERE ss.is_active = true
+        AND COALESCE(ct.is_active, true) = true`
   );
-  if (typeRes.rows.length === 0 || instRes.rows.length === 0 || slotsRes.rows.length === 0) {
+  if (instRes.rows.length === 0 || slotsRes.rows.length === 0) {
     return 0;
   }
-  const classTypeId = typeRes.rows[0].id;
   const instructorId = instRes.rows[0].id;
 
   // Monday of the current week (day_of_week: 1=Mon … 6=Sat, no Sunday).
@@ -601,17 +620,24 @@ async function generateClassesFromSchedule({ weeks = 4 } = {}) {
   const planned = [];
   for (let week = 0; week < weeks; week++) {
     for (const slot of slotsRes.rows) {
+      if (!slot.class_type_id) continue;
       const start = parseScheduleSlot(slot.time_slot);
       if (!start) continue;
       const date = new Date(monday);
       date.setDate(monday.getDate() + week * 7 + (slot.day_of_week - 1));
       if (date < today) continue;              // skip past dates this week
       const dateStr = date.toISOString().slice(0, 10);
+      const startsOn = slot.starts_on instanceof Date
+        ? slot.starts_on.toISOString().slice(0, 10)
+        : String(slot.starts_on || "").slice(0, 10);
+      if (startsOn && dateStr < startsOn) continue;
       planned.push({
         date: dateStr,
         start,
         end: addScheduleMinutes(start, CLASS_DURATION_MIN),
         apparatus: slot.apparatus || "reformer",
+        classTypeId: slot.class_type_id,
+        capacity: Number(slot.capacity) || 8,
       });
     }
   }
@@ -627,8 +653,8 @@ async function generateClassesFromSchedule({ weeks = 4 } = {}) {
     if (exists.rows.length > 0) continue;
     await pool.query(
       `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status, apparatus)
-       VALUES ($1,$2,$3,$4,$5,8,'scheduled',$6)`,
-      [classTypeId, instructorId, c.date, c.start, c.end, c.apparatus]
+       VALUES ($1,$2,$3,$4,$5,$6,'scheduled',$7)`,
+      [c.classTypeId, instructorId, c.date, c.start, c.end, c.capacity, c.apparatus]
     );
     inserted++;
   }
@@ -787,6 +813,7 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS class_type_name VARCHAR(100)`).catch(() => { });
     await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS instructor_name VARCHAR(100)`).catch(() => { });
     await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true`).catch(() => { });
+    await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS starts_on DATE`).catch(() => { });
     // apparatus: 'reformer' (default) | 'tower'. Per-slot; copied onto each
     // generated class so the front-end can label the equipment.
     await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS apparatus VARCHAR(20) DEFAULT 'reformer'`).catch(() => { });
@@ -838,10 +865,35 @@ async function ensureSchema() {
       `);
       console.log("✅ Seeded Tu Espacio Pilates VM packages");
     }
-    // ── Seed class_types – idempotent: garantizar UN único tipo 'Pilates' ──────
+    // Categories are extensible programs (Studio, Prenatal, etc.). Remove
+    // legacy CHECK constraints before seeding a new category.
+    await pool.query(`
+      DO $$
+      DECLARE c TEXT;
+      BEGIN
+        FOR c IN
+          SELECT conname FROM pg_constraint
+          WHERE conrelid = 'plans'::regclass
+            AND contype = 'c'
+            AND pg_get_constraintdef(oid) ILIKE '%class_category%'
+        LOOP
+          EXECUTE format('ALTER TABLE plans DROP CONSTRAINT %I', c);
+        END LOOP;
+        FOR c IN
+          SELECT conname FROM pg_constraint
+          WHERE conrelid = 'class_types'::regclass
+            AND contype = 'c'
+            AND pg_get_constraintdef(oid) ILIKE '%category%'
+        LOOP
+          EXECUTE format('ALTER TABLE class_types DROP CONSTRAINT %I', c);
+        END LOOP;
+      EXCEPTION WHEN undefined_table THEN NULL;
+      END $$;
+    `).catch(() => { });
+    // ── Seed class_types – Pilates Studio + programa Prenatal ─────────────────
     // Funciona en cualquier estado de DB (vacía o pre-sembrada por
     // schema_complete.sql). UPSERT por nombre + desactivar el resto, de modo
-    // que el resultado final sea siempre exactamente un tipo activo 'Pilates'.
+    // que queden activos exactamente Studio ('Pilates') y 'Prenatal'.
     {
       const vmTypeDesc = "Clase de Pilates de bajo impacto y alta exigencia en reformer, tower, mat y silla. Grupos de 8 con atención personalizada y enfoque muscular distinto cada día.";
       await pool.query(
@@ -858,15 +910,31 @@ async function ensureSchema() {
          WHERE NOT EXISTS (SELECT 1 FROM class_types WHERE name = 'Pilates')`,
         ["Reformer · Tower · Mat · Silla", vmTypeDesc],
       ).catch(() => { });
-      // Desactivar cualquier otro tipo pre-sembrado (Barre Studio, Pilates Mat,
-      // Yoga Sculpt, etc.) — VM opera un único tipo de clase.
-      await pool.query(`UPDATE class_types SET is_active = false WHERE name <> 'Pilates'`).catch(() => { });
-      console.log("✅ Ensured single Tu Espacio Pilates VM class type 'Pilates'");
+      const prenatalDesc = "Pilates prenatal con acompañamiento especializado y grupos pequeños.";
+      await pool.query(
+        `UPDATE class_types
+            SET subtitle = 'Martes y jueves · 6:30 pm', description = $1,
+                category = 'prenatal', intensity = 'ligera', level = 'all',
+                duration_min = 55, capacity = 8, color = '#D9B5BA', emoji = '🤰',
+                sort_order = 2, is_active = true
+          WHERE name = 'Prenatal'`,
+        [prenatalDesc],
+      ).catch(() => { });
+      await pool.query(
+        `INSERT INTO class_types
+           (name, subtitle, description, category, intensity, level, duration_min, capacity, color, emoji, sort_order, is_active)
+         SELECT 'Prenatal', 'Martes y jueves · 6:30 pm', $1, 'prenatal', 'ligera', 'all', 55, 8, '#D9B5BA', '🤰', 2, true
+         WHERE NOT EXISTS (SELECT 1 FROM class_types WHERE name = 'Prenatal')`,
+        [prenatalDesc],
+      ).catch(() => { });
+      // Desactivar tipos genéricos pre-sembrados que no forman parte de TEP.
+      await pool.query(`UPDATE class_types SET is_active = false WHERE name NOT IN ('Pilates', 'Prenatal')`).catch(() => { });
+      console.log("✅ Ensured Tu Espacio class types 'Pilates' and 'Prenatal'");
     }
     // ── Seed schedule_slots si la tabla está vacía ─────────────────────────
     // Horario semanal canónico (day_of_week: 1=Lun … 6=Sáb). Todas las clases
     // son apparatus='reformer' EXCEPTO Viernes (5) 8:30 pm que es 'tower'.
-    // 23 slots en total. Esta misma lista alimenta el seed inicial y el RESYNC
+    // 25 slots en total (23 Studio + 2 Prenatal). Esta misma lista alimenta el seed inicial y el RESYNC
     // versionado de más abajo, vía buildScheduleSlotsInsert().
     const insertSeedSlots = async () => buildScheduleSlotsInsert(pool);
     const ssCount = await pool.query("SELECT COUNT(*) FROM schedule_slots");
@@ -887,6 +955,7 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS repeat_key VARCHAR(80)`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS discount_price NUMERIC(10,2)`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS time_restriction JSONB`).catch(() => { });
+    await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS starts_on DATE`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS bundle_components JSONB`).catch(() => { });
     await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS bundle_parent_id UUID`).catch(() => { });
     // Combos: sin dividir la membresía, guardamos un desglose por disciplina
@@ -907,7 +976,7 @@ async function ensureSchema() {
     `).catch(() => { });
     // ── Migrate class_types: normalize categories for Valiance ──
     await pool.query(`
-      UPDATE class_types SET category = 'pilates' WHERE category NOT IN ('pilates','bienestar','funcional');
+      UPDATE class_types SET category = 'pilates' WHERE category NOT IN ('pilates','bienestar','funcional','prenatal');
     `).catch(() => { });
     // ── Migrate plans: 'mixto' class_category means both, keep as 'mixto' for logic ──
     // (mixto plans are still valid — the booking endpoint allows them on both categories)
@@ -979,16 +1048,17 @@ async function ensureSchema() {
     // ── Seed canónico Tu Espacio Pilates VM: IDEMPOTENTE en cualquier estado ──
     // schema_complete.sql pre-siembra planes, así que un guard `if empty` nunca
     // dispararía. En su lugar: (1) desactivamos TODO, (2) upsert por nombre de
-    // los 6 planes VM (re-activándolos). Resultado: solo los 6 planes VM quedan
+    // los 7 planes VM (re-activándolos). Resultado: solo los 7 planes VM quedan
     // activos (más TotalPass 154 admin-only, que se re-activa en su propio
     // bloque idempotente más abajo). No requiere UNIQUE(name).
     const VM_PLANS = [
-      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence al fin del mes de compra.",  price: 880,  dur: 30,   cl: 7,  so: 1, feat: ["7 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 9 Clases",      desc: "9 clases al mes. Vence al fin del mes de compra.",  price: 1050, dur: 30,   cl: 9,  so: 2, feat: ["9 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence al fin del mes de compra.", price: 1400, dur: 30,   cl: 14, so: 3, feat: ["14 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Clase Extra",           desc: "Clase adicional para alumnas ya inscritas.",        price: 130,  dur: 30,   cl: 1,  so: 4, feat: ["1 clase extra", "Solo para inscritas"] },
-      { name: "Clase Suelta / Visita", desc: "Clase individual sin inscripción.",                 price: 250,  dur: 7,    cl: 1,  so: 5, feat: ["1 clase", "Sin inscripción", "Si te inscribes se toma a cuenta"] },
-      { name: "Inscripción",           desc: "Pago único de inscripción. Se re-paga tras ausencia mayor a 6 meses.", price: 500, dur: 3650, cl: 0, so: 6, feat: ["Pago único", "Requerida para paquetes"] },
+      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence al fin del mes de compra.",  price: 880,  dur: 30,   cl: 7,  cat: "all",      so: 1, feat: ["7 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 9 Clases",      desc: "9 clases al mes. Vence al fin del mes de compra.",  price: 1050, dur: 30,   cl: 9,  cat: "all",      so: 2, feat: ["9 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence al fin del mes de compra.", price: 1400, dur: 30,   cl: 14, cat: "all",      so: 3, feat: ["14 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
+      { name: "Prenatal",              desc: "7 clases de Pilates Prenatal, martes y jueves a las 6:30 pm.", price: 1180, dur: 30, cl: 7, cat: "prenatal", so: 4, startsOn: "2026-08-01", feat: ["7 clases Prenatal", "Martes y jueves · 6:30 pm", "Uso exclusivo en clases Prenatal", "Vigencia: hasta fin de mes"] },
+      { name: "Clase Extra",           desc: "Clase adicional para alumnas ya inscritas.",        price: 130,  dur: 30,   cl: 1,  cat: "all",      so: 5, feat: ["1 clase extra", "Solo para inscritas"] },
+      { name: "Clase Suelta / Visita", desc: "Clase individual sin inscripción.",                 price: 250,  dur: 7,    cl: 1,  cat: "all",      so: 6, feat: ["1 clase", "Sin inscripción", "Si te inscribes se toma a cuenta"] },
+      { name: "Inscripción",           desc: "Pago único de inscripción. Se re-paga tras ausencia mayor a 6 meses.", price: 500, dur: 3650, cl: 0, cat: "all", so: 7, feat: ["Pago único", "Requerida para paquetes"] },
     ];
     // (1) Desactivar todo antes de upsertar los planes VM. TotalPass 154 se
     //     re-activa en su propio bloque (que corre después de éste).
@@ -999,16 +1069,16 @@ async function ensureSchema() {
       await pool.query(
         `UPDATE plans
             SET description = $2, price = $3, currency = 'MXN', duration_days = $4,
-                class_limit = $5, class_category = 'all', features = $6::jsonb,
-                is_active = true, sort_order = $7, updated_at = NOW()
+                class_limit = $5, class_category = $6, features = $7::jsonb,
+                starts_on = $8::date, is_active = true, sort_order = $9, updated_at = NOW()
           WHERE name = $1`,
-        [p.name, p.desc, p.price, p.dur, p.cl, feat, p.so],
+        [p.name, p.desc, p.price, p.dur, p.cl, p.cat, feat, p.startsOn || null, p.so],
       ).catch(() => { });
       await pool.query(
-        `INSERT INTO plans (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order)
-         SELECT $1::text, $2::text, $3::numeric, 'MXN', $4::int, $5::int, 'all', $6::jsonb, true, $7::int
+        `INSERT INTO plans (name, description, price, currency, duration_days, class_limit, class_category, features, starts_on, is_active, sort_order)
+         SELECT $1::text, $2::text, $3::numeric, 'MXN', $4::int, $5::int, $6::text, $7::jsonb, $8::date, true, $9::int
          WHERE NOT EXISTS (SELECT 1 FROM plans WHERE name = $1::text)`,
-        [p.name, p.desc, p.price, p.dur, p.cl, feat, p.so],
+        [p.name, p.desc, p.price, p.dur, p.cl, p.cat, feat, p.startsOn || null, p.so],
       ).catch(() => { });
     }
     console.log("[schema] Seeded/ensured Tu Espacio Pilates VM plans (idempotent)");
@@ -1586,7 +1656,7 @@ async function ensureSchema() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_discount_codes_channel ON discount_codes(channel)`).catch(() => { });
     await pool.query(`UPDATE discount_codes SET discount_type = 'percent' WHERE discount_type IN ('percentage', 'porcentaje', '%')`).catch(() => { });
     await pool.query(`UPDATE discount_codes SET channel = 'all' WHERE channel IS NULL OR channel = ''`).catch(() => { });
-    await pool.query(`UPDATE discount_codes SET class_category = NULL WHERE class_category NOT IN ('all','pilates','bienestar','funcional','mixto','reformer','barre')`).catch(() => { });
+    await pool.query(`UPDATE discount_codes SET class_category = NULL WHERE class_category NOT IN ('all','pilates','bienestar','funcional','mixto','reformer','barre','prenatal')`).catch(() => { });
     // ── bookings: add checked_in_at column ────────────────────────────────
     await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS checked_in_at TIMESTAMP WITH TIME ZONE`).catch(() => { });
     // ── bookings: walk-in support (nullable user_id + guest_name/phone + order link) ─
@@ -1899,7 +1969,7 @@ async function ensureSchema() {
     console.error("Schema migration warning:", err.message);
   }
 
-  // ── Seed classes for the next 4 weeks FROM the VM schedule (schedule_slots) ──
+  // ── Seed classes for the next 8 weeks FROM the VM schedule (schedule_slots) ──
   try {
     // 1) Ensure at least one active instructor exists, linked to a coach user.
     //    instructors.user_id is NOT NULL (FK → users), so we must create the
@@ -1926,14 +1996,14 @@ async function ensureSchema() {
       console.log("✅ Seeded Tu Espacio Pilates coach");
     }
 
-    // 2) Generate bookable classes from schedule_slots (cap 8), next 4 weeks.
+    // 2) Generate bookable classes from schedule_slots (cap 8), next 8 weeks.
     //    Only on a fresh DB (classes empty); the versioned RESYNC below handles
     //    regeneration for already-seeded live DBs. generateClassesFromSchedule
     //    is idempotent and copies each slot's apparatus onto the class.
     const classCount = await pool.query("SELECT COUNT(*) FROM classes");
     if (parseInt(classCount.rows[0].count) === 0) {
-      const inserted = await generateClassesFromSchedule({ weeks: 4 });
-      console.log(`✅ Seeded ${inserted} classes (VM schedule, próximas 4 semanas)`);
+      const inserted = await generateClassesFromSchedule({ weeks: 8 });
+      console.log(`✅ Seeded ${inserted} classes (VM schedule, próximas 8 semanas)`);
     }
   } catch (err) {
     console.error("Demo classes seed warning:", err.message);
@@ -1943,12 +2013,12 @@ async function ensureSchema() {
   // The live DB (tep_vm) already holds the OLD schedule + classes, so the
   // empty-table guards above never fire for it. This block runs ONCE per
   // deploy of SCHEDULE_VERSION (tracked via the `schedule_version` settings
-  // key) to: (a) replace schedule_slots with the canonical 23 slots, (b) drop
+  // key) to: (a) replace schedule_slots with the canonical 25 slots, (b) drop
   // ONLY future un-booked classes, and (c) regenerate from the new schedule.
   // It NEVER deletes a class that has a non-cancelled booking, and is wrapped
   // so a failure logs and continues rather than crashing boot.
   try {
-    const SCHEDULE_VERSION = "vm-2026-06-28-55min";
+    const SCHEDULE_VERSION = "vm-2026-08-prenatal-v1";
     const markerRes = await pool.query(
       "SELECT value FROM settings WHERE key = 'schedule_version' LIMIT 1"
     );
@@ -1958,7 +2028,7 @@ async function ensureSchema() {
       console.log(
         `↻ Schedule RESYNC: stored=${JSON.stringify(storedVersion)} → ${SCHEDULE_VERSION}`
       );
-      // a) Replace schedule_slots with the canonical 23 slots (with apparatus).
+      // a) Replace schedule_slots with the canonical Studio + Prenatal slots.
       await pool.query("DELETE FROM schedule_slots");
       await buildScheduleSlotsInsert(pool);
       // b) Delete ONLY future classes with no non-cancelled booking. A class
@@ -1972,8 +2042,9 @@ async function ensureSchema() {
           )
         RETURNING id
       `);
-      // c) Regenerate bookable classes from the new schedule (next 4 weeks).
-      const regen = await generateClassesFromSchedule({ weeks: 4 });
+      // c) Regenerate bookable classes from the new schedule.
+      // Ocho semanas cubren agosto completo desde el despliegue de julio.
+      const regen = await generateClassesFromSchedule({ weeks: 8 });
       // c2) Normalizar duración: TODAS las clases futuras (incluidas las ya
       //     reservadas) a 55 min — corrige los end_time de 60 min que generaba
       //     la versión anterior (addScheduleHour sumaba 60).
@@ -2215,19 +2286,6 @@ function calculateDiscountAmount(type, value, subtotal) {
   return Math.max(0, Math.min(amount, safeSubtotal));
 }
 
-// Valid categories. "reformer" and "barre" are Valiance-specific; "pilates"
-// is kept as a legacy alias and treated like "reformer" in compatibility.
-function normalizeClassCategory(value, fallback = "all") {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "all"].includes(raw)) {
-    // Treat legacy "pilates" as "reformer" for Valiance: the studio's only
-    // pilates discipline IS Reformer. This avoids breaking historical data.
-    if (raw === "pilates") return "reformer";
-    return raw;
-  }
-  return fallback;
-}
-
 function normalizeDiscountChannel(value, fallback = "all") {
   const raw = String(value ?? "").trim().toLowerCase();
   if (["all", "membership", "pos", "event"].includes(raw)) return raw;
@@ -2297,18 +2355,6 @@ async function refundMembershipCredit(client, membershipId, classCategory) {
         AND classes_remaining < 9999`,
     [membershipId, key]
   );
-}
-
-function isMembershipCategoryCompatible(membershipCategory, classCategory) {
-  const memCat = normalizeClassCategory(membershipCategory, "all");
-  const clsCat = normalizeClassCategory(classCategory, "all");
-  // "all" / "mixto" memberships accept anything.
-  if (memCat === "all" || memCat === "mixto") return true;
-  // A class with no specific category falls back to compatible for any plan.
-  if (clsCat === "all") return true;
-  // Strict match otherwise. Reformer plan ↔ reformer class only.
-  // Barre plan ↔ barre class only.
-  return memCat === clsCat;
 }
 
 // ── Clase Muestra (trial) schedule restriction ──────────────────────────────
@@ -2419,6 +2465,7 @@ async function selectMembershipForClass({ userId, classCategory, classDate = nul
   // Fetch ALL qualifying candidates (category + credits + active), then filter
   // by time_restriction in JS so a Morning Pass doesn't block a user who also
   // has a regular Reformer plan applicable to an evening class.
+  const compatibleCategories = compatibleMembershipCategoriesForClass(clsCat);
   const r = await q.query(
     `SELECT m.id,
             m.user_id,
@@ -2434,10 +2481,7 @@ async function selectMembershipForClass({ userId, classCategory, classDate = nul
       WHERE m.user_id = $1
         AND m.status = 'active'
         AND (m.end_date IS NULL OR m.end_date >= COALESCE($3::date, CURRENT_DATE))
-        AND (
-          COALESCE(p.class_category, 'all') IN ('all', 'mixto')
-          OR COALESCE(p.class_category, 'all') = $2
-        )
+        AND COALESCE(p.class_category, 'all') = ANY($4::text[])
         AND (
           m.classes_remaining IS NULL
           OR m.classes_remaining >= 9999
@@ -2454,7 +2498,7 @@ async function selectMembershipForClass({ userId, classCategory, classDate = nul
         m.end_date ASC,
         CASE WHEN m.classes_remaining IS NULL OR m.classes_remaining >= 9999 THEN 1 ELSE 0 END ASC,
         m.created_at ASC`,
-    [userId, clsCat, classDate]
+    [userId, clsCat, classDate, compatibleCategories]
   );
   const candidates = r.rows;
   if (!candidates.length) return null;
@@ -3508,6 +3552,7 @@ app.get("/api/memberships/my", authMiddleware, async (req, res) => {
         );
         // El filtro > 0 incluye a propósito el centinela 9999 (ilimitadas).
         const covered = new Set(cats.rows.map((c) => normalizeClassCategory(c.cat, "all")));
+        row.classCategories = Array.from(covered);
         if (covered.size > 1) {
           row.classCategory = "mixto";
         } else if (covered.size === 1) {
@@ -3544,6 +3589,7 @@ app.get("/api/classes", async (req, res) => {
              (c.date || 'T' || c.end_time   || '-06:00')      AS end_time_full,
              c.apparatus,
              ct.name  AS class_type_name,
+             ct.category AS class_category,
              ct.color AS class_type_color,
              ct.icon  AS class_type_icon,
              ct.level AS class_type_level,
@@ -3595,6 +3641,7 @@ app.get("/api/classes/:id", async (req, res) => {
               (c.date || 'T' || c.end_time   || '-06:00') AS end_time,
               c.apparatus,
               ct.name  AS class_type_name,
+              ct.category AS class_category,
               ct.color AS class_type_color,
               ct.icon  AS class_type_icon,
               ct.level AS class_type_level,
@@ -3636,6 +3683,7 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
               c.status AS class_status,
               c.apparatus,
               ct.name  AS class_type_name,
+              ct.category AS class_category,
               ct.color AS class_color,
               i.display_name AS instructor_name,
               i.photo_url    AS instructor_photo,
@@ -4169,11 +4217,13 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
 
       // Lock the target class row to avoid overbooking in concurrent requests
       const newClassRes = await client.query(
-        `SELECT id, max_capacity, current_bookings, status, date,
-                (date + start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
-           FROM classes
-          WHERE id = $1
-          FOR UPDATE`,
+        `SELECT c.id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
+                ct.category AS class_category,
+                (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
+           FROM classes c
+           JOIN class_types ct ON ct.id = c.class_type_id
+          WHERE c.id = $1
+          FOR UPDATE OF c`,
         [newClassId]
       );
       if (newClassRes.rows.length === 0) {
@@ -4191,6 +4241,45 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
       if (newStart && newStart.getTime() < now.getTime()) {
         await client.query("ROLLBACK");
         return res.status(400).json({ message: "No puedes reagendar a una clase que ya pasó." });
+      }
+
+      // Reagendar must preserve the same access policy as a fresh booking.
+      // Otherwise a Prenatal reservation could be moved into a Studio class
+      // (or vice versa) without consuming a new credit.
+      if (booking.membership_id) {
+        const accessRes = await client.query(
+          `SELECT m.id, COALESCE(p.class_category, 'all') AS class_category,
+                  p.repeat_key, p.name AS plan_name, p.time_restriction
+             FROM memberships m
+             LEFT JOIN plans p ON p.id = m.plan_id
+            WHERE m.id = $1
+            FOR UPDATE OF m`,
+          [booking.membership_id],
+        );
+        const accessMembership = accessRes.rows[0];
+        const targetCategory = normalizeClassCategory(newCls.class_category, "all");
+        if (!accessMembership || !isMembershipCategoryCompatible(accessMembership.class_category, targetCategory)) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({
+            code: "MEMBERSHIP_CLASS_MISMATCH",
+            message: "Tu membresía no incluye el tipo de clase seleccionado.",
+          });
+        }
+        if (isTrialPlan(accessMembership) && !isClassAllowedForTrial(newCls.date, newCls.start_time)) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({
+            code: "TRIAL_SCHEDULE_MISMATCH",
+            message: "La clase seleccionada no está disponible para tu Clase Muestra.",
+          });
+        }
+        const targetTimeCheck = checkPlanTimeRestriction(accessMembership, newCls.date, newCls.start_time);
+        if (!targetTimeCheck.allowed) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({
+            code: "MEMBERSHIP_TIME_RESTRICTION",
+            message: targetTimeCheck.message,
+          });
+        }
       }
 
       // ── Vigencia: la nueva clase debe caer dentro de la vigencia del paquete ──
@@ -5380,7 +5469,8 @@ async function createMembershipsForOrder(order, client, paymentMethod) {
   const todayStr = new Date().toISOString().slice(0, 10);
   let primaryId = null;
   for (const { plan, qty } of units) {
-    const endStr = calcMembershipEndDate(todayStr, plan);
+    const startStr = membershipStartDate(todayStr, plan);
+    const endStr = calcMembershipEndDate(startStr, plan);
     // "Inscripción" sola: marca a la alumna como inscrita pero NO otorga clases.
     // (Sin este caso, class_limit 0 se interpretaría como ilimitado → null.)
     const isInscriptionPlan = String(plan.name).trim().toLowerCase() === INSCRIPTION_PLAN_NAME.toLowerCase();
@@ -5389,7 +5479,7 @@ async function createMembershipsForOrder(order, client, paymentMethod) {
       const memRes = await client.query(
         `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, order_id)
          VALUES ($1,$2,'active',$3,$4,$5,$6,$7) RETURNING id`,
-        [order.user_id, plan.id, paymentMethod, todayStr, endStr, classes, order.id]
+        [order.user_id, plan.id, paymentMethod, startStr, endStr, classes, order.id]
       );
       if (!primaryId) primaryId = memRes.rows[0].id;
     }
@@ -8731,7 +8821,7 @@ app.post("/api/admin/plans", adminMiddleware, async (req, res) => {
   } = req.body;
   if (!name?.trim() || price === undefined) return res.status(400).json({ message: "name y price requeridos" });
   try {
-    const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "all"];
+    const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "prenatal", "all"];
     const cat = validCats.includes(class_category) ? class_category : "all";
     const nonTransferable = parseBooleanFlag(is_non_transferable);
     const nonRepeatable = parseBooleanFlag(is_non_repeatable);
@@ -8762,7 +8852,7 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
     discount_price, time_restriction,
   } = req.body;
 
-  const validCats = ["pilates", "bienestar", "funcional", "mixto", "all"];
+  const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "prenatal", "all"];
   const cat = validCats.includes(class_category) ? class_category : null;
   const nonTransferable = parseBooleanFlag(is_non_transferable);
   const nonRepeatable = parseBooleanFlag(is_non_repeatable);
@@ -9075,7 +9165,7 @@ app.get("/api/public/review-tags", async (_req, res) => {
 app.post("/api/class-types", adminMiddleware, async (req, res) => {
   const { name, color, category, defaultDuration, maxCapacity, isActive } = req.body;
   if (!name?.trim()) return res.status(400).json({ message: "name requerido" });
-  const validCategories = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "all"];
+  const validCategories = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "prenatal", "all"];
   const cat = validCategories.includes(category) ? category : "reformer";
   try {
     const r = await pool.query(
@@ -9090,7 +9180,7 @@ app.post("/api/class-types", adminMiddleware, async (req, res) => {
 // PUT /api/class-types/:id — alias CRUD (admin)
 app.put("/api/class-types/:id", adminMiddleware, async (req, res) => {
   const { name, color, category, defaultDuration, maxCapacity, isActive } = req.body;
-  const validCategories = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "all"];
+  const validCategories = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "prenatal", "all"];
   const cat = validCategories.includes(category) ? category : null;
   try {
     const r = await pool.query(
@@ -11335,7 +11425,10 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
       const dbClient = await pool.connect();
       try {
         await dbClient.query("BEGIN");
-        const startStr = startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10);
+        const startStr = membershipStartDate(
+          startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+          plan,
+        );
         const endStr = calcMembershipEndDate(startStr, plan);
         const created = [];
         let bundleParentId = null;
@@ -11389,7 +11482,10 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
     if (nonRepeatableConflict) {
       return res.status(409).json({ message: nonRepeatableConflict.message });
     }
-    const startStr = startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const startStr = membershipStartDate(
+      startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+      plan,
+    );
     const endStr = calcMembershipEndDate(startStr, plan);
     const compInfo = complementType ? COMPLEMENT_MAP[complementType] : null;
     const complementNote = compInfo ? `Complemento: ${compInfo.name} — ${compInfo.specialist}` : null;
@@ -11492,7 +11588,7 @@ app.post("/api/memberships/bundle", adminMiddleware, async (req, res) => {
     await dbClient.query("BEGIN");
 
     const bundleRes = await dbClient.query(
-      "SELECT id, name, price, duration_days, bundle_components FROM plans WHERE id = $1 AND is_active = true",
+      "SELECT id, name, price, duration_days, starts_on, bundle_components FROM plans WHERE id = $1 AND is_active = true",
       [bundlePlanId]
     );
     if (!bundleRes.rows.length) {
@@ -11509,7 +11605,10 @@ app.post("/api/memberships/bundle", adminMiddleware, async (req, res) => {
       return res.status(400).json({ message: "Este plan no tiene componentes de bundle" });
     }
 
-    const startStr = startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const startStr = membershipStartDate(
+      startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+      bundle,
+    );
     const endStr = calcMembershipEndDate(startStr, bundle);
 
     const created = [];
@@ -11964,7 +12063,7 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
       features, isActive, sortOrder, isNonTransferable, isNonRepeatable, repeatKey,
       discountPrice, discount_price, time_restriction, timeRestriction,
     } = req.body;
-    const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "all"];
+    const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "prenatal", "all"];
     const cat = validCats.includes(classCategory) ? classCategory : null;
     const nonTransferable = parseBooleanFlag(isNonTransferable ?? req.body.is_non_transferable);
     const nonRepeatable = parseBooleanFlag(isNonRepeatable ?? req.body.is_non_repeatable);
@@ -12084,7 +12183,7 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
       discountPrice, discount_price, time_restriction, timeRestriction,
     } = req.body;
     if (!name) return res.status(400).json({ message: "Nombre requerido" });
-    const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "all"];
+    const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "prenatal", "all"];
     const cat = validCats.includes(classCategory) ? classCategory : "all";
     const nonTransferable = parseBooleanFlag(isNonTransferable ?? req.body.is_non_transferable);
     const nonRepeatable = parseBooleanFlag(isNonRepeatable ?? req.body.is_non_repeatable);
@@ -12494,6 +12593,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
     // Selección de membresía: usa la mejor compatible con la categoría.
     // Si classes_remaining es NULL/ilimitada, toma esa. Si no, debe tener >= bookable.length.
     const needed = bookable.length;
+    const compatibleCategories = compatibleMembershipCategoriesForClass(clsCategory);
     const memRes = await client.query(
       `SELECT m.id, m.classes_remaining, m.end_date,
               COALESCE(p.class_category, 'all') AS class_category,
@@ -12503,10 +12603,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
         WHERE m.user_id = $1
           AND m.status = 'active'
           AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
-          AND (
-            COALESCE(p.class_category, 'all') IN ('all', 'mixto')
-            OR COALESCE(p.class_category, 'all') = $2
-          )
+          AND COALESCE(p.class_category, 'all') = ANY($4::text[])
           AND (
             m.classes_remaining IS NULL
             OR m.classes_remaining >= 9999
@@ -12519,7 +12616,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
           m.created_at ASC
         LIMIT 1
         FOR UPDATE OF m`,
-      [userId, clsCategory, needed]
+      [userId, clsCategory, needed, compatibleCategories]
     );
     const membership = memRes.rows[0];
     // Filter bookable by membership time-restriction (e.g. Morning Pass).
@@ -13072,7 +13169,10 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
         await client.query("ROLLBACK");
         return res.status(409).json({ message: nonRepeatableConflict.message });
       }
-      const startStr = startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10);
+      const startStr = membershipStartDate(
+        startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+        plan,
+      );
       const endStr = calcMembershipEndDate(startStr, plan);
       const memRes = await client.query(
         `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date,
