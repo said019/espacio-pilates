@@ -6120,7 +6120,8 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
     membershipCategory === "pilates" ? "Pilates" :
       membershipCategory === "bienestar" ? "Bienestar" :
         membershipCategory === "funcional" ? "Funcional" :
-          membershipCategory === "mixto" ? "Mixto" : "General";
+          membershipCategory === "mixto" ? "Mixto" :
+            membershipCategory === "prenatal" ? "Prenatal" : "General";
   const isUnlimited = hasMembership && (membership.class_limit === null || membership.class_limit >= 9999);
   const classLimit = Number(membership?.class_limit ?? 0);
   const hasIconStampMode = shouldRenderStampStrip({ hasMembership, isUnlimited, hasEventPass, classLimit });
@@ -7287,7 +7288,8 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     membershipCategory === "pilates" ? "Pilates" :
       membershipCategory === "bienestar" ? "Bienestar" :
         membershipCategory === "funcional" ? "Funcional" :
-          membershipCategory === "mixto" ? "Mixto" : "General";
+          membershipCategory === "mixto" ? "Mixto" :
+            membershipCategory === "prenatal" ? "Prenatal" : "General";
   const isUnlimited = hasMembership && (membership.class_limit === null || membership.class_limit >= 9999);
   const isTrialSingleSession = hasMembership && String(membership.repeat_key || "").startsWith("trial_single_session");
   const nonTransferable = hasMembership && parseBooleanFlag(membership.is_non_transferable);
@@ -7650,7 +7652,9 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
         ? "pilates"
         : membershipCategory === "bienestar"
           ? "bienestar"
-          : "mixto";
+          : membershipCategory === "prenatal"
+            ? "prenatal"
+            : "mixto";
 
   const iconPath = findAssetFile([
     `wallet-icon-${assetCategory}.png`,
