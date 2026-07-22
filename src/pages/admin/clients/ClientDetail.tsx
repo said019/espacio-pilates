@@ -776,6 +776,7 @@ const ClientDetail = () => {
                       <TableHeader>
                         <TableRow className="bg-tep-nude/60 hover:bg-tep-nude/60">
                           <TableHead className="text-valiance-mauve">Origen / método</TableHead>
+                          <TableHead className="text-valiance-mauve">Plan</TableHead>
                           <TableHead className="text-valiance-mauve text-right">Monto</TableHead>
                           <TableHead className="text-valiance-mauve">Estado</TableHead>
                           <TableHead className="text-valiance-mauve">Fecha</TableHead>
@@ -788,6 +789,8 @@ const ClientDetail = () => {
                           const st = paymentStatus(p.status);
                           const amount = parseFloat(pick(p, "total_amount", "totalAmount", "amount") ?? 0);
                           const date = pick(p, "created_at", "createdAt");
+                          const planName = pick(p, "plan_name", "planName") || "—";
+                          const inscriptionAmount = parseFloat(pick(p, "inscription_amount", "inscriptionAmount") ?? 0);
                           return (
                             <TableRow key={p.id}>
                               <TableCell>
@@ -795,6 +798,12 @@ const ClientDetail = () => {
                                   <OriginIcon size={12} />
                                   {origin.label}
                                 </StatusPill>
+                              </TableCell>
+                              <TableCell>
+                                <p className="text-valiance-charcoal">{planName}</p>
+                                {inscriptionAmount > 0 && (
+                                  <p className="text-xs text-valiance-mauve">+ Inscripción ${inscriptionAmount.toFixed(2)}</p>
+                                )}
                               </TableCell>
                               <TableCell className="text-right font-semibold text-valiance-charcoal">${amount.toFixed(2)}</TableCell>
                               <TableCell>
