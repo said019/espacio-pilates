@@ -14,7 +14,7 @@ import crypto from "crypto";
 import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
-import { canCancel, canReschedule, endOfPurchaseMonth, membershipStartDate } from "./lib/bookingPolicy.js";
+import { canCancel, canReschedule, endOfPurchaseMonth, membershipStartDate, mexicoCityDate } from "./lib/bookingPolicy.js";
 import {
   compatibleMembershipCategoriesForClass,
   isMembershipCategoryCompatible,
@@ -482,6 +482,10 @@ async function uploadFileToDriveResumable(filePath, fileName, mimeType, accessTo
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.DATABASE_URL?.includes("railway") ? { rejectUnauthorized: false } : false,
+  // CURRENT_DATE/CURRENT_TIME se usan en membresías, reservas y recordatorios.
+  // Forzar la zona del estudio evita que después de las 18:00 CDMX se use el
+  // día UTC siguiente.
+  options: "-c timezone=America/Mexico_City",
   max: Math.max(5, Number(process.env.PG_POOL_MAX || 20)),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
@@ -3506,11 +3510,17 @@ app.get("/api/memberships/my", authMiddleware, async (req, res) => {
        LEFT JOIN plans p ON m.plan_id = p.id
        WHERE m.user_id = $1
          AND m.status IN ('active', 'pending_activation', 'pending_payment')
+         AND (m.status <> 'active' OR m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
        ORDER BY CASE m.status
          WHEN 'active'              THEN 1
          WHEN 'pending_activation'  THEN 2
          WHEN 'pending_payment'     THEN 3
          ELSE 4 END,
+         -- Una membresía agotada no debe ocultar una renovación con créditos.
+         CASE
+           WHEN m.status = 'active' AND m.classes_remaining IS NOT NULL AND m.classes_remaining <= 0 THEN 1
+           ELSE 0
+         END ASC,
          CASE
            WHEN m.status = 'active' AND (m.classes_remaining IS NULL OR m.classes_remaining >= 9999) THEN 1
            ELSE 0
@@ -5466,7 +5476,7 @@ async function createMembershipsForOrder(order, client, paymentMethod) {
     );
   }
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = mexicoCityDate();
   let primaryId = null;
   for (const { plan, qty } of units) {
     const startStr = membershipStartDate(todayStr, plan);
@@ -5623,11 +5633,12 @@ async function approveOrderFromMP(orderId, mpPaymentId) {
         const uRes = await pool.query("SELECT email, display_name, phone FROM users WHERE id = $1", [order.user_id]);
         const u = uRes.rows[0];
         if (planRow && u) {
-          const emailEndStr = calcMembershipEndDate(new Date().toISOString().slice(0, 10), planRow);
+          const membershipDate = mexicoCityDate();
+          const emailEndStr = calcMembershipEndDate(membershipDate, planRow);
           if (await areEmailNotificationsEnabled()) {
             sendMembershipActivated({
               to: u.email, name: u.display_name || "Alumna", planName: planRow.name,
-              startDate: new Date().toISOString().slice(0, 10), endDate: emailEndStr,
+              startDate: membershipDate, endDate: emailEndStr,
               classLimit: planRow.class_limit ?? null,
             }).catch((e) => console.error("[Email] MP approve:", e.message));
           }
@@ -11430,7 +11441,7 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
       try {
         await dbClient.query("BEGIN");
         const startStr = membershipStartDate(
-          startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+          startDate ? String(startDate).slice(0, 10) : mexicoCityDate(),
           plan,
         );
         const endStr = calcMembershipEndDate(startStr, plan);
@@ -11487,7 +11498,7 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
       return res.status(409).json({ message: nonRepeatableConflict.message });
     }
     const startStr = membershipStartDate(
-      startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+      startDate ? String(startDate).slice(0, 10) : mexicoCityDate(),
       plan,
     );
     const endStr = calcMembershipEndDate(startStr, plan);
@@ -11610,7 +11621,7 @@ app.post("/api/memberships/bundle", adminMiddleware, async (req, res) => {
     }
 
     const startStr = membershipStartDate(
-      startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+      startDate ? String(startDate).slice(0, 10) : mexicoCityDate(),
       bundle,
     );
     const endStr = calcMembershipEndDate(startStr, bundle);
@@ -11892,7 +11903,7 @@ app.post("/api/memberships/:id/split-bundle", adminMiddleware, async (req, res) 
       return res.status(409).json({ message: "Ya existen membresías hijas para este combo" });
     }
 
-    const startStr = m.start_date ? String(m.start_date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    const startStr = m.start_date ? String(m.start_date).slice(0, 10) : mexicoCityDate();
     const endStr = m.end_date ? String(m.end_date).slice(0, 10) : null;
 
     const created = [];
@@ -11986,7 +11997,7 @@ app.put("/api/memberships/:id/extend", adminMiddleware, async (req, res) => {
       nextStr = `${m[1]}-${m[2]}-${m[3]}`;
     } else if (mode === "renew") {
       const days = Number(row.duration_days) || 30;
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = mexicoCityDate();
       const d = new Date(todayStr + "T12:00:00");
       d.setDate(d.getDate() + days);
       nextStr = d.toISOString().slice(0, 10);
@@ -11995,7 +12006,7 @@ app.put("/api/memberships/:id/extend", adminMiddleware, async (req, res) => {
       if (!Number.isFinite(days) || days <= 0 || days > 3650) {
         return res.status(400).json({ message: "days inválido (1–3650)" });
       }
-      const baseStr = beforeStr || new Date().toISOString().slice(0, 10);
+      const baseStr = beforeStr || mexicoCityDate();
       const d = new Date(baseStr + "T12:00:00");
       d.setDate(d.getDate() + (mode === "add" ? days : -days));
       nextStr = d.toISOString().slice(0, 10);
@@ -13174,7 +13185,7 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
         return res.status(409).json({ message: nonRepeatableConflict.message });
       }
       const startStr = membershipStartDate(
-        startDate ? String(startDate).slice(0, 10) : new Date().toISOString().slice(0, 10),
+        startDate ? String(startDate).slice(0, 10) : mexicoCityDate(),
         plan,
       );
       const endStr = calcMembershipEndDate(startStr, plan);
@@ -13406,7 +13417,8 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
     // Email: membership activated
     if (justApproved && order.user_id && plan) {
       try {
-        const emailEndStr = calcMembershipEndDate(new Date().toISOString().slice(0, 10), plan);
+        const membershipDate = mexicoCityDate();
+        const emailEndStr = calcMembershipEndDate(membershipDate, plan);
         const uRes = await pool.query("SELECT email, display_name, phone FROM users WHERE id = $1", [order.user_id]);
         if (uRes.rows[0]) {
           const u = uRes.rows[0];
@@ -13415,7 +13427,7 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
               to: u.email,
               name: u.display_name || "Alumna",
               planName: plan.name,
-              startDate: new Date().toISOString().slice(0, 10),
+              startDate: membershipDate,
               endDate: emailEndStr,
               classLimit: plan.class_limit ?? null,
             }).catch((e) => console.error("[Email] admin order verify:", e.message));
@@ -14343,8 +14355,9 @@ app.post("/api/instructors/:id/magic-link", adminMiddleware, async (req, res) =>
 app.get("/api/admin/reports", adminMiddleware, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    const start = startDate || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
-    const end = endDate || new Date().toISOString().slice(0, 10);
+    const mexicoToday = mexicoCityDate();
+    const start = startDate || `${mexicoToday.slice(0, 7)}-01`;
+    const end = endDate || mexicoToday;
 
     const [revenue, newClients, bookings, topPlans] = await Promise.all([
       pool.query(

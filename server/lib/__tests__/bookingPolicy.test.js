@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { endOfPurchaseMonth, canCancel, canReschedule, membershipStartDate } from '../bookingPolicy.js';
+import { endOfPurchaseMonth, canCancel, canReschedule, membershipStartDate, mexicoCityDate } from '../bookingPolicy.js';
 
 describe('endOfPurchaseMonth', () => {
   it('devuelve el último día del mes de compra', () => {
@@ -59,5 +59,16 @@ describe('membershipStartDate', () => {
 
   it('does not change regular plans', () => {
     expect(membershipStartDate('2026-07-15', {})).toBe('2026-07-15');
+  });
+});
+
+describe('mexicoCityDate', () => {
+  it('conserva el día comercial de CDMX durante la noche UTC', () => {
+    // 22:52 del 31-jul en CDMX ya es 1-ago en UTC.
+    expect(mexicoCityDate(new Date('2026-08-01T04:52:03.000Z'))).toBe('2026-07-31');
+  });
+
+  it('avanza el día después de la medianoche de CDMX', () => {
+    expect(mexicoCityDate(new Date('2026-08-01T06:00:00.000Z'))).toBe('2026-08-01');
   });
 });
