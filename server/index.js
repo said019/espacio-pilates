@@ -15530,17 +15530,27 @@ app.post("/api/admin/test-emails", adminMiddleware, async (req, res) => {
 // ─── Serve React SPA (static) ────────────────────────────────────────────────
 const distDir = path.join(__dirname, "../dist");
 app.use(express.static(distDir, {
-  setHeaders: (res, path) => {
-    if (path.endsWith(".css")) {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith(".css")) {
       res.setHeader("Content-Type", "text/css");
-    } else if (path.endsWith(".js")) {
+    } else if (filePath.endsWith(".js")) {
       res.setHeader("Content-Type", "application/javascript");
+    }
+    // Vite nombra todo en /assets con hash de contenido → cachear fuerte.
+    if (/[\\/]assets[\\/]/.test(filePath)) {
+      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    } else if (filePath.endsWith("index.html") || filePath.endsWith("sw.js")) {
+      // El HTML y el service worker SIEMPRE se revalidan: si quedan cacheados,
+      // tras un deploy el navegador pide chunks con hash viejo que ya no
+      // existen → import() dinámico falla → pantalla en blanco.
+      res.setHeader("Cache-Control", "no-cache");
     }
   }
 }));
 
 app.get("*", (_req, res, next) => {
   if (_req.path.startsWith("/api")) return next();
+  res.setHeader("Cache-Control", "no-cache");
   res.sendFile(path.join(distDir, "index.html"));
 });
 

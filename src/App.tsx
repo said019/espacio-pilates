@@ -3,52 +3,54 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { lazy, Suspense, useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { Loader2 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
+import { lazyWithRetry } from "@/lib/lazyWithRetry";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // Rutas con code-splitting (React.lazy): el panel de admin NO se descarga para
 // las clientas, y cada sección se carga bajo demanda → primera carga más ligera.
-const Index = lazy(() => import("./pages/Index"));
-const NotFound = lazy(() => import("./pages/NotFound"));
+const Index = lazyWithRetry(() => import("./pages/Index"));
+const NotFound = lazyWithRetry(() => import("./pages/NotFound"));
 
 // Auth pages
-const Login = lazy(() => import("./pages/auth/Login"));
-const Register = lazy(() => import("./pages/auth/Register"));
-const ForgotPassword = lazy(() => import("./pages/auth/ForgotPassword"));
-const ResetPassword = lazy(() => import("./pages/auth/ResetPassword"));
+const Login = lazyWithRetry(() => import("./pages/auth/Login"));
+const Register = lazyWithRetry(() => import("./pages/auth/Register"));
+const ForgotPassword = lazyWithRetry(() => import("./pages/auth/ForgotPassword"));
+const ResetPassword = lazyWithRetry(() => import("./pages/auth/ResetPassword"));
 
-const Dashboard = lazy(() => import("./pages/client/Dashboard"));
-const BookClasses = lazy(() => import("./pages/client/BookClasses"));
-const BookClassConfirm = lazy(() => import("./pages/client/BookClassConfirm"));
-const MyBookings = lazy(() => import("./pages/client/MyBookings"));
-const Checkout = lazy(() => import("./pages/client/Checkout"));
-const Profile = lazy(() => import("./pages/client/Profile"));
-const ProfileEdit = lazy(() => import("./pages/client/ProfileEdit"));
-const ProfilePreferences = lazy(() => import("./pages/client/ProfilePreferences"));
-const Notifications = lazy(() => import("./pages/client/Notifications"));
-const MyOrders = lazy(() => import("./pages/client/MyOrders"));
-const CardPayment = lazy(() => import("./pages/client/CardPayment"));
+const Dashboard = lazyWithRetry(() => import("./pages/client/Dashboard"));
+const BookClasses = lazyWithRetry(() => import("./pages/client/BookClasses"));
+const BookClassConfirm = lazyWithRetry(() => import("./pages/client/BookClassConfirm"));
+const MyBookings = lazyWithRetry(() => import("./pages/client/MyBookings"));
+const Checkout = lazyWithRetry(() => import("./pages/client/Checkout"));
+const Profile = lazyWithRetry(() => import("./pages/client/Profile"));
+const ProfileEdit = lazyWithRetry(() => import("./pages/client/ProfileEdit"));
+const ProfilePreferences = lazyWithRetry(() => import("./pages/client/ProfilePreferences"));
+const Notifications = lazyWithRetry(() => import("./pages/client/Notifications"));
+const MyOrders = lazyWithRetry(() => import("./pages/client/MyOrders"));
+const CardPayment = lazyWithRetry(() => import("./pages/client/CardPayment"));
 
-const AdminDashboard = lazy(() => import("./pages/admin/Dashboard"));
-const PlansList = lazy(() => import("./pages/admin/plans/PlansList"));
-const DiscountCodesList = lazy(() => import("./pages/admin/discounts/DiscountCodesList"));
-const MembershipsList = lazy(() => import("./pages/admin/memberships/MembershipsList"));
-const ClientsList = lazy(() => import("./pages/admin/clients/ClientsList"));
-const ClientDetail = lazy(() => import("./pages/admin/clients/ClientDetail"));
-const ClassesCalendar = lazy(() => import("./pages/admin/classes/ClassesCalendar"));
-const ClassTypesList = lazy(() => import("./pages/admin/classes/ClassTypesList"));
-const GenerateClasses = lazy(() => import("./pages/admin/classes/GenerateClasses"));
-const BookingsList = lazy(() => import("./pages/admin/bookings/BookingsList"));
-const Waitlist = lazy(() => import("./pages/admin/bookings/Waitlist"));
-const InstructorsList = lazy(() => import("./pages/admin/staff/InstructorsList"));
-const PaymentsPage = lazy(() => import("./pages/admin/payments/PaymentsPage"));
-const SettingsPage = lazy(() => import("./pages/admin/settings/SettingsPage"));
-const ReportsPage = lazy(() => import("./pages/admin/reports/ReportsPage"));
+const AdminDashboard = lazyWithRetry(() => import("./pages/admin/Dashboard"));
+const PlansList = lazyWithRetry(() => import("./pages/admin/plans/PlansList"));
+const DiscountCodesList = lazyWithRetry(() => import("./pages/admin/discounts/DiscountCodesList"));
+const MembershipsList = lazyWithRetry(() => import("./pages/admin/memberships/MembershipsList"));
+const ClientsList = lazyWithRetry(() => import("./pages/admin/clients/ClientsList"));
+const ClientDetail = lazyWithRetry(() => import("./pages/admin/clients/ClientDetail"));
+const ClassesCalendar = lazyWithRetry(() => import("./pages/admin/classes/ClassesCalendar"));
+const ClassTypesList = lazyWithRetry(() => import("./pages/admin/classes/ClassTypesList"));
+const GenerateClasses = lazyWithRetry(() => import("./pages/admin/classes/GenerateClasses"));
+const BookingsList = lazyWithRetry(() => import("./pages/admin/bookings/BookingsList"));
+const Waitlist = lazyWithRetry(() => import("./pages/admin/bookings/Waitlist"));
+const InstructorsList = lazyWithRetry(() => import("./pages/admin/staff/InstructorsList"));
+const PaymentsPage = lazyWithRetry(() => import("./pages/admin/payments/PaymentsPage"));
+const SettingsPage = lazyWithRetry(() => import("./pages/admin/settings/SettingsPage"));
+const ReportsPage = lazyWithRetry(() => import("./pages/admin/reports/ReportsPage"));
 // Legal pages
-const Privacidad = lazy(() => import("./pages/legal/Privacidad"));
-const Terminos = lazy(() => import("./pages/legal/Terminos"));
-const Cancelacion = lazy(() => import("./pages/legal/Cancelacion"));
+const Privacidad = lazyWithRetry(() => import("./pages/legal/Privacidad"));
+const Terminos = lazyWithRetry(() => import("./pages/legal/Terminos"));
+const Cancelacion = lazyWithRetry(() => import("./pages/legal/Cancelacion"));
 
 const queryClient = new QueryClient();
 
@@ -65,6 +67,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <ErrorBoundary>
         <AppInit />
         <Suspense fallback={<div className="min-h-[100dvh] flex items-center justify-center bg-valiance-nude"><Loader2 className="animate-spin text-valiance-mauve" size={24} /></div>}>
         <Routes>
@@ -120,6 +123,7 @@ const App = () => (
           <Route path="*" element={<NotFound />} />
         </Routes>
         </Suspense>
+        </ErrorBoundary>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

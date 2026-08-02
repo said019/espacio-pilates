@@ -1,4 +1,4 @@
-const CACHE_NAME = "tep-v2";
+const CACHE_NAME = "tep-v3";
 const PRECACHE_URLS = ["/", "/icon-192.png", "/icon-512.png", "/valiance-logo.png"];
 
 self.addEventListener("install", (event) => {
@@ -18,13 +18,47 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-  // Skip API calls — only cache static assets
-  if (event.request.url.includes("/api/")) return;
+  const req = event.request;
+  if (req.method !== "GET") return;
+
+  let url;
+  try { url = new URL(req.url); } catch { return; }
+
+  // Solo tocamos peticiones de este mismo origen.
+  if (url.origin !== self.location.origin) return;
+  // El API nunca pasa por caché.
+  if (url.pathname.startsWith("/api/")) return;
+
+  // NUNCA interceptar el JS/CSS de la app. Si respondíamos con un 503 sintético,
+  // el navegador tomaba esa respuesta como "el módulo cargó y está roto", el
+  // import() dinámico de la página fallaba y la clienta quedaba con la pantalla
+  // en blanco. Dejándolo pasar sin interceptar, el error es un error de red real
+  // y lazyWithRetry() puede reintentar y recargar.
+  if (
+    req.destination === "script" ||
+    req.destination === "style" ||
+    url.pathname.startsWith("/assets/")
+  ) return;
+
+  // Navegaciones: red primero, y si de plano no hay conexión servimos el shell
+  // precacheado en vez de un 503 sin contenido.
+  if (req.mode === "navigate") {
+    event.respondWith(
+      fetch(req).catch(() =>
+        caches.match("/").then((r) =>
+          r || new Response("Sin conexión. Revisa tu internet e inténtalo de nuevo.", {
+            status: 503,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          })
+        )
+      )
+    );
+    return;
+  }
+
+  // Resto de estáticos (iconos, imágenes): red primero, caché de respaldo.
   event.respondWith(
-    fetch(event.request)
-      .then((response) => response)
-      .catch(() => caches.match(event.request).then((r) => r || new Response("Offline", { status: 503 })))
+    fetch(req).catch(() => caches.match(req).then((r) => r || Response.error()))
   );
 });
 

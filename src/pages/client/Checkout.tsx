@@ -219,9 +219,16 @@ const Checkout = () => {
     }
   }, []);
 
-  const { data: plansData, isLoading: loadingPlans } = useQuery({
+  const {
+    data: plansData,
+    isLoading: loadingPlans,
+    isError: plansError,
+    refetch: refetchPlans,
+    isFetching: refetchingPlans,
+  } = useQuery({
     queryKey: ["plans"],
     queryFn: async () => (await api.get("/plans")).data,
+    retry: 2,
   });
 
   const { data: paymentsConfig } = useQuery({
@@ -381,6 +388,26 @@ const Checkout = () => {
                   {Array(6).fill(0).map((_, i) => (
                     <div key={i} className="h-28 rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] animate-pulse" />
                   ))}
+                </div>
+              ) : plansError || allPlans.length === 0 ? (
+                // Antes, si /plans fallaba o venía vacío, la pantalla quedaba sin
+                // nada abajo del título y parecía rota. Ahora se explica y se
+                // puede reintentar sin salir del checkout.
+                <div className="rounded-2xl border border-[#8C6B6F]/20 bg-white p-6 text-center space-y-3">
+                  <p className="text-sm font-semibold text-[#1A1A1A]">
+                    No pudimos cargar los paquetes
+                  </p>
+                  <p className="text-xs text-[#3D3A3A] leading-snug">
+                    Puede ser tu conexión. Inténtalo de nuevo en un momento.
+                  </p>
+                  <button
+                    onClick={() => refetchPlans()}
+                    disabled={refetchingPlans}
+                    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    {refetchingPlans && <Loader2 className="animate-spin" size={14} />}
+                    {refetchingPlans ? "Cargando…" : "Reintentar"}
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-6">
