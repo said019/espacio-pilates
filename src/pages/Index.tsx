@@ -722,6 +722,68 @@ const Index = () => {
             </div>
           </div>
 
+          {/* PROGRAMA PRENATAL — banda destacada; se muestra solo si el plan "Prenatal" está activo en admin (viene de /api/plans, que solo devuelve activos). El precio se jala en vivo por nombre. */}
+          {livePlans.some((p) => p.name === "Prenatal") && (
+            <div className="reveal opacity-0 translate-y-6 transition-all duration-700 mb-14">
+              <div className="relative overflow-hidden rounded-[1.75rem] bg-valiance-blush/25 ring-1 ring-valiance-blush/50 px-8 sm:px-12 py-10 sm:py-12">
+                <Heart
+                  aria-hidden
+                  strokeWidth={1}
+                  className="pointer-events-none absolute -bottom-8 -right-5 w-44 h-44 text-valiance-mauve/10 rotate-12"
+                />
+                <div className="relative grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-8 lg:gap-12 items-center">
+                  <div>
+                    <p className="flex items-center text-[0.66rem] tracking-[0.22em] uppercase text-valiance-mauve font-body mb-4">
+                      <Heart size={13} strokeWidth={1.8} className="mr-2 fill-valiance-mauve/25 text-valiance-mauve" />
+                      Programa Prenatal
+                    </p>
+                    <h3
+                      className="font-display font-normal text-[clamp(1.7rem,3vw,2.35rem)] leading-[1.08] tracking-[-0.01em] text-valiance-charcoal"
+                      style={{ textWrap: "balance" } as React.CSSProperties}
+                    >
+                      Movimiento seguro para ti, bienestar para tu bebé.
+                    </h3>
+                    <ul className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2.5 list-none">
+                      {[
+                        "Adaptado a cada trimestre",
+                        "Enfoque en piso pélvico",
+                        "Respiración y conexión",
+                        "Evaluación inicial y acompañamiento",
+                      ].map((b) => (
+                        <li key={b} className="flex items-start gap-2 text-[0.86rem] text-valiance-charcoal/75 font-body">
+                          <Heart size={13} strokeWidth={1.8} className="mt-[3px] shrink-0 text-valiance-mauve" />
+                          {b}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="lg:text-right lg:border-l lg:border-valiance-mauve/15 lg:pl-12">
+                    <div className="flex items-baseline gap-1 lg:justify-end">
+                      <span className="font-display text-[2.7rem] leading-none tabular-nums text-valiance-charcoal">
+                        ${(priceByName["Prenatal"] ?? 1180).toLocaleString()}
+                      </span>
+                      <span className="text-[0.72rem] text-valiance-charcoal/50">MXN</span>
+                    </div>
+                    <div className="text-[0.8rem] text-valiance-charcoal/65 font-body mt-2 leading-[1.7]">
+                      Paquete de 7 clases<br />
+                      Martes y jueves · 6:30 pm<br />
+                      Máximo 4 mamás
+                    </div>
+                    <button
+                      onClick={() => navigate(ctaPath)}
+                      className="mt-6 w-full lg:w-auto text-[0.76rem] font-medium tracking-[0.06em] uppercase active:scale-[0.98] transition-transform"
+                    >
+                      <span className="block w-full lg:inline-block lg:px-9 py-3 rounded-full bg-valiance-charcoal text-valiance-nude hover:bg-valiance-plum transition-colors">
+                        Reservar
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* CARGOS PUNTUALES — lista editorial con hairlines lila */}
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700">
             <div className="flex items-baseline justify-between mb-6 flex-wrap gap-3">
