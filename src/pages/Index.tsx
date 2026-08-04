@@ -724,7 +724,7 @@ const Index = () => {
 
           {/* PROGRAMA PRENATAL — banda destacada; se muestra solo si el plan "Prenatal" está activo en admin (viene de /api/plans, que solo devuelve activos). El precio se jala en vivo por nombre. */}
           {livePlans.some((p) => p.name === "Prenatal") && (
-            <div className="reveal opacity-0 translate-y-6 transition-all duration-700 mb-14">
+            <div className="mb-14">
               <div className="relative overflow-hidden rounded-[1.75rem] bg-valiance-blush/25 ring-1 ring-valiance-blush/50 px-8 sm:px-12 py-10 sm:py-12">
                 <Heart
                   aria-hidden
