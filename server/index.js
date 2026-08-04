@@ -231,7 +231,7 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
 const DEFAULT_CANCELLATION_SETTINGS = {
   enabled: true,
   min_hours: 12,
-  reschedule_hours: 3,
+  reschedule_hours: 8,
   waitlist_cutoff_hours: 3,   // dentro de estas horas ya no se auto-promueve de la lista de espera
   refund_credit_on_cancel: true,
   cancellations_limit: 2,
@@ -3123,11 +3123,28 @@ async function adminMiddleware(req, res, next) {
   authMiddleware(req, res, async () => {
     try {
       const r = await pool.query("SELECT role FROM users WHERE id = $1", [req.userId]);
-      if (!r.rows.length || !["admin", "super_admin", "instructor", "reception"].includes(r.rows[0].role)) {
+      if (!r.rows.length || !["admin", "super_admin", "reception"].includes(r.rows[0].role)) {
         return res.status(403).json({ message: "Acceso restringido" });
       }
       next();
     } catch { return res.status(500).json({ message: "Error interno" }); }
+  });
+}
+
+async function coachMiddleware(req, res, next) {
+  authMiddleware(req, res, async () => {
+    try {
+      const r = await pool.query(
+        "SELECT role, is_active FROM users WHERE id = $1",
+        [req.userId],
+      );
+      if (!r.rows.length || r.rows[0].role !== "instructor" || r.rows[0].is_active === false) {
+        return res.status(403).json({ message: "Acceso exclusivo para coaches" });
+      }
+      next();
+    } catch {
+      return res.status(500).json({ message: "Error interno" });
+    }
   });
 }
 
@@ -3364,6 +3381,119 @@ app.post("/api/auth/reset-password", async (req, res) => {
 });
 
 // ─── Routes: /api/plans ─────────────────────────────────────────────────────
+
+// GET /api/coach/schedule
+// Agenda operativa del estudio para coaches. Expone solo clases y nombres de
+// las alumnas reservadas; pagos, membresías, notas y datos de contacto quedan
+// fuera de este acceso.
+app.get("/api/coach/schedule", coachMiddleware, async (req, res) => {
+  try {
+    const today = mexicoCityDate();
+    const [coachResult, scheduleResult] = await Promise.all([
+      pool.query(
+        "SELECT display_name, email FROM users WHERE id = $1 LIMIT 1",
+        [req.userId],
+      ),
+      pool.query(
+        `SELECT c.id AS class_id,
+                c.date::text AS class_date,
+                c.start_time::text AS start_time,
+                c.end_time::text AS end_time,
+                c.max_capacity,
+                c.status AS class_status,
+                c.focus,
+                c.apparatus,
+                ct.name AS class_type_name,
+                ct.category,
+                i.display_name AS instructor_name,
+                b.id AS booking_id,
+                b.status AS booking_status,
+                b.checked_in_at,
+                COALESCE(u.display_name, NULLIF(b.guest_name, ''), 'Invitada') AS client_name
+           FROM classes c
+           JOIN class_types ct ON ct.id = c.class_type_id
+           LEFT JOIN instructors i ON i.id = c.instructor_id
+           LEFT JOIN bookings b
+             ON b.class_id = c.id
+            AND b.status != 'cancelled'
+           LEFT JOIN users u ON u.id = b.user_id
+          WHERE c.date >= $1
+            AND c.status != 'cancelled'
+          ORDER BY c.date ASC,
+                   c.start_time ASC,
+                   CASE b.status
+                     WHEN 'checked_in' THEN 1
+                     WHEN 'confirmed' THEN 2
+                     WHEN 'waitlist' THEN 3
+                     WHEN 'no_show' THEN 4
+                     ELSE 5
+                   END,
+                   client_name ASC
+          LIMIT 4000`,
+        [today],
+      ),
+    ]);
+
+    const classesById = new Map();
+    for (const row of scheduleResult.rows) {
+      if (!classesById.has(row.class_id)) {
+        classesById.set(row.class_id, {
+          id: row.class_id,
+          date: row.class_date,
+          startTime: String(row.start_time || "").slice(0, 5),
+          endTime: String(row.end_time || "").slice(0, 5),
+          maxCapacity: Number(row.max_capacity || 0),
+          status: row.class_status,
+          classTypeName: row.class_type_name || "Clase",
+          category: row.category || null,
+          focus: row.focus || null,
+          apparatus: row.apparatus || null,
+          instructorName: row.instructor_name || "Coach Tu Espacio",
+          reservations: [],
+        });
+      }
+
+      if (row.booking_id) {
+        classesById.get(row.class_id).reservations.push({
+          id: row.booking_id,
+          clientName: row.client_name,
+          status: row.booking_status,
+          checkedInAt: row.checked_in_at || null,
+        });
+      }
+    }
+
+    const classes = Array.from(classesById.values()).map((classItem) => {
+      const reservedCount = classItem.reservations.filter((booking) =>
+        ["confirmed", "checked_in"].includes(booking.status),
+      ).length;
+      const waitlistCount = classItem.reservations.filter((booking) => booking.status === "waitlist").length;
+      return { ...classItem, reservedCount, waitlistCount };
+    });
+    const todayClasses = classes.filter((classItem) => classItem.date === today);
+
+    return res.json({
+      data: {
+        coach: {
+          displayName: coachResult.rows[0]?.display_name || "Coach",
+          email: coachResult.rows[0]?.email || null,
+        },
+        today,
+        generatedAt: new Date().toISOString(),
+        summary: {
+          todayClasses: todayClasses.length,
+          todayReservations: todayClasses.reduce((sum, classItem) => sum + classItem.reservedCount, 0),
+          futureClasses: Math.max(classes.length - todayClasses.length, 0),
+          totalReservations: classes.reduce((sum, classItem) => sum + classItem.reservedCount, 0),
+        },
+        classes,
+      },
+    });
+  } catch (err) {
+    console.error("[GET /coach/schedule]", err.message);
+    return res.status(500).json({ message: "No pudimos cargar la agenda de coaches" });
+  }
+});
 
 // GET /api/plans
 app.get("/api/plans", async (req, res) => {
@@ -3881,7 +4011,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
         const u = userRes.rows[0];
         const cl = classFullRes.rows[0];
         if (await areEmailNotificationsEnabled()) {
-          sendBookingConfirmed({
+          sendBookingConfirmedWithPolicy({
             to: u.email,
             name: u.display_name || "Alumna",
             className: cl.class_type_name,
@@ -4015,22 +4145,24 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
       });
     }
 
-    // Refund threshold = min_hours (default 12); no-cancel cutoff = reschedule_hours (default 3).
+    // Refund threshold = min_hours (default 12); no-cancel cutoff = reschedule_hours (default 8).
     // - hoursLeft >= min_hours  → cancel allowed + credit refunded.
     // - reschedule_hours <= hoursLeft < min_hours → cancel allowed, credit NOT refunded (penalty).
     // - hoursLeft < reschedule_hours → cancel BLOCKED (student loses the spot).
+    const refundHours = normalizedSettingHours(cancelConfig.min_hours, 12);
+    const noCancelHours = normalizedSettingHours(cancelConfig.reschedule_hours, 8);
     const cancelCheck = canCancel({
       nowMs: now.getTime(),
       classStartMs: classStartUTC ? classStartUTC.getTime() : now.getTime() + 999 * 60000,
-      cancelHours: Number(cancelConfig.min_hours) || 12,
-      minHours: Number(cancelConfig.reschedule_hours) || 3,
+      cancelHours: refundHours,
+      minHours: noCancelHours,
     });
 
     // Block cancellation only when inside the no-cancel window (< reschedule_hours).
     if (!cancelCheck.allowed) {
       return res.status(403).json({
         code: "CANCELLATION_TOO_LATE",
-        message: "Ya no puedes cancelar con menos de " + (Number(cancelConfig.reschedule_hours) || 3) + " horas. Si no asistes perderás el lugar.",
+        message: "Ya no puedes cancelar con menos de " + noCancelHours + " horas. Si no asistes perderás el lugar.",
       });
     }
 
@@ -4088,7 +4220,7 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
       if (uRes.rows[0]) {
         const u = uRes.rows[0];
         if (await areEmailNotificationsEnabled()) {
-          sendBookingCancelled({
+          sendBookingCancelledWithPolicy({
             to: u.email,
             name: u.display_name || "Alumna",
             className: booking.class_type_name || "tu clase",
@@ -4190,7 +4322,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
 
     // ── Reschedule window check (config-driven, via tested policy module) ──────
     const cancelConfig = await getCancellationConfig();
-    const rescheduleHours = Number(cancelConfig.reschedule_hours ?? 3);
+    const rescheduleHours = normalizedSettingHours(cancelConfig.reschedule_hours, 8);
     const rescheduleCheck = canReschedule({
       nowMs: now.getTime(),
       classStartMs: currentClassStart ? currentClassStart.getTime() : now.getTime() + 999 * 60000,
@@ -4382,7 +4514,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
         const u = userRes.rows[0];
         const cl = classFullRes.rows[0];
         if (await areEmailNotificationsEnabled()) {
-          sendBookingConfirmed({
+          sendBookingConfirmedWithPolicy({
             to: u.email,
             name: u.display_name || "Alumna",
             className: cl.class_type_name,
@@ -9987,6 +10119,29 @@ async function getCancellationConfig() {
   );
 }
 
+function normalizedSettingHours(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+async function sendBookingConfirmedWithPolicy(options) {
+  const config = await getCancellationConfig();
+  return sendBookingConfirmed({
+    ...options,
+    cancelHours: normalizedSettingHours(config.min_hours, 12),
+    rescheduleHours: normalizedSettingHours(config.reschedule_hours, 8),
+  });
+}
+
+async function sendBookingCancelledWithPolicy(options) {
+  const config = await getCancellationConfig();
+  return sendBookingCancelled({
+    ...options,
+    cancelHours: normalizedSettingHours(config.min_hours, 12),
+    rescheduleHours: normalizedSettingHours(config.reschedule_hours, 8),
+  });
+}
+
 app.get("/api/public/settings/:key", async (req, res) => {
   try {
     const { key } = req.params;
@@ -10323,7 +10478,7 @@ async function notifyWaitlistPromotion(userId, classId) {
     const className = cl.class_type_name || "tu clase";
     const name = u.display_name || "Alumna";
     if (await areEmailNotificationsEnabled()) {
-      sendBookingConfirmed({
+      sendBookingConfirmedWithPolicy({
         to: u.email,
         name,
         className: cl.class_type_name,
@@ -12424,7 +12579,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
         const u = userRes.rows[0];
         const cl = classFullRes.rows[0];
         if (await areEmailNotificationsEnabled()) {
-          sendBookingConfirmed({
+          sendBookingConfirmedWithPolicy({
             to: u.email,
             name: u.display_name || "Alumna",
             className: cl.class_type_name,
@@ -15496,9 +15651,9 @@ app.post("/api/admin/test-emails", adminMiddleware, async (req, res) => {
 
   const jobs = [
     { label: "Membresía activada", fn: () => sendMembershipActivated({ to: testTo, name: testName, planName: "4 Clases", startDate: new Date().toISOString(), endDate: new Date(Date.now() + 30 * 86400000).toISOString(), classLimit: 4 }) },
-    { label: "Reserva confirmada", fn: () => sendBookingConfirmed({ to: testTo, name: testName, className: "Pilates Matt Clásico", date: new Date().toISOString(), startTime: "09:00", instructor: "Instructora Angelina", classesLeft: 3, isWaitlist: false }) },
-    { label: "Reserva cancelada (a tiempo)", fn: () => sendBookingCancelled({ to: testTo, name: testName, className: "Flex & Flow", date: new Date().toISOString(), startTime: "11:00", creditRestored: true, isLate: false, classesLeft: 4 }) },
-    { label: "Reserva cancelada (tardía)", fn: () => sendBookingCancelled({ to: testTo, name: testName, className: "Body Strong", date: new Date().toISOString(), startTime: "18:00", creditRestored: false, isLate: true, classesLeft: 3 }) },
+    { label: "Reserva confirmada", fn: () => sendBookingConfirmedWithPolicy({ to: testTo, name: testName, className: "Pilates Matt Clásico", date: new Date().toISOString(), startTime: "09:00", instructor: "Instructora Angelina", classesLeft: 3, isWaitlist: false }) },
+    { label: "Reserva cancelada (a tiempo)", fn: () => sendBookingCancelledWithPolicy({ to: testTo, name: testName, className: "Flex & Flow", date: new Date().toISOString(), startTime: "11:00", creditRestored: true, isLate: false, classesLeft: 4 }) },
+    { label: "Reserva cancelada (tardía)", fn: () => sendBookingCancelledWithPolicy({ to: testTo, name: testName, className: "Body Strong", date: new Date().toISOString(), startTime: "18:00", creditRestored: false, isLate: true, classesLeft: 3 }) },
     { label: "Recordatorio semanal", fn: () => sendWeeklyReminder({ to: testTo, name: testName, classesLeft: 2, endDate: new Date(Date.now() + 15 * 86400000).toISOString() }) },
     { label: "Renovación (última clase)", fn: () => sendRenewalReminder({ to: testTo, name: testName, planName: "4 Clases", classesLeft: 1, endDate: new Date(Date.now() + 5 * 86400000).toISOString(), reason: "last_class" }) },
     { label: "Renovación (por vencer)", fn: () => sendRenewalReminder({ to: testTo, name: testName, planName: "Mensual Ilimitado", classesLeft: null, endDate: new Date(Date.now() + 3 * 86400000).toISOString(), reason: "expiring_soon" }) },

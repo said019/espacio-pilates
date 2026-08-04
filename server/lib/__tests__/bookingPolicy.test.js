@@ -20,29 +20,32 @@ describe('canCancel', () => {
   it('≥12h: cancela y devuelve crédito', () => {
     expect(canCancel({ nowMs: start - 13*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: true });
   });
-  it('entre 3 y 12h: cancela pero NO devuelve crédito (penalización)', () => {
-    expect(canCancel({ nowMs: start - 5*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: false });
+  it('entre 8 y 12h: cancela pero NO devuelve crédito (penalización)', () => {
+    expect(canCancel({ nowMs: start - 9*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: false });
   });
-  it('<3h: no cancela', () => {
-    expect(canCancel({ nowMs: start - 1*H, classStartMs: start })).toEqual({ allowed: false, refundCredit: false });
+  it('<8h: no cancela', () => {
+    expect(canCancel({ nowMs: start - 7*H, classStartMs: start })).toEqual({ allowed: false, refundCredit: false });
   });
   it('exactamente 12h: devuelve crédito (>=)', () => {
     expect(canCancel({ nowMs: start - 12*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: true });
   });
-  it('exactamente 3h: permite cancelar (>=)', () => {
-    expect(canCancel({ nowMs: start - 3*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: false });
+  it('exactamente 8h: permite cancelar (>=)', () => {
+    expect(canCancel({ nowMs: start - 8*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: false });
   });
 });
 
 describe('canReschedule', () => {
-  it('≥12h: reagenda', () => {
-    expect(canReschedule({ nowMs: start - 13*H, classStartMs: start })).toEqual({ allowed: true });
+  it('con más de 8h: reagenda', () => {
+    expect(canReschedule({ nowMs: start - 9*H, classStartMs: start })).toEqual({ allowed: true });
   });
-  it('entre 3 y 12h: sí reagenda', () => {
-    expect(canReschedule({ nowMs: start - 5*H, classStartMs: start })).toEqual({ allowed: true });
+  it('exactamente 8h: reagenda', () => {
+    expect(canReschedule({ nowMs: start - 8*H, classStartMs: start })).toEqual({ allowed: true });
   });
-  it('<3h: no reagenda', () => {
-    expect(canReschedule({ nowMs: start - 2*H, classStartMs: start })).toEqual({ allowed: false });
+  it('con menos de 8h: no reagenda', () => {
+    expect(canReschedule({ nowMs: start - 7*H, classStartMs: start })).toEqual({ allowed: false });
+  });
+  it('respeta una ventana configurada por el admin', () => {
+    expect(canReschedule({ nowMs: start - 5*H, classStartMs: start, rescheduleHours: 4 })).toEqual({ allowed: true });
   });
 });
 

@@ -256,7 +256,18 @@ async function sendMembershipActivated(opts) {
 // ── 2. RESERVA CONFIRMADA ────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 async function sendBookingConfirmed(opts) {
-  const { to, name, className, date, startTime, instructor, classesLeft, isWaitlist } = opts;
+  const {
+    to,
+    name,
+    className,
+    date,
+    startTime,
+    instructor,
+    classesLeft,
+    isWaitlist,
+    cancelHours = 12,
+    rescheduleHours = 8,
+  } = opts;
 
   const statusPill = isWaitlist
     ? pill("Lista de espera", B.amber)
@@ -287,7 +298,7 @@ async function sendBookingConfirmed(opts) {
       ...(classesLeftText ? [infoRow("Tu paquete", classesLeftText)] : []),
     ])}
     ${waitlistNote}
-    ${alertBox("Puedes cancelar con <strong>12 horas</strong> de anticipación para recuperar tu crédito. Entre 12 y 3 horas antes puedes reagendar (el crédito ya no se reembolsa). Con menos de 3 horas se pierde la clase.", "warning")}
+    ${alertBox(`Puedes cancelar con <strong>${cancelHours} horas</strong> de anticipación para recuperar tu crédito. Para reagendar necesitas al menos <strong>${rescheduleHours} horas</strong> de anticipación.`, "warning")}
   `;
   const html = baseLayout({
     preheader: isWaitlist ? `En lista de espera para ${className}` : `Reserva confirmada: ${className} — ${fmtDate(date)}`,
@@ -302,13 +313,24 @@ async function sendBookingConfirmed(opts) {
 // ── 3. RESERVA CANCELADA ─────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 async function sendBookingCancelled(opts) {
-  const { to, name, className, date, startTime, creditRestored, isLate, classesLeft } = opts;
+  const {
+    to,
+    name,
+    className,
+    date,
+    startTime,
+    creditRestored,
+    isLate,
+    classesLeft,
+    cancelHours = 12,
+    rescheduleHours = 8,
+  } = opts;
 
   const classesLeftText = classesLeft === null ? "Ilimitadas" : classesLeft !== undefined ? `${classesLeft} clases` : null;
 
   const creditBlock = creditRestored
-    ? alertBox("Tu clase fue <strong>devuelta a tu paquete</strong>. Cancelaste con más de 12 horas de anticipación.", "success")
-    : alertBox("La clase <strong>no se devolvió</strong> a tu paquete. La cancelación fue con menos de 12 horas de anticipación.", "error");
+    ? alertBox(`Tu clase fue <strong>devuelta a tu paquete</strong>. Cancelaste con al menos ${cancelHours} horas de anticipación.`, "success")
+    : alertBox(`La clase <strong>no se devolvió</strong> a tu paquete. La cancelación fue con menos de ${cancelHours} horas de anticipación.`, "error");
 
   const content = `
     ${h1(`Reserva cancelada, ${name.split(" ")[0]}`)}
@@ -321,7 +343,7 @@ async function sendBookingCancelled(opts) {
     ])}
     ${creditBlock}
     ${isLate
-      ? small("Recuerda: para recuperar el crédito debes cancelar con al menos 12 horas. Después puedes reagendar hasta 3 horas antes; con menos tiempo se pierde la clase.")
+      ? small(`Recuerda: para recuperar el crédito debes cancelar con al menos ${cancelHours} horas. Para reagendar necesitas al menos ${rescheduleHours} horas de anticipación.`)
       : p("¿Quieres reservar otra clase? Hay muchos horarios disponibles.")
     }
   `;
@@ -512,7 +534,7 @@ function __renderPreview(kind) {
         infoRow("Instructora", opts.instructor),
         infoRow("Tu paquete", `${opts.classesLeft} clases restantes`),
       ])}
-      ${alertBox("Puedes cancelar con <strong>12 horas</strong> de anticipación para recuperar tu crédito. Entre 12 y 3 horas antes puedes reagendar (el crédito ya no se reembolsa). Con menos de 3 horas se pierde la clase.", "warning")}
+      ${alertBox("Puedes cancelar con <strong>12 horas</strong> de anticipación para recuperar tu crédito. Para reagendar necesitas al menos <strong>8 horas</strong> de anticipación.", "warning")}
     `;
     return baseLayout({
       preheader: `Reserva confirmada: ${opts.className} — ${fmtDate(opts.date)}`,

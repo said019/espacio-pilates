@@ -588,9 +588,13 @@ const VenueMediaSettings = () => {
 const cancellationSchema = z.object({
   enabled: z.boolean(),
   min_hours: z.number().int().min(0).max(168),
+  reschedule_hours: z.number().int().min(0).max(168),
   refund_credit_on_cancel: z.boolean(),
   cancellations_limit: z.number().int().min(0).max(10),
   late_cancel_message: z.string().max(280),
+}).refine((value) => value.reschedule_hours <= value.min_hours, {
+  message: "La ventana para reagendar no puede superar la ventana para devolver el crédito",
+  path: ["reschedule_hours"],
 });
 type CancellationFormValues = z.infer<typeof cancellationSchema>;
 
@@ -676,7 +680,8 @@ const CancellationSettings = () => {
     resolver: zodResolver(cancellationSchema),
     defaultValues: {
       enabled: true,
-      min_hours: 2,
+      min_hours: 12,
+      reschedule_hours: 8,
       refund_credit_on_cancel: true,
       cancellations_limit: 2,
       late_cancel_message: "Las cancelaciones requieren al menos {hours}h de anticipación. La clase no será devuelta a tu paquete.",
@@ -688,7 +693,8 @@ const CancellationSettings = () => {
     if (raw && typeof raw === "object") {
       reset({
         enabled: raw.enabled ?? true,
-        min_hours: raw.min_hours ?? 2,
+        min_hours: raw.min_hours ?? 12,
+        reschedule_hours: raw.reschedule_hours ?? 8,
         refund_credit_on_cancel: raw.refund_credit_on_cancel ?? true,
         cancellations_limit: raw.cancellations_limit ?? 2,
         late_cancel_message: raw.late_cancel_message ?? "",
@@ -708,7 +714,7 @@ const CancellationSettings = () => {
 
   const watchedValues = watch();
   const previewMsg = (watchedValues.late_cancel_message || "")
-    .replace("{hours}", String(watchedValues.min_hours ?? 2));
+    .replace("{hours}", String(watchedValues.min_hours ?? 12));
 
   if (isLoading) {
     return (
@@ -751,6 +757,26 @@ const CancellationSettings = () => {
         </div>
         <p className="text-xs text-muted-foreground">0 = sin restricción de tiempo.</p>
         {errors.min_hours && <p className="text-xs text-destructive">{errors.min_hours.message}</p>}
+      </div>
+
+      {/* reschedule_hours */}
+      <div className="space-y-1.5">
+        <Label>Horas mínimas para reagendar</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={0}
+            max={168}
+            step={1}
+            className="w-28"
+            {...register("reschedule_hours", { valueAsNumber: true })}
+          />
+          <span className="text-sm text-muted-foreground">horas antes de la clase</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Fuera de esta ventana la alumna conserva su reserva, pero ya no puede moverla a otro horario. 0 = sin restricción.
+        </p>
+        {errors.reschedule_hours && <p className="text-xs text-destructive">{errors.reschedule_hours.message}</p>}
       </div>
 
       {/* refund_credit_on_cancel */}

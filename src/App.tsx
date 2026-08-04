@@ -31,6 +31,7 @@ const ProfilePreferences = lazyWithRetry(() => import("./pages/client/ProfilePre
 const Notifications = lazyWithRetry(() => import("./pages/client/Notifications"));
 const MyOrders = lazyWithRetry(() => import("./pages/client/MyOrders"));
 const CardPayment = lazyWithRetry(() => import("./pages/client/CardPayment"));
+const CoachPortal = lazyWithRetry(() => import("./pages/coach/CoachPortal"));
 
 const AdminDashboard = lazyWithRetry(() => import("./pages/admin/Dashboard"));
 const PlansList = lazyWithRetry(() => import("./pages/admin/plans/PlansList"));
@@ -99,6 +100,9 @@ const App = () => (
           <Route path="/app/orders" element={<MyOrders />} />
           <Route path="/app/pay/:orderId" element={<CardPayment />} />
           <Route path="/app/notifications" element={<Notifications />} />
+
+          {/* Coach portal */}
+          <Route path="/coach" element={<CoachPortal />} />
 
           {/* Admin panel */}
           <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />

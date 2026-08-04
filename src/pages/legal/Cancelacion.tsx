@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import valianceLogo from "@/assets/tep-mark-ink.png";
 import api from "@/lib/api";
+import { useCancellationConfig } from "@/hooks/useCancellationConfig";
 
 const Cancelacion = () => {
   const navigate = useNavigate();
   const [dynamicPolicy, setDynamicPolicy] = useState("");
+  const cancellationConfig = useCancellationConfig();
 
   useEffect(() => {
     api.get("/public/settings/policies_settings").then(({ data }) => {
@@ -64,7 +66,7 @@ const Cancelacion = () => {
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl bg-[#ECEEDF] border border-[#CFD4B6] flex items-center justify-center flex-shrink-0 text-[#6E7F4F] text-lg">✓</div>
                 <div>
-                  <h3 className="font-syne font-bold text-foreground text-sm mb-1">Cancelación con 12 horas o más de anticipación</h3>
+                  <h3 className="font-syne font-bold text-foreground text-sm mb-1">Cancelación con {cancellationConfig.min_hours} horas o más de anticipación</h3>
                   <p className="text-muted-foreground text-sm leading-relaxed">
                     El crédito se devuelve a su paquete sin penalización. Puede cancelar o reagendar desde la app sin costo.
                   </p>
@@ -74,7 +76,7 @@ const Cancelacion = () => {
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl bg-[#F4EAD6] border border-[#E5CF9F] flex items-center justify-center flex-shrink-0 text-[#B5832F] text-lg">⚠</div>
                 <div>
-                  <h3 className="font-syne font-bold text-foreground text-sm mb-1">Entre 12 y 3 horas antes de la clase</h3>
+                  <h3 className="font-syne font-bold text-foreground text-sm mb-1">Entre {cancellationConfig.min_hours} y {cancellationConfig.reschedule_hours} horas antes de la clase</h3>
                   <p className="text-muted-foreground text-sm leading-relaxed">
                     Ya no puede cancelar con reembolso (el crédito se descuenta), pero <strong className="text-foreground">sí puede reagendar</strong> su clase a otro horario disponible.
                   </p>
@@ -84,7 +86,7 @@ const Cancelacion = () => {
               <div className="flex items-start gap-4">
                 <div className="w-10 h-10 rounded-xl bg-[#F3DEDA] border border-[#E2B7B0] flex items-center justify-center flex-shrink-0 text-[#A8473F] text-lg">✗</div>
                 <div>
-                  <h3 className="font-syne font-bold text-foreground text-sm mb-1">Menos de 3 horas o inasistencia (No-show)</h3>
+                  <h3 className="font-syne font-bold text-foreground text-sm mb-1">Menos de {cancellationConfig.reschedule_hours} horas o inasistencia (No-show)</h3>
                   <p className="text-muted-foreground text-sm leading-relaxed">
                     Ya no puede cancelar ni reagendar. La clase se pierde automáticamente; no se otorga reposición, crédito ni reembolso.
                   </p>
@@ -121,7 +123,7 @@ const Cancelacion = () => {
 
             <h2 className="font-syne font-bold text-lg text-foreground mt-8 mb-3">5. Cambio de horario</h2>
             <ul className="list-disc pl-6 space-y-2">
-              <li>Puede reagendar su clase a otro horario disponible desde la app hasta 3 horas antes del horario original. Para recuperar el crédito, cancele con 12 horas de anticipación.</li>
+              <li>Puede reagendar su clase a otro horario disponible desde la app con al menos {cancellationConfig.reschedule_hours} horas de anticipación. Para recuperar el crédito, cancele con {cancellationConfig.min_hours} horas de anticipación.</li>
               <li>Los cambios están sujetos a disponibilidad de cupo.</li>
             </ul>
 
@@ -141,11 +143,11 @@ const Cancelacion = () => {
                 </thead>
                 <tbody>
                   <tr className="border-t border-border">
-                    <td className="p-4">Cancelación &gt; 2 hrs antes</td>
+                    <td className="p-4">Cancelación con {cancellationConfig.min_hours} hrs o más</td>
                     <td className="p-4 text-[#6E7F4F]">✓ Clase devuelta</td>
                   </tr>
                   <tr className="border-t border-border">
-                    <td className="p-4">Cancelación &lt; 2 hrs antes</td>
+                    <td className="p-4">Cancelación con menos de {cancellationConfig.reschedule_hours} hrs</td>
                     <td className="p-4 text-[#B5832F]">⚠ Clase perdida</td>
                   </tr>
                   <tr className="border-t border-border">

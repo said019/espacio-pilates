@@ -5,6 +5,7 @@ import { es } from "date-fns/locale";
 import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import { useToast } from "@/hooks/use-toast";
+import { useCancellationConfig } from "@/hooks/useCancellationConfig";
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,7 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
   const user = useAuthStore((s) => s.user);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const cancellationConfig = useCancellationConfig();
 
   if (!classData) return null;
 
@@ -103,7 +105,9 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
 
             <div className="rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[11px] text-[#B5832F] leading-relaxed">
               <p className="font-semibold mb-0.5">Política de cancelación</p>
-              <p>Cancela con al menos <strong>12 horas de anticipación</strong> para recuperar tu crédito. También puedes <strong>reagendar el mismo día</strong> hasta 3 horas antes de la clase.</p>
+              <p>
+                Cancela con al menos <strong>{cancellationConfig.min_hours} horas de anticipación</strong> para recuperar tu crédito. También puedes reagendar con al menos <strong>{cancellationConfig.reschedule_hours} horas</strong> antes de la clase.
+              </p>
             </div>
 
             {!user && (

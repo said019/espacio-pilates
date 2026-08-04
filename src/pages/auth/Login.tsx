@@ -68,7 +68,8 @@ const Login = () => {
     if (isAuthenticated && user) {
       const returnUrl = params.get("returnUrl");
       if (returnUrl) { navigate(returnUrl); return; }
-      if (["admin", "super_admin", "instructor", "reception"].includes(user.role)) navigate("/admin/dashboard");
+      if (user.role === "instructor") navigate("/coach");
+      else if (["admin", "super_admin", "reception"].includes(user.role)) navigate("/admin/dashboard");
       else navigate("/app");
     }
   }, [isAuthenticated, user]);
@@ -80,7 +81,9 @@ const Login = () => {
       const { user: authedUser } = useAuthStore.getState();
       const returnUrl = params.get("returnUrl");
       if (returnUrl) { navigate(returnUrl, { replace: true }); return; }
-      if (["admin", "super_admin", "instructor", "reception"].includes(authedUser?.role ?? "")) {
+      if (authedUser?.role === "instructor") {
+        navigate("/coach", { replace: true });
+      } else if (["admin", "super_admin", "reception"].includes(authedUser?.role ?? "")) {
         navigate("/admin/dashboard", { replace: true });
       } else {
         navigate("/app", { replace: true });

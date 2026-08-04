@@ -2,7 +2,13 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 
-const ADMIN_ROLES = ["admin", "super_admin", "reception", "instructor"];
+const ADMIN_ROLES = ["admin", "super_admin", "reception"];
+
+function fallbackRouteForRole(role: string) {
+  if (role === "instructor") return "/coach";
+  if (["admin", "super_admin", "reception"].includes(role)) return "/admin/dashboard";
+  return "/app";
+}
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -15,13 +21,13 @@ export const AuthGuard = ({ children, requiredRoles = ADMIN_ROLES }: AuthGuardPr
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
+    let active = true;
     (async () => {
-      if (!isAuthenticated) {
-        await checkAuth();
-      }
-      setChecked(true);
+      await checkAuth();
+      if (active) setChecked(true);
     })();
-  }, []);
+    return () => { active = false; };
+  }, [checkAuth]);
 
   useEffect(() => {
     if (!checked) return;
@@ -30,9 +36,9 @@ export const AuthGuard = ({ children, requiredRoles = ADMIN_ROLES }: AuthGuardPr
       return;
     }
     if (!requiredRoles.includes(user.role)) {
-      navigate("/app");
+      navigate(fallbackRouteForRole(user.role), { replace: true });
     }
-  }, [checked, isAuthenticated, user]);
+  }, [checked, isAuthenticated, navigate, requiredRoles, user]);
 
   if (!checked)
     return (

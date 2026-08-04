@@ -20,25 +20,9 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { useCancellationConfig } from "@/hooks/useCancellationConfig";
 import { Star, CalendarClock } from "lucide-react";
 import type { BookingClient } from "@/types/booking";
-
-function useCancellationConfig() {
-  const { data } = useQuery({
-    queryKey: ["public-settings", "cancellation_settings"],
-    queryFn: async () => (await api.get("/public/settings/cancellation_settings")).data,
-    staleTime: 5 * 60 * 1000,
-  });
-  const raw = data?.data ?? data?.value ?? {};
-  return {
-    enabled: raw.enabled !== false,
-    min_hours: Number(raw.min_hours ?? 2),
-    refund_credit_on_cancel: raw.refund_credit_on_cancel !== false,
-    cancellations_limit: Number(raw.cancellations_limit ?? 2),
-    late_cancel_message: String(raw.late_cancel_message ?? ""),
-    reschedule_hours: Number(raw.reschedule_hours ?? 3),
-  };
-}
 
 // Narrowed shape of an axios error from the reschedule endpoint.
 interface ApiError {
