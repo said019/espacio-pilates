@@ -722,6 +722,32 @@ const Index = () => {
             </div>
           </div>
 
+          {/* CARGOS PUNTUALES — lista editorial con hairlines lila. Sin animación "reveal" para que siempre se muestre (evita que quede oculta por opacity-0). */}
+          <div className="mb-14">
+            <div className="flex items-baseline justify-between mb-6 flex-wrap gap-3">
+              <h3 className="font-display text-[1.9rem] text-valiance-charcoal">Inscripción y clases individuales</h3>
+              <span className="text-[0.8rem] text-valiance-mauve font-body">pagos únicos</span>
+            </div>
+
+            <div className="rounded-[1.75rem] bg-valiance-nude ring-1 ring-valiance-charcoal/8 px-8 sm:px-10 divide-y divide-valiance-lavender/25">
+              {CARGOS.map((c) => {
+                const price = priceByName[c.plan] ?? c.price;
+                return (
+                <div key={c.id} className="py-6 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="font-display text-[1.3rem] text-valiance-charcoal leading-tight">{c.name}</div>
+                    <div className="text-[0.74rem] text-valiance-mauve font-body mt-1">{c.hint}</div>
+                  </div>
+                  <div className="font-display text-[1.9rem] text-valiance-charcoal leading-none flex items-baseline gap-1 tabular-nums">
+                    ${price.toLocaleString()}
+                    <span className="text-[0.66rem] text-valiance-charcoal/50">MXN</span>
+                  </div>
+                </div>
+                );
+              })}
+            </div>
+          </div>
+
           {/* PROGRAMA PRENATAL — banda destacada; se muestra solo si el plan "Prenatal" está activo en admin (viene de /api/plans, que solo devuelve activos). El precio se jala en vivo por nombre. */}
           {livePlans.some((p) => p.name === "Prenatal") && (
             <div className="mb-14">
@@ -783,32 +809,6 @@ const Index = () => {
               </div>
             </div>
           )}
-
-          {/* CARGOS PUNTUALES — lista editorial con hairlines lila */}
-          <div className="reveal opacity-0 translate-y-6 transition-all duration-700">
-            <div className="flex items-baseline justify-between mb-6 flex-wrap gap-3">
-              <h3 className="font-display text-[1.9rem] text-valiance-charcoal">Inscripción y clases individuales</h3>
-              <span className="text-[0.8rem] text-valiance-mauve font-body">pagos únicos</span>
-            </div>
-
-            <div className="rounded-[1.75rem] bg-valiance-nude ring-1 ring-valiance-charcoal/8 px-8 sm:px-10 divide-y divide-valiance-lavender/25">
-              {CARGOS.map((c) => {
-                const price = priceByName[c.plan] ?? c.price;
-                return (
-                <div key={c.id} className="py-6 flex items-center justify-between gap-4">
-                  <div>
-                    <div className="font-display text-[1.3rem] text-valiance-charcoal leading-tight">{c.name}</div>
-                    <div className="text-[0.74rem] text-valiance-mauve font-body mt-1">{c.hint}</div>
-                  </div>
-                  <div className="font-display text-[1.9rem] text-valiance-charcoal leading-none flex items-baseline gap-1 tabular-nums">
-                    ${price.toLocaleString()}
-                    <span className="text-[0.66rem] text-valiance-charcoal/50">MXN</span>
-                  </div>
-                </div>
-                );
-              })}
-            </div>
-          </div>
 
           <p className="text-[0.78rem] text-valiance-charcoal/55 mt-10 text-center font-body max-w-[640px] mx-auto leading-[1.7]">
             Paquetes mensuales no acumulables: vencen al fin del mes de compra. La inscripción es un pago único. La adquisición implica aceptación del reglamento interno.
