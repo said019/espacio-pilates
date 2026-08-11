@@ -792,7 +792,6 @@ const Index = () => {
                       <span className="text-[0.72rem] text-valiance-charcoal/50">MXN</span>
                     </div>
                     <div className="text-[0.8rem] text-valiance-charcoal/65 font-body mt-2 leading-[1.7]">
-                      Paquete de 7 clases<br />
                       Martes y jueves · 6:30 pm<br />
                       Máximo 4 mamás
                     </div>
