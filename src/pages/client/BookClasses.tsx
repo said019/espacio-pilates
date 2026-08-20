@@ -277,8 +277,9 @@ const BookClasses = () => {
                           const remaining = Math.max(0, maxCap - current);
                           const isFull = hasAvailability && remaining === 0;
 
-                          // Bookable only when not past, not full (unless already booked).
-                          const disabled = !isBooked && (isPast || isFull || prenatalAccessMismatch);
+                          // Full future classes stay selectable so the client can
+                          // continue to the confirmation screen and join the waitlist.
+                          const disabled = !isBooked && (isPast || prenatalAccessMismatch);
 
                           // Apparatus — 'reformer' | 'tower'; default reformer.
                           const rawApparatus =
@@ -304,14 +305,14 @@ const BookClasses = () => {
                                 isBooked &&
                                   "border-valiance-gold/40 bg-valiance-nude ring-1 ring-valiance-gold/30 cursor-pointer hover:ring-valiance-gold/50",
                                 // Available — blush warmth, lifts on hover
-                                !isBooked && !disabled &&
+                                !isBooked && !disabled && !isFull &&
                                   "border-valiance-charcoal/8 bg-valiance-nude ring-1 ring-valiance-charcoal/5 cursor-pointer hover:ring-valiance-blush/50 hover:border-valiance-blush/40 hover:-translate-y-0.5 hover:shadow-[0_12px_24px_-14px_rgba(201,173,163,0.45)]",
                                 // Past — faded, inert
                                 !isBooked && isPast &&
                                   "border-valiance-lavender/15 bg-transparent opacity-40 cursor-not-allowed",
-                                // Full (future) — quiet, waitlist note
-                                !isBooked && !isPast && isFull &&
-                                  "border-valiance-lavender/20 bg-valiance-lavender/[0.07] opacity-70 cursor-not-allowed"
+                                // Full (future) — selectable entry to the waitlist flow
+                                !isBooked && !disabled && isFull &&
+                                  "border-valiance-lavender/30 bg-valiance-lavender/[0.10] ring-1 ring-valiance-lavender/20 cursor-pointer hover:border-valiance-gold/35 hover:ring-valiance-gold/25 hover:-translate-y-0.5"
                               )}
                             >
                               <div className="flex items-start justify-between gap-1">
