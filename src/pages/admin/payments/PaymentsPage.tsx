@@ -5,6 +5,7 @@ import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
 import {
+  BranchSelector,
   BranchRequiredNotice,
   branchNameFromRow,
   branchQueryParams,
@@ -21,6 +22,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { cn } from "@/lib/utils";
 import { DatePicker } from "@/components/ui/date-picker";
 import { ReceiptDialog } from "@/components/ReceiptDialog";
+import { groupPaymentPlans } from "./paymentPlanScope";
 
 // ── Helpers ──────────────────────────────────────────────
 const PAYMENT_METHODS = [
@@ -34,23 +36,6 @@ const STEP_META = [
   { label: "Elegir plan", icon: Package },
   { label: "Confirmar", icon: CheckCircle2 },
 ];
-
-// ── Category groups for plan display ──────────────────────
-function groupPlans(plans: any[]) {
-  const groups: Record<string, any[]> = { pilates: [], functional: [], bienestar: [], otro: [] };
-  for (const p of plans) {
-    const cat = p.classCategory ?? p.class_category ?? "";
-    const program = p.program ?? "";
-    if (program === "functional" || cat === "funcional") groups.functional.push(p);
-    else if (program === "pilates" || cat === "pilates") groups.pilates.push(p);
-    else if (cat === "bienestar") groups.bienestar.push(p);
-    else if (cat === "all") groups.otro.push(p);
-    else if (p.name?.toLowerCase().includes("pilates") || p.name?.toLowerCase().includes("mat") || p.name?.toLowerCase().includes("flow")) groups.pilates.push(p);
-    else if (p.name?.toLowerCase().includes("body") || p.name?.toLowerCase().includes("strong") || p.name?.toLowerCase().includes("flex")) groups.bienestar.push(p);
-    else groups.otro.push(p);
-  }
-  return groups;
-}
 
 // ── Step indicator ────────────────────────────────────────
 const StepBar = ({ step }: { step: number }) => (
@@ -97,7 +82,14 @@ const CashAssignment = () => {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
   const [selectedUser, setSelectedUser] = useState<{ id: string; displayName: string; email?: string; phone?: string | null } | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState<{ id: string; name: string; price: number; branchId?: string } | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<{
+    id: string;
+    name: string;
+    price: number;
+    branchId?: string;
+    planKind?: string;
+    plan_kind?: string;
+  } | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("cash");
 
   const { data: usersData, isLoading: usersLoading } = useQuery<{ data: { id: string; displayName: string; email: string; phone?: string | null }[] }>({
@@ -132,19 +124,15 @@ const CashAssignment = () => {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["memberships"] });
-      toast({ title: "✅ Membresía activada correctamente" });
+      qc.invalidateQueries({ queryKey: ["payments"] });
+      const kind = selectedPlan?.planKind ?? selectedPlan?.plan_kind;
+      toast({ title: kind === "registration" ? "Inscripción registrada correctamente" : "Membresía activada correctamente" });
       setStep(1); setSelectedUser(null); setSelectedPlan(null); setSearch("");
     },
     onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al asignar", variant: "destructive" }),
   });
 
-  const plans = (Array.isArray(plansData?.data) ? plansData.data : []).filter((p) => {
-    const row = p as any;
-    const active = row.isActive !== false && row.is_active !== false;
-    const kind = row.planKind ?? row.plan_kind;
-    return active && kind !== "registration" && kind !== "internal";
-  });
-  const planGroups = groupPlans(plans);
+  const planGroups = groupPaymentPlans(Array.isArray(plansData?.data) ? plansData.data : []);
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -156,7 +144,7 @@ const CashAssignment = () => {
             Asignación en <span className="font-semibold text-[#1A1A1A]">{branchScope.selectedBranch?.name}</span>
           </p>
           <p className="rounded-xl border border-[#E5CF9F] bg-[#F4EAD6]/70 px-3 py-2 text-xs text-[#6B4F2F]" role="status">
-            Esta acción activa una membresía manual y no procesa un cobro. La inscripción de Pilates ($500) o Funcional ($300), cuando corresponda, debe registrarse por separado en una orden.
+            Si la clienta necesita inscripción, regístrala primero y después asigna su paquete. Pilates cuesta $500 y Funcional $300.
           </p>
         </div>
       )}
@@ -235,12 +223,14 @@ const CashAssignment = () => {
           {Object.entries(planGroups).map(([group, items]) => {
             if (!items.length) return null;
             const groupColors: Record<string, string> = {
+              registration: "text-[#8C6B6F]",
               pilates: "text-[#D9B5BA]",
               functional: "text-[#6E7F4F]",
               bienestar: "text-[#8C6B6F]",
               otro: "text-[#1A1A1A]/50",
             };
             const groupLabels: Record<string, string> = {
+              registration: "Inscripciones",
               pilates: "Paquetes Pilates",
               functional: "Paquetes Funcional",
               bienestar: "Paquetes Bienestar",
@@ -273,8 +263,9 @@ const CashAssignment = () => {
                         <div>
                           <p className="text-sm font-semibold text-[#1A1A1A]/85">{p.name}</p>
                           <p className="text-xs text-[#1A1A1A]/30">
-                            {p.classLimit === null ? "Ilimitado" : `${p.classLimit} clases`}
-                            {p.durationDays ? ` · ${p.durationDays} días` : ""}
+                            {(p.planKind ?? p.plan_kind) === "registration"
+                              ? `Inscripción por programa · válida en ${branchScope.selectedBranch?.name}`
+                              : `${p.classLimit === null ? "Ilimitado" : `${p.classLimit} clases`}${p.durationDays ? ` · ${p.durationDays} días` : ""}`}
                           </p>
                         </div>
                       </div>
@@ -313,7 +304,7 @@ const CashAssignment = () => {
           <div className="rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] overflow-hidden">
             <div className="px-5 py-3 border-b border-[#8C6B6F]/15 flex items-center gap-2">
               <Sparkles size={14} className="text-[#FDF7F8]" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A]/50">Resumen de la membresía</span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A]/50">Resumen de la operación</span>
             </div>
             <div className="p-5 space-y-3">
               <div className="flex justify-between items-center">
@@ -327,7 +318,7 @@ const CashAssignment = () => {
               </div>
               <div className="h-px bg-[#8C6B6F]/[0.06]" />
               <div className="flex justify-between items-center">
-                <span className="text-sm text-[#1A1A1A]/50">Plan</span>
+                <span className="text-sm text-[#1A1A1A]/50">Concepto</span>
                 <span className="text-sm font-semibold text-[#1A1A1A]/90">{selectedPlan?.name}</span>
               </div>
               <div className="h-px bg-[#8C6B6F]/[0.06]" />
@@ -337,7 +328,7 @@ const CashAssignment = () => {
               </div>
               <div className="h-px bg-[#8C6B6F]/[0.06]" />
               <div className="flex justify-between items-center">
-                <span className="text-sm text-[#1A1A1A]/50">Valor de referencia</span>
+                <span className="text-sm text-[#1A1A1A]/50">Importe registrado</span>
                 <span className="text-lg font-bold text-[#8C6B6F]">${Number(selectedPlan?.price).toLocaleString()} MXN</span>
               </div>
             </div>
@@ -376,7 +367,11 @@ const CashAssignment = () => {
             >
               {assignMutation.isPending
                 ? <><Loader2 className="animate-spin mr-2" size={14} /> Activando…</>
-                : <><CheckCircle2 size={15} className="mr-2" /> Confirmar y activar membresía</>
+                : <><CheckCircle2 size={15} className="mr-2" />
+                    {(selectedPlan?.planKind ?? selectedPlan?.plan_kind) === "registration"
+                      ? "Registrar inscripción"
+                      : "Confirmar y activar membresía"}
+                  </>
               }
             </Button>
           </div>
@@ -825,6 +820,7 @@ const PaymentsPage = () => {
   const [searchParams] = useSearchParams();
   const initialTab = searchParams.get("tab") === "pending" ? "pending" : "cash";
   const [activeTab, setActiveTab] = useState<"cash" | "pending" | "history">(initialTab);
+  const branchScope = useAdminBranchScope();
 
   return (
     <AuthGuard>
@@ -835,6 +831,21 @@ const PaymentsPage = () => {
             <h1 className="text-3xl font-bold text-[#1A1A1A] mb-1">Pagos</h1>
             <p className="text-sm text-[#1A1A1A]/35">Asigna membresías manualmente, verifica pagos pendientes y consulta el historial</p>
           </div>
+
+          <section
+            className="mb-6 flex flex-col gap-4 rounded-2xl border border-[#8C6B6F]/20 bg-[#8C6B6F]/[0.05] p-4 sm:flex-row sm:items-center sm:justify-between"
+            aria-label="Sucursal de operación"
+          >
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#8C6B6F]">Sucursal de operación</p>
+              <p className="mt-1 text-sm text-[#1A1A1A]/60">
+                {branchScope.selectedBranch
+                  ? `Mostrando planes y pagos de ${branchScope.selectedBranch.name}.`
+                  : "Selecciona Villa Magna o Pozos para asignar una membresía."}
+              </p>
+            </div>
+            <BranchSelector className="shrink-0" ariaLabel="Seleccionar sucursal para pagos" />
+          </section>
 
           {/* Tab switcher */}
           <div className="flex gap-1 p-1 rounded-xl bg-[#8C6B6F]/[0.06] border border-[#8C6B6F]/15 w-fit mb-8">

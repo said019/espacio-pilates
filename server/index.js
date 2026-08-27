@@ -25,6 +25,7 @@ import {
   DEFAULT_BRANCH_CODE,
   DEFAULT_BRANCH_ID,
   extractBranchReference,
+  isOrderVerifiableStatus,
   isPackagePlan,
   normalizeProgram,
   programForClassCategory,
@@ -751,6 +752,25 @@ async function ensureSchema() {
       );
       await pool.query(multiBranchSql);
       console.log("✅ Multi-sucursal Villa Magna/Pozos lista");
+    }
+    // Keep the booking guard in a separate migration so databases that already
+    // applied the original multi-branch rollout still receive the stricter
+    // membership/branch validation on their next deploy.
+    {
+      const membershipScopeSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202608270002_membership_booking_scope.sql"),
+        "utf8",
+      );
+      await pool.query(membershipScopeSql);
+      console.log("✅ Alcance de membresías por sucursal reforzado");
+    }
+    {
+      const adminPaymentRegistrationSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202608270003_admin_payment_registration.sql"),
+        "utf8",
+      );
+      await pool.query(adminPaymentRegistrationSql);
+      console.log("✅ Registro administrativo de inscripciones listo");
     }
     // ── Ensure all users columns the app needs ────────────────────────────
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`).catch(() => { });
@@ -11962,7 +11982,14 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
     const { userId, planId, paymentMethod: rawPM = "cash", startDate, complementType } = req.body;
     const paymentMethod = normalizePaymentMethod(rawPM);
     if (!userId || !planId) return res.status(400).json({ message: "userId y planId requeridos" });
-    const branch = await resolveRequestBranch(req);
+    const branchReference = requestBranchReference(req);
+    if (!branchReference) {
+      return res.status(400).json({
+        code: "BRANCH_REQUIRED",
+        message: "Selecciona una sucursal antes de asignar la membresía.",
+      });
+    }
+    const branch = await resolveBranch(branchReference);
     if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const planRes = await pool.query("SELECT * FROM plans WHERE id = $1 AND is_active = true", [planId]);
     if (!planRes.rows.length) return res.status(404).json({ message: "Plan no encontrado" });
@@ -11971,8 +11998,76 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
       return res.status(400).json({ code: "PLAN_BRANCH_MISMATCH", message: "El plan no pertenece a la sucursal seleccionada." });
     }
     if (plan.plan_kind === "registration") {
-      await upsertEnrollment({ userId, branchId: branch.id, program: planProgram(plan), registrationPlanId: plan.id, paid: true });
-      return res.status(201).json({ data: { userId, branchId: branch.id, program: planProgram(plan), registrationPlanId: plan.id } });
+      const registrationClient = await pool.connect();
+      try {
+        await registrationClient.query("BEGIN");
+        const registrationProgram = planProgram(plan);
+        const lockedUser = await registrationClient.query(
+          "SELECT id FROM users WHERE id = $1 FOR UPDATE",
+          [userId],
+        );
+        if (!lockedUser.rows.length) {
+          await registrationClient.query("ROLLBACK");
+          return res.status(404).json({ message: "Clienta no encontrada" });
+        }
+        const needsRegistration = await clientNeedsInscription(userId, {
+          branchId: branch.id,
+          program: registrationProgram,
+          client: registrationClient,
+        });
+        if (!needsRegistration) {
+          await registrationClient.query("ROLLBACK");
+          return res.status(409).json({
+            code: "REGISTRATION_NOT_REQUIRED",
+            message: `La clienta ya tiene una inscripción vigente para ${branch.name}.`,
+          });
+        }
+        const amount = Number(plan.price || 0);
+        const orderRes = await registrationClient.query(
+          `INSERT INTO orders
+             (user_id, plan_id, branch_id, program, status, payment_method,
+              subtotal, tax_amount, total_amount, inscription_amount, currency,
+              channel, paid_at, verified_at, verified_by, approved_at, approved_by)
+           VALUES ($1,$2,$3,$4,'approved',$5,$6,0,$6,0,'MXN','admin',NOW(),NOW(),$7,NOW(),$7)
+           RETURNING *`,
+          [userId, plan.id, branch.id, registrationProgram, paymentMethod, amount, req.userId],
+        );
+        const order = orderRes.rows[0];
+        await upsertEnrollment({
+          userId,
+          branchId: branch.id,
+          program: registrationProgram,
+          registrationPlanId: plan.id,
+          orderId: order.id,
+          paid: true,
+          client: registrationClient,
+        });
+        await registrationClient.query("COMMIT");
+        return res.status(201).json({
+          data: {
+            userId,
+            branchId: branch.id,
+            program: registrationProgram,
+            registrationPlanId: plan.id,
+            orderId: order.id,
+          },
+        });
+      } catch (registrationErr) {
+        await registrationClient.query("ROLLBACK").catch(() => {});
+        throw registrationErr;
+      } finally {
+        registrationClient.release();
+      }
+    }
+
+    if (isPackagePlan(plan) && await clientNeedsInscription(userId, {
+      branchId: branch.id,
+      program: planProgram(plan),
+    })) {
+      return res.status(409).json({
+        code: "REGISTRATION_REQUIRED",
+        message: `Registra primero la inscripción de ${planProgram(plan) === "functional" ? "Funcional" : "Pilates"} para ${branch.name}.`,
+      });
     }
 
     // Bundle plans (Combos) → create one child membership per component so
@@ -13990,12 +14085,40 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    const branchReference = requestBranchReference(req);
+    if (!branchReference) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        code: "BRANCH_REQUIRED",
+        message: "Selecciona la sucursal de la orden antes de verificarla.",
+      });
+    }
+
     const orderRes = await client.query("SELECT * FROM orders WHERE id = $1 FOR UPDATE", [req.params.id]);
     if (!orderRes.rows.length) {
       await client.query("ROLLBACK");
       return res.status(404).json({ message: "Orden no encontrada" });
     }
     let order = orderRes.rows[0];
+    const branch = await resolveBranch(branchReference, client);
+    if (!branch) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Sucursal no encontrada" });
+    }
+    if (String(order.branch_id) !== String(branch.id)) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        code: "ORDER_BRANCH_MISMATCH",
+        message: "La orden no pertenece a la sucursal seleccionada.",
+      });
+    }
+    if (!isOrderVerifiableStatus(order.status)) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        code: "ORDER_STATUS_NOT_VERIFIABLE",
+        message: `La orden con estado ${order.status} no se puede verificar.`,
+      });
+    }
     let justApproved = false;
 
     if (order.status !== "approved") {
@@ -14279,13 +14402,30 @@ app.put("/api/admin/orders/:id/reject", adminMiddleware, async (req, res) => {
   try {
     const { notes, reason } = req.body;
     const rejectionReason = reason || notes || "No especificado";
+    const branchReference = requestBranchReference(req);
+    if (!branchReference) {
+      return res.status(400).json({
+        code: "BRANCH_REQUIRED",
+        message: "Selecciona la sucursal de la orden antes de rechazarla.",
+      });
+    }
+    const branch = await resolveBranch(branchReference);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const target = await pool.query("SELECT branch_id FROM orders WHERE id = $1", [req.params.id]);
+    if (!target.rows.length) return res.status(404).json({ message: "Orden no encontrada" });
+    if (String(target.rows[0].branch_id) !== String(branch.id)) {
+      return res.status(409).json({
+        code: "ORDER_BRANCH_MISMATCH",
+        message: "La orden no pertenece a la sucursal seleccionada.",
+      });
+    }
     // Solo se puede rechazar una orden que sigue pendiente. NUNCA una ya aprobada
     // (eso dejaría la membresía y el pago activos con la orden en 'rejected').
     const r = await pool.query(
       `UPDATE orders SET status = 'rejected', verified_at = NOW(), notes = $2
-         WHERE id = $1 AND status IN ('pending_payment','pending_verification')
+         WHERE id = $1 AND branch_id = $3 AND status IN ('pending_payment','pending_verification')
        RETURNING *, user_id`,
-      [req.params.id, rejectionReason]
+      [req.params.id, rejectionReason, branch.id]
     );
     if (!r.rows.length) {
       const exists = await pool.query("SELECT status FROM orders WHERE id = $1", [req.params.id]);

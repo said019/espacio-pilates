@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractBranchReference,
   isPackagePlan,
+  isOrderVerifiableStatus,
   normalizeProgram,
   validateSingleScope,
 } from "../branchAccess.js";
@@ -24,6 +25,15 @@ describe("multi-branch access helpers", () => {
     expect(isPackagePlan({ class_limit: 7 })).toBe(true);
     expect(isPackagePlan({ name: "Ilimitado", class_limit: null })).toBe(true);
     expect(isPackagePlan({ plan_kind: "registration", class_limit: 0 })).toBe(false);
+  });
+
+  it("allows only pending or already-approved orders through verification", () => {
+    expect(isOrderVerifiableStatus("pending_payment")).toBe(true);
+    expect(isOrderVerifiableStatus("pending_verification")).toBe(true);
+    expect(isOrderVerifiableStatus("approved")).toBe(true);
+    expect(isOrderVerifiableStatus("rejected")).toBe(false);
+    expect(isOrderVerifiableStatus("cancelled")).toBe(false);
+    expect(isOrderVerifiableStatus("expired")).toBe(false);
   });
 
   it("rejects mixed-branch and mixed-program carts", () => {

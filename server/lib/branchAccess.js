@@ -37,6 +37,12 @@ export function isPackagePlan(plan = {}) {
   return limit == null && /ilimitad|unlimited/.test(name);
 }
 
+export function isOrderVerifiableStatus(status) {
+  return ["pending_payment", "pending_verification", "approved"].includes(
+    String(status ?? "").trim().toLowerCase(),
+  );
+}
+
 export function validateSingleScope(plans = []) {
   if (!plans.length) return { valid: true, branchId: null, program: null };
   const branchIds = new Set(plans.map((plan) => String(plan.branch_id ?? plan.branchId ?? "")));
