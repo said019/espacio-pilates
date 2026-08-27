@@ -120,6 +120,9 @@ export default function Schedule() {
     if (!rawClasses) return [];
     return rawClasses
       .filter((c) => matchesBranch(c, branch))
+      .filter((c) => branchCode === "pozos"
+        ? getEntityProgram(c) === "functional"
+        : getEntityProgram(c) !== "functional")
       .filter((c) => c.status !== "cancelled")
       .map((c) => {
         const dateStr = (c.date || c.class_date || (c.start_time?.split("T")[0]) || "").split("T")[0];
@@ -155,7 +158,7 @@ export default function Schedule() {
           program:    getEntityProgram(c),
         };
       });
-  }, [rawClasses, branch]);
+  }, [rawClasses, branch, branchCode]);
 
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -260,7 +263,7 @@ export default function Schedule() {
           <span className="block h-px w-16 bg-valiance-gold/50 mt-6 mb-6" />
           <p className="font-body text-[1.02rem] text-valiance-charcoal/70 leading-[1.8] max-w-[60ch]">
             {branchCode === "pozos"
-              ? "Consulta las clases de Pilates y Funcional disponibles en Pozos. Elige un día y reserva tu lugar."
+              ? "Consulta las clases de Funcional disponibles en Pozos. Lunes, miércoles y viernes a las 8:00 am."
               : "Trabajamos el cuerpo completo a lo largo de la semana. Tú eliges cuándo, nosotras marcamos el tema."}
           </p>
         </div>

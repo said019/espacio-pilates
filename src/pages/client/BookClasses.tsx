@@ -124,7 +124,11 @@ const BookClasses = () => {
   const rawClasses: Record<string, unknown>[] = Array.isArray(classesData?.data)
     ? classesData.data
     : Array.isArray(classesData) ? classesData : [];
-  const classes = rawClasses.filter((item) => matchesBranch(item, branch));
+  const classes = rawClasses
+    .filter((item) => matchesBranch(item, branch))
+    .filter((item) => branchCode === "pozos"
+      ? getEntityProgram(item) === "functional"
+      : getEntityProgram(item) !== "functional");
   const rawBookings: BookingClient[] = Array.isArray(bookingsData?.data)
     ? bookingsData.data
     : Array.isArray(bookingsData) ? bookingsData : [];

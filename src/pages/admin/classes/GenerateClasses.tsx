@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -44,7 +44,7 @@ const GenerateClasses = () => {
   const branchScope = useAdminBranchScope();
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
 
-  const { data: typesData } = useQuery<{ data: { id: string; name: string }[] }>({
+  const { data: typesData } = useQuery<{ data: { id: string; name: string; category?: string }[] }>({
     queryKey: ["class-types"],
     queryFn: async () => (await api.get("/class-types")).data,
   });
@@ -58,10 +58,21 @@ const GenerateClasses = () => {
     resolver: zodResolver(generateSchema),
     defaultValues: { branchId: "", daysOfWeek: [], maxCapacity: 5, startTime: "09:00", endTime: "10:00", focus: "" },
   });
+  const availableTypes = useMemo(() => {
+    const types = Array.isArray(typesData?.data) ? typesData.data : [];
+    return types.filter((type) => {
+      const functional = type.category === "funcional" || /funcional|functional/i.test(type.name);
+      return branchScope.selectedBranch?.code === "pozos" ? functional : !functional;
+    });
+  }, [typesData?.data, branchScope.selectedBranch?.code]);
 
   useEffect(() => {
     form.setValue("branchId", branchScope.branchId ?? "", { shouldValidate: form.formState.isSubmitted });
-  }, [branchScope.branchId, form]);
+    const selectedType = form.getValues("classTypeId");
+    if (!availableTypes.some((type) => type.id === selectedType)) {
+      form.setValue("classTypeId", availableTypes[0]?.id ?? "", { shouldValidate: form.formState.isSubmitted });
+    }
+  }, [availableTypes, branchScope.branchId, form]);
 
   const generateMutation = useMutation({
     mutationFn: (d: GenerateFormData) => api.post("/classes/generate", d),
@@ -103,12 +114,12 @@ const GenerateClasses = () => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <Label className="text-[#1A1A1A]/60 text-xs">Tipo de clase</Label>
-                  <Select onValueChange={(v) => form.setValue("classTypeId", v)}>
+                  <Select value={form.watch("classTypeId") || undefined} onValueChange={(v) => form.setValue("classTypeId", v)}>
                     <SelectTrigger className="bg-[#8C6B6F]/[0.06] border-[#8C6B6F]/15 text-[#1A1A1A]">
                       <SelectValue placeholder="Seleccionar tipo" />
                     </SelectTrigger>
                     <SelectContent className="bg-[#F0D0D5] border-[#8C6B6F]/15">
-                      {(Array.isArray(typesData?.data) ? typesData.data : []).map((t) => (
+                      {availableTypes.map((t) => (
                         <SelectItem key={t.id} value={t.id} className="text-[#1A1A1A]">{t.name}</SelectItem>
                       ))}
                     </SelectContent>

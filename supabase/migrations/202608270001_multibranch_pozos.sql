@@ -271,29 +271,13 @@ SET name = EXCLUDED.name,
     is_admin_only = EXCLUDED.is_admin_only,
     updated_at = NOW();
 
--- Existing schedule belongs to Villa Magna. Clone only Pilates to Pozos;
--- Prenatal is configured there but remains inactive/hidden.
+-- Existing schedule belongs to Villa Magna. Pozos publishes only the
+-- Functional slots inserted below; Pilates/Prenatal are not cloned there.
 UPDATE schedule_slots ss
 SET class_type_name = COALESCE(ss.class_type_name, ct.name, 'Pilates')
 FROM class_types ct
 WHERE ss.class_type_id = ct.id AND ss.class_type_name IS NULL;
 UPDATE schedule_slots SET class_type_name = 'Pilates' WHERE class_type_name IS NULL;
-
-INSERT INTO schedule_slots
-  (branch_id, time_slot, day_of_week, class_type_id, class_type_name, instructor_name, apparatus, starts_on, is_active)
-SELECT '22222222-2222-4222-8222-222222222222', vm.time_slot, vm.day_of_week,
-       vm.class_type_id, 'Pilates', COALESCE(vm.instructor_name, 'Coach Tu Espacio'),
-       COALESCE(vm.apparatus, 'reformer'), vm.starts_on, true
-FROM schedule_slots vm
-WHERE vm.branch_id = '11111111-1111-4111-8111-111111111111'
-  AND vm.is_active = true
-  AND LOWER(COALESCE(vm.class_type_name, 'pilates')) = 'pilates'
-  AND NOT EXISTS (
-    SELECT 1 FROM schedule_slots p
-    WHERE p.branch_id = '22222222-2222-4222-8222-222222222222'
-      AND p.day_of_week = vm.day_of_week AND p.time_slot = vm.time_slot
-      AND LOWER(COALESCE(p.class_type_name, 'pilates')) = 'pilates'
-  );
 
 INSERT INTO schedule_slots
   (branch_id, time_slot, day_of_week, class_type_name, instructor_name, apparatus, starts_on, is_active)
@@ -306,21 +290,6 @@ WHERE NOT EXISTS (
     AND s.day_of_week = days.d AND s.time_slot = '8:00 am'
     AND LOWER(COALESCE(s.class_type_name, '')) IN ('functional','funcional')
 );
-
-INSERT INTO schedule_slots
-  (branch_id, time_slot, day_of_week, class_type_id, class_type_name, instructor_name, apparatus, starts_on, is_active)
-SELECT '22222222-2222-4222-8222-222222222222', vm.time_slot, vm.day_of_week,
-       vm.class_type_id, 'Prenatal', COALESCE(vm.instructor_name, 'Coach Tu Espacio'),
-       COALESCE(vm.apparatus, 'reformer'), vm.starts_on, false
-FROM schedule_slots vm
-WHERE vm.branch_id = '11111111-1111-4111-8111-111111111111'
-  AND LOWER(COALESCE(vm.class_type_name, '')) = 'prenatal'
-  AND NOT EXISTS (
-    SELECT 1 FROM schedule_slots p
-    WHERE p.branch_id = '22222222-2222-4222-8222-222222222222'
-      AND p.day_of_week = vm.day_of_week AND p.time_slot = vm.time_slot
-      AND LOWER(COALESCE(p.class_type_name, '')) = 'prenatal'
-  );
 
 ALTER TABLE facilities ALTER COLUMN branch_id SET NOT NULL;
 ALTER TABLE schedules ALTER COLUMN branch_id SET NOT NULL;

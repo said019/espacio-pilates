@@ -549,18 +549,10 @@ const VM_SCHEDULE_SLOTS = [
   { time_slot: "9:00 am", day_of_week: 6, apparatus: "reformer" },
 ];
 
-// Pozos receives the complete regular Pilates timetable from Villa Magna.
-// Prenatal is present for operational setup but stays inactive/hidden; the
-// three Functional classes coexist with Pilates at 08:00 because program/type
-// is part of schedule uniqueness.
+// Pozos publishes only the Functional timetable: lunes, miércoles y viernes
+// a las 8:00 am. Villa Magna retains its complete Pilates/Prenatal timetable.
 const SCHEDULE_SLOTS = [
   ...VM_SCHEDULE_SLOTS.map((slot) => ({ ...slot, branch_code: "villa-magna" })),
-  ...VM_SCHEDULE_SLOTS
-    .filter((slot) => (slot.class_type_name || "Pilates") === "Pilates")
-    .map((slot) => ({ ...slot, branch_code: "pozos", instructor_name: "Coach Tu Espacio" })),
-  ...VM_SCHEDULE_SLOTS
-    .filter((slot) => slot.class_type_name === "Prenatal")
-    .map((slot) => ({ ...slot, branch_code: "pozos", instructor_name: "Coach Tu Espacio", is_active: false })),
   ...[1, 3, 5].map((day) => ({
     branch_code: "pozos",
     time_slot: "8:00 am",
@@ -771,6 +763,14 @@ async function ensureSchema() {
       );
       await pool.query(adminPaymentRegistrationSql);
       console.log("✅ Registro administrativo de inscripciones listo");
+    }
+    {
+      const pozosFunctionalScheduleSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202608270004_pozos_functional_schedule_only.sql"),
+        "utf8",
+      );
+      await pool.query(pozosFunctionalScheduleSql);
+      console.log("✅ Horario de Pozos configurado únicamente con Funcional");
     }
     // ── Ensure all users columns the app needs ────────────────────────────
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`).catch(() => { });
@@ -2092,7 +2092,7 @@ async function ensureSchema() {
   // Startup only upserts canonical slots and creates missing future classes.
   // Existing classes and bookings are never deleted as part of schema startup.
   try {
-    const SCHEDULE_VERSION = "branches-2026-09-pozos-functional-v1";
+    const SCHEDULE_VERSION = "branches-2026-09-pozos-functional-schedule-v2";
     const markerRes = await pool.query(
       "SELECT value FROM settings WHERE key = 'schedule_version' LIMIT 1"
     );

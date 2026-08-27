@@ -77,6 +77,16 @@ interface ClassType {
   isActive?: boolean;
 }
 
+function isFunctionalClassType(type: ClassType) {
+  return type.category === "funcional" || /funcional|functional/i.test(type.name);
+}
+
+function classTypesForBranch(types: ClassType[], branchCode?: string) {
+  return types.filter((type) => branchCode === "pozos"
+    ? isFunctionalClassType(type)
+    : !isFunctionalClassType(type));
+}
+
 const DAYS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const GENERATE_DAYS = [
   { label: "Lun", value: 1 },
@@ -645,6 +655,10 @@ function CalendarTab({
 }) {
   const isMobile = useIsMobile();
   const branchScope = useAdminBranchScope();
+  const availableTypes = useMemo(
+    () => classTypesForBranch(types, branchScope.selectedBranch?.code),
+    [types, branchScope.selectedBranch?.code],
+  );
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
@@ -744,7 +758,13 @@ function CalendarTab({
   const openCreate = (date: string) => {
     if (!branchScope.branchId) return;
     setSelectedDate(date);
-    form.reset({ branchId: branchScope.branchId, startTime: date + "T09:00", endTime: date + "T10:00", maxCapacity: 5 });
+    form.reset({
+      branchId: branchScope.branchId,
+      classTypeId: availableTypes[0]?.id ?? "",
+      startTime: date + "T09:00",
+      endTime: date + "T10:00",
+      maxCapacity: 5,
+    });
     setCreateOpen(true);
   };
 
@@ -1007,10 +1027,10 @@ function CalendarTab({
             </div>
             <div className="space-y-1">
               <Label>Tipo de clase</Label>
-              <Select onValueChange={(v) => form.setValue("classTypeId", v)}>
+              <Select value={form.watch("classTypeId") || undefined} onValueChange={(v) => form.setValue("classTypeId", v)}>
                 <SelectTrigger><SelectValue placeholder="Seleccionar tipo" /></SelectTrigger>
                 <SelectContent>
-                  {types.map((t) => (
+                  {availableTypes.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       <span className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: t.color }} />
@@ -1345,6 +1365,10 @@ function GenerateTab({
   toast: any;
 }) {
   const branchScope = useAdminBranchScope();
+  const availableTypes = useMemo(
+    () => classTypesForBranch(types, branchScope.selectedBranch?.code),
+    [types, branchScope.selectedBranch?.code],
+  );
   const qc = useQueryClient();
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [startDate, setStartDate] = useState("");
@@ -1355,7 +1379,13 @@ function GenerateTab({
   const [instructorId, setInstructorId] = useState("");
   const [maxCapacity, setMaxCapacity] = useState(10);
 
-  const selectedType = types.find((t) => t.id === classTypeId);
+  useEffect(() => {
+    if (!availableTypes.some((type) => type.id === classTypeId)) {
+      setClassTypeId(availableTypes[0]?.id ?? "");
+    }
+  }, [availableTypes, classTypeId]);
+
+  const selectedType = availableTypes.find((t) => t.id === classTypeId);
   const selectedInstructor = instructors.find((i) => i.id === instructorId);
 
   // Preview: how many classes will be generated
@@ -1435,7 +1465,7 @@ function GenerateTab({
                 <SelectValue placeholder="Seleccionar tipo" />
               </SelectTrigger>
               <SelectContent>
-                {types.map((t) => (
+                {availableTypes.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
                     <span className="flex items-center gap-2">
                       <span className="w-3 h-3 rounded-full inline-block" style={{ backgroundColor: t.color }} />

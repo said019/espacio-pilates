@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -68,7 +68,7 @@ const WeeklySchedule = () => {
       }))
     : [];
 
-  const { data: typesData } = useQuery<{ data: { id: string; name: string }[] }>({
+  const { data: typesData } = useQuery<{ data: { id: string; name: string; category?: string }[] }>({
     queryKey: ["class-types"],
     queryFn: async () => (await api.get("/class-types")).data,
   });
@@ -82,6 +82,20 @@ const WeeklySchedule = () => {
     resolver: zodResolver(scheduleSchema),
     defaultValues: { branchId: "", maxCapacity: 5, isActive: true },
   });
+  const availableTypes = useMemo(() => {
+    const types = Array.isArray(typesData?.data) ? typesData.data : [];
+    return types.filter((type) => {
+      const functional = type.category === "funcional" || /funcional|functional/i.test(type.name);
+      return branchScope.selectedBranch?.code === "pozos" ? functional : !functional;
+    });
+  }, [typesData?.data, branchScope.selectedBranch?.code]);
+
+  useEffect(() => {
+    const selectedType = form.getValues("classTypeId");
+    if (!availableTypes.some((type) => type.id === selectedType)) {
+      form.setValue("classTypeId", availableTypes[0]?.id ?? "");
+    }
+  }, [availableTypes, form]);
 
   const createMutation = useMutation({
     mutationFn: (d: ScheduleFormData) => api.post("/schedules", d),
@@ -109,7 +123,13 @@ const WeeklySchedule = () => {
   };
   const openCreate = (dayOfWeek = mobileDay) => {
     if (!branchScope.branchId) return;
-    form.reset({ branchId: branchScope.branchId, dayOfWeek, maxCapacity: 5, isActive: true });
+    form.reset({
+      branchId: branchScope.branchId,
+      dayOfWeek,
+      classTypeId: availableTypes[0]?.id ?? "",
+      maxCapacity: 5,
+      isActive: true,
+    });
     setEditing(null);
     setOpen(true);
   };
@@ -271,12 +291,12 @@ const WeeklySchedule = () => {
               </div>
               <div className="space-y-1">
                 <Label className="text-[#1A1A1A]/60 text-xs">Tipo de clase</Label>
-                <Select onValueChange={(v) => form.setValue("classTypeId", v)}>
+                <Select value={form.watch("classTypeId") || undefined} onValueChange={(v) => form.setValue("classTypeId", v)}>
                   <SelectTrigger className="bg-[#8C6B6F]/[0.06] border-[#8C6B6F]/15 text-[#1A1A1A]">
                     <SelectValue placeholder="Tipo" />
                   </SelectTrigger>
                   <SelectContent className="bg-[#F0D0D5] border-[#8C6B6F]/15">
-                    {(Array.isArray(typesData?.data) ? typesData.data : []).map((t) => (
+                    {availableTypes.map((t) => (
                       <SelectItem key={t.id} value={t.id} className="text-[#1A1A1A]">{t.name}</SelectItem>
                     ))}
                   </SelectContent>
