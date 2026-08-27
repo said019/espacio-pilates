@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -6,6 +6,7 @@ import { z } from "zod";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import { BranchRequiredNotice, useAdminBranchScope } from "@/components/admin/BranchScope";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Sparkles } from "lucide-react";
 
 const generateSchema = z.object({
+  branchId: z.string().min(1, "Sucursal requerida"),
   classTypeId: z.string().min(1),
   instructorId: z.string().min(1),
   startDate: z.string().min(1),
@@ -38,6 +40,8 @@ const DAYS = [
 
 const GenerateClasses = () => {
   const { toast } = useToast();
+  const qc = useQueryClient();
+  const branchScope = useAdminBranchScope();
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
 
   const { data: typesData } = useQuery<{ data: { id: string; name: string }[] }>({
@@ -52,12 +56,19 @@ const GenerateClasses = () => {
 
   const form = useForm<GenerateFormData>({
     resolver: zodResolver(generateSchema),
-    defaultValues: { daysOfWeek: [], maxCapacity: 5, startTime: "09:00", endTime: "10:00", focus: "" },
+    defaultValues: { branchId: "", daysOfWeek: [], maxCapacity: 5, startTime: "09:00", endTime: "10:00", focus: "" },
   });
+
+  useEffect(() => {
+    form.setValue("branchId", branchScope.branchId ?? "", { shouldValidate: form.formState.isSubmitted });
+  }, [branchScope.branchId, form]);
 
   const generateMutation = useMutation({
     mutationFn: (d: GenerateFormData) => api.post("/classes/generate", d),
-    onSuccess: (res: any) => toast({ title: `${res.data?.created ?? "N"} clases generadas` }),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["classes"] });
+      toast({ title: `${res.data?.created ?? "N"} clases generadas` });
+    },
     onError: (error: any) =>
       toast({
         title: error?.response?.data?.message ?? "Error generando clases",
@@ -80,10 +91,15 @@ const GenerateClasses = () => {
             <p className="text-sm text-[#1A1A1A]/35">Crea clases en bloque para un rango de fechas</p>
           </div>
 
+          {!branchScope.branchId && <BranchRequiredNotice action="generar clases" />}
+
           <form onSubmit={form.handleSubmit((d) => generateMutation.mutate(d))} className="space-y-6">
             {/* Selects */}
             <div className="rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-5 space-y-4">
               <p className="text-[11px] text-[#D9B5BA]/70 font-semibold uppercase tracking-wider">Clase e instructor</p>
+              <div className="rounded-xl border border-[#8C6B6F]/15 bg-white/50 px-3 py-2 text-sm text-[#1A1A1A]/70">
+                Sucursal: <span className="font-semibold text-[#1A1A1A]">{branchScope.selectedBranch?.name ?? "Selecciona una en el encabezado"}</span>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <Label className="text-[#1A1A1A]/60 text-xs">Tipo de clase</Label>
@@ -213,7 +229,7 @@ const GenerateClasses = () => {
 
             <button
               type="submit"
-              disabled={generateMutation.isPending}
+              disabled={generateMutation.isPending || !branchScope.branchId}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               {generateMutation.isPending

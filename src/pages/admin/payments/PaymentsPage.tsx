@@ -1,9 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import {
+  BranchRequiredNotice,
+  branchNameFromRow,
+  branchQueryParams,
+  useAdminBranchScope,
+} from "@/components/admin/BranchScope";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,10 +37,12 @@ const STEP_META = [
 
 // ── Category groups for plan display ──────────────────────
 function groupPlans(plans: any[]) {
-  const groups: Record<string, any[]> = { pilates: [], bienestar: [], otro: [] };
+  const groups: Record<string, any[]> = { pilates: [], functional: [], bienestar: [], otro: [] };
   for (const p of plans) {
     const cat = p.classCategory ?? p.class_category ?? "";
-    if (cat === "pilates") groups.pilates.push(p);
+    const program = p.program ?? "";
+    if (program === "functional" || cat === "funcional") groups.functional.push(p);
+    else if (program === "pilates" || cat === "pilates") groups.pilates.push(p);
     else if (cat === "bienestar") groups.bienestar.push(p);
     else if (cat === "all") groups.otro.push(p);
     else if (p.name?.toLowerCase().includes("pilates") || p.name?.toLowerCase().includes("mat") || p.name?.toLowerCase().includes("flow")) groups.pilates.push(p);
@@ -84,11 +92,12 @@ const StepBar = ({ step }: { step: number }) => (
 const CashAssignment = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const branchScope = useAdminBranchScope();
   const [step, setStep] = useState(1);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
   const [selectedUser, setSelectedUser] = useState<{ id: string; displayName: string; email?: string; phone?: string | null } | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState<{ id: string; name: string; price: number } | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<{ id: string; name: string; price: number; branchId?: string } | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("cash");
 
   const { data: usersData, isLoading: usersLoading } = useQuery<{ data: { id: string; displayName: string; email: string; phone?: string | null }[] }>({
@@ -102,15 +111,23 @@ const CashAssignment = () => {
   const filteredUsers = allUsers;
 
   const { data: plansData } = useQuery<{ data: { id: string; name: string; price: number; classLimit?: number | null; durationDays?: number; classCategory?: string }[] }>({
-    queryKey: ["plans"],
-    queryFn: async () => (await api.get("/plans")).data,
+    queryKey: ["plans", branchScope.branchScope],
+    queryFn: async () => (await api.get("/plans", { params: branchQueryParams(branchScope.branchScope) })).data,
+    enabled: Boolean(branchScope.branchId),
   });
+
+  useEffect(() => {
+    setStep(1);
+    setSelectedUser(null);
+    setSelectedPlan(null);
+  }, [branchScope.branchScope]);
 
   const assignMutation = useMutation({
     mutationFn: () => api.post("/memberships", {
       userId: selectedUser?.id,
       planId: selectedPlan?.id,
       paymentMethod,
+      branchId: branchScope.branchId,
       startDate: new Date().toISOString().split("T")[0],
     }),
     onSuccess: () => {
@@ -121,11 +138,28 @@ const CashAssignment = () => {
     onError: (e: any) => toast({ title: e?.response?.data?.message ?? "Error al asignar", variant: "destructive" }),
   });
 
-  const plans = (Array.isArray(plansData?.data) ? plansData.data : []).filter((p) => (p as any).isActive !== false && (p as any).is_active !== false);
+  const plans = (Array.isArray(plansData?.data) ? plansData.data : []).filter((p) => {
+    const row = p as any;
+    const active = row.isActive !== false && row.is_active !== false;
+    const kind = row.planKind ?? row.plan_kind;
+    return active && kind !== "registration" && kind !== "internal";
+  });
   const planGroups = groupPlans(plans);
 
   return (
     <div className="max-w-2xl mx-auto">
+      {!branchScope.branchId ? (
+        <BranchRequiredNotice action="asignar manualmente una membresía" />
+      ) : (
+        <div className="mb-4 space-y-2">
+          <p className="rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] px-3 py-2 text-xs text-[#1A1A1A]/60">
+            Asignación en <span className="font-semibold text-[#1A1A1A]">{branchScope.selectedBranch?.name}</span>
+          </p>
+          <p className="rounded-xl border border-[#E5CF9F] bg-[#F4EAD6]/70 px-3 py-2 text-xs text-[#6B4F2F]" role="status">
+            Esta acción activa una membresía manual y no procesa un cobro. La inscripción de Pilates ($500) o Funcional ($300), cuando corresponda, debe registrarse por separado en una orden.
+          </p>
+        </div>
+      )}
       <StepBar step={step} />
 
       {/* ── Step 1: Buscar cliente ─────────────────────────── */}
@@ -140,6 +174,7 @@ const CashAssignment = () => {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Nombre, email o teléfono…"
+                disabled={!branchScope.branchId}
                 autoFocus
               />
             </div>
@@ -155,7 +190,8 @@ const CashAssignment = () => {
             {filteredUsers.map((u) => (
               <button
                 key={u.id}
-                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] hover:bg-[#8C6B6F]/5 hover:border-[#8C6B6F]/25 transition-all group text-left"
+                disabled={!branchScope.branchId}
+                className="w-full flex items-center gap-4 p-4 rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] hover:bg-[#8C6B6F]/5 hover:border-[#8C6B6F]/25 transition-all group text-left disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => { setSelectedUser(u); setStep(2); }}
               >
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#8C6B6F]/30 to-[#D9B5BA]/20 border border-[#8C6B6F]/30 flex items-center justify-center text-sm font-bold text-[#8C6B6F] shrink-0">
@@ -200,11 +236,13 @@ const CashAssignment = () => {
             if (!items.length) return null;
             const groupColors: Record<string, string> = {
               pilates: "text-[#D9B5BA]",
+              functional: "text-[#6E7F4F]",
               bienestar: "text-[#8C6B6F]",
               otro: "text-[#1A1A1A]/50",
             };
             const groupLabels: Record<string, string> = {
               pilates: "Paquetes Pilates",
+              functional: "Paquetes Funcional",
               bienestar: "Paquetes Bienestar",
               otro: "Otros paquetes",
             };
@@ -294,15 +332,20 @@ const CashAssignment = () => {
               </div>
               <div className="h-px bg-[#8C6B6F]/[0.06]" />
               <div className="flex justify-between items-center">
-                <span className="text-sm text-[#1A1A1A]/50">Total</span>
+                <span className="text-sm text-[#1A1A1A]/50">Sucursal</span>
+                <span className="text-sm font-semibold text-[#1A1A1A]/90">{branchScope.selectedBranch?.name}</span>
+              </div>
+              <div className="h-px bg-[#8C6B6F]/[0.06]" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-[#1A1A1A]/50">Valor de referencia</span>
                 <span className="text-lg font-bold text-[#8C6B6F]">${Number(selectedPlan?.price).toLocaleString()} MXN</span>
               </div>
             </div>
           </div>
 
-          {/* Método de pago */}
+          {/* Método de pago registrado como referencia; esta pantalla no procesa el cobro. */}
           <div className="rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-5">
-            <Label className="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A]/40 mb-3 block">Método de pago</Label>
+            <Label className="text-xs font-semibold uppercase tracking-wider text-[#1A1A1A]/40 mb-3 block">Método registrado</Label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               {PAYMENT_METHODS.map(({ value, label, icon: Icon }) => (
                 <button
@@ -329,7 +372,7 @@ const CashAssignment = () => {
             <Button
               className="flex-1 bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 text-white font-bold shadow-[0_0_24px_rgba(148,134,122,0.35)] h-11"
               onClick={() => assignMutation.mutate()}
-              disabled={assignMutation.isPending}
+              disabled={assignMutation.isPending || !branchScope.branchId}
             >
               {assignMutation.isPending
                 ? <><Loader2 className="animate-spin mr-2" size={14} /> Activando…</>
@@ -347,6 +390,7 @@ const CashAssignment = () => {
 const PendingOrders = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const branchScope = useAdminBranchScope();
   const [preview, setPreview] = useState<{ url: string; userName: string; paidAt: string } | null>(null);
 
   const downloadProof = async () => {
@@ -385,12 +429,16 @@ const PendingOrders = () => {
   };
 
   const { data: dataVerify, isLoading: loadingVerify } = useQuery<{ data: any[] }>({
-    queryKey: ["admin-orders-pending-verification"],
-    queryFn: async () => (await api.get("/admin/orders?status=pending_verification")).data,
+    queryKey: ["admin-orders-pending-verification", branchScope.branchScope],
+    queryFn: async () => (await api.get("/admin/orders", {
+      params: { status: "pending_verification", ...branchQueryParams(branchScope.branchScope) },
+    })).data,
   });
   const { data: dataPending, isLoading: loadingPending } = useQuery<{ data: any[] }>({
-    queryKey: ["admin-orders-pending-payment"],
-    queryFn: async () => (await api.get("/admin/orders?status=pending_payment")).data,
+    queryKey: ["admin-orders-pending-payment", branchScope.branchScope],
+    queryFn: async () => (await api.get("/admin/orders", {
+      params: { status: "pending_payment", ...branchQueryParams(branchScope.branchScope) },
+    })).data,
   });
   const isLoading = loadingVerify || loadingPending;
   const orders = [
@@ -399,7 +447,9 @@ const PendingOrders = () => {
   ].sort((a: any, b: any) => new Date(b.createdAt ?? b.created_at).getTime() - new Date(a.createdAt ?? a.created_at).getTime());
 
   const verifyMutation = useMutation({
-    mutationFn: (id: string) => api.put(`/admin/orders/${id}/verify`),
+    mutationFn: (order: any) => api.put(`/admin/orders/${order.id}/verify`, {
+      branchId: order.branchId ?? order.branch_id,
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-orders-pending-verification"] });
       qc.invalidateQueries({ queryKey: ["admin-orders-pending-payment"] });
@@ -412,7 +462,9 @@ const PendingOrders = () => {
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (id: string) => api.put(`/admin/orders/${id}/reject`),
+    mutationFn: (order: any) => api.put(`/admin/orders/${order.id}/reject`, {
+      branchId: order.branchId ?? order.branch_id,
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-orders-pending-verification"] });
       qc.invalidateQueries({ queryKey: ["admin-orders-pending-payment"] });
@@ -447,6 +499,7 @@ const PendingOrders = () => {
         {orders.map((o: any) => {
           const isCash = o.payment_method === "cash";
           const isTransfer = o.payment_method === "transfer";
+          const orderBranchId = String(o.branchId ?? o.branch_id ?? "");
           return (
           <div
             key={o.id}
@@ -502,6 +555,9 @@ const PendingOrders = () => {
                   ) : (
                     <p className="text-xs text-[#1A1A1A]/40">{o.planName ?? "Plan"}</p>
                   )}
+                  <p className="mt-0.5 text-[10px] font-medium text-[#8C6B6F]">
+                    {branchNameFromRow(o, branchScope.branches)}
+                  </p>
                 </div>
               </div>
               <div className="text-right shrink-0">
@@ -538,8 +594,8 @@ const PendingOrders = () => {
                     ? "bg-gradient-to-r from-[#6B7480] to-[#6B7480] shadow-blue-500/20 shadow-sm"
                     : "bg-gradient-to-r from-[#4a7a38] to-[#6b9a52]"
                 )}
-                onClick={() => verifyMutation.mutate(o.id)}
-                disabled={verifyMutation.isPending}
+                onClick={() => verifyMutation.mutate(o)}
+                disabled={verifyMutation.isPending || !orderBranchId}
               >
                 {verifyMutation.isPending
                   ? <Loader2 className="animate-spin" size={13} />
@@ -550,8 +606,8 @@ const PendingOrders = () => {
                 size="sm"
                 variant="outline"
                 className="border-[#E2B7B0] text-[#A8473F] hover:bg-[#F3DEDA] hover:border-[#E2B7B0] font-semibold text-xs h-9"
-                onClick={() => rejectMutation.mutate(o.id)}
-                disabled={rejectMutation.isPending}
+                onClick={() => rejectMutation.mutate(o)}
+                disabled={rejectMutation.isPending || !orderBranchId}
               >
                 {rejectMutation.isPending ? <Loader2 className="animate-spin" size={13} /> : <><XCircle size={13} className="mr-1" /> Rechazar</>}
               </Button>
@@ -596,6 +652,7 @@ const PendingOrders = () => {
 
 // ── Payments History ──────────────────────────────────────
 const PaymentsHistory = () => {
+  const branchScope = useAdminBranchScope();
   const [search, setSearch] = useState("");
   const [method, setMethod] = useState<"all" | "cash" | "transfer" | "card">("all");
   const [from, setFrom] = useState("");
@@ -606,11 +663,12 @@ const PaymentsHistory = () => {
   const { data } = useQuery<{ data: any[]; total?: number }>({
     // Fechas server-side: re-consulta al cambiar el rango (endDate con T23:59:59
     // para incluir el día completo — el <= del server cortaría a medianoche).
-    queryKey: ["payments", from, to],
+    queryKey: ["payments", from, to, branchScope.branchScope],
     queryFn: async () => {
       const params: Record<string, string> = {};
       if (from) params.startDate = from;
       if (to) params.endDate = `${to}T23:59:59`;
+      Object.assign(params, branchQueryParams(branchScope.branchScope));
       return (await api.get("/payments", { params })).data;
     },
   });
@@ -733,6 +791,9 @@ const PaymentsHistory = () => {
               <p className="text-xs text-[#1A1A1A]/45 truncate flex items-center gap-1 mt-0.5">
                 <Package size={11} className="text-[#8C6B6F]/50 shrink-0" /> {plan}
               </p>
+              <p className="text-[10px] font-medium text-[#8C6B6F] mt-0.5">
+                {branchNameFromRow(p, branchScope.branches)}
+              </p>
               <p className="text-[11px] text-[#1A1A1A]/30 flex items-center gap-1 mt-0.5">
                 <Clock size={10} className="shrink-0" /> {date ? fmtDate(date) : "—"}
               </p>
@@ -772,12 +833,12 @@ const PaymentsPage = () => {
           {/* Header */}
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-[#1A1A1A] mb-1">Pagos</h1>
-            <p className="text-sm text-[#1A1A1A]/35">Asigna membresías en efectivo, verifica pagos pendientes y consulta el historial</p>
+            <p className="text-sm text-[#1A1A1A]/35">Asigna membresías manualmente, verifica pagos pendientes y consulta el historial</p>
           </div>
 
           {/* Tab switcher */}
           <div className="flex gap-1 p-1 rounded-xl bg-[#8C6B6F]/[0.06] border border-[#8C6B6F]/15 w-fit mb-8">
-            {([["cash", "Asignación efectivo"], ["pending", "Pendientes"], ["history", "Historial"]] as const).map(([val, label]) => (
+            {([["cash", "Asignación manual"], ["pending", "Pendientes"], ["history", "Historial"]] as const).map(([val, label]) => (
               <button
                 key={val}
                 onClick={() => setActiveTab(val)}

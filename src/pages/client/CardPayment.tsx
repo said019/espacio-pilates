@@ -5,7 +5,8 @@ import api from "@/lib/api";
 import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
 import ClientLayout from "@/components/layout/ClientLayout";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, ArrowLeft, ShieldCheck, XCircle, AlertTriangle } from "lucide-react";
+import { Loader2, ArrowLeft, ShieldCheck, XCircle, AlertTriangle, MapPin } from "lucide-react";
+import { getEntityBranchName } from "@/hooks/useBranch";
 
 const MP_PUBLIC_KEY = import.meta.env.VITE_MP_PUBLIC_KEY as string | undefined;
 
@@ -131,9 +132,14 @@ const CardPayment = () => {
           <div>
             <h1 className="text-xl font-bold text-[#1A1A1A]">Pagar con tarjeta</h1>
             {order && (
-              <p className="text-sm text-[#3D3A3A] mt-1">
-                {order.plan_name} · <span className="font-semibold">${Number(order.total_amount).toLocaleString("es-MX")} MXN</span>
-              </p>
+              <>
+                <p className="text-sm text-[#3D3A3A] mt-1">
+                  {order.plan_name} · <span className="font-semibold">${Number(order.total_amount).toLocaleString("es-MX")} MXN</span>
+                </p>
+                <p className="mt-1 flex items-center gap-1 text-xs font-medium text-[#8C6B6F]">
+                  <MapPin size={12} /> Sucursal {getEntityBranchName(order)}
+                </p>
+              </>
             )}
           </div>
 

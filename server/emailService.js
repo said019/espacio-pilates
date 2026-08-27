@@ -42,7 +42,7 @@ const SERIF = "Georgia,'Cormorant Garamond','Times New Roman',serif";
 const SANS  = "'Helvetica Neue',Helvetica,Arial,sans-serif";
 
 // ─── Base layout ──────────────────────────────────────────────────────────────
-function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } = {}) {
+function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "", branchName = "Villa Magna" } = {}) {
   const ctaBlock = ctaUrl
     ? `<tr><td align="center" style="padding:36px 0 8px;">
          <a href="${ctaUrl}"
@@ -91,7 +91,7 @@ function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } 
         <tr><td align="center" style="padding:18px 48px 6px;">
           <p style="font-family:${SANS};font-size:10px;
                     letter-spacing:3px;text-transform:uppercase;color:${B.muted};margin:0;">
-            Pilates &middot; Villa Magna
+            Pilates &middot; ${branchName}
           </p>
         </td></tr>
 
@@ -119,7 +119,7 @@ function baseLayout({ preheader = "", content = "", ctaUrl = "", ctaText = "" } 
         <tr><td align="center" style="padding:24px 48px 40px;">
           <p style="font-family:${SANS};font-size:11px;
                     color:${B.muted};margin:0 0 8px;line-height:1.8;letter-spacing:0.3px;">
-            Tu Espacio Pilates &middot; Villa Magna
+            Tu Espacio Pilates &middot; ${branchName}
           </p>
           <p style="font-family:${SANS};font-size:11px;
                     color:${B.muted};margin:0;line-height:1.8;letter-spacing:0.3px;">
@@ -230,13 +230,14 @@ async function sendEmail({ to, subject, html }) {
 // ── 1. MEMBRESÍA ACTIVADA ────────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 async function sendMembershipActivated(opts) {
-  const { to, name, planName, startDate, endDate, classLimit } = opts;
+  const { to, name, planName, startDate, endDate, classLimit, branchName = "Villa Magna" } = opts;
   const classesText = classLimit ? `${classLimit} clases` : "Ilimitadas";
   const content = `
     ${h1(`¡Bienvenida, ${name.split(" ")[0]}!`)}
     ${p("Tu membresía en Tu Espacio Pilates ha sido activada. Es momento de moverte con propósito.")}
     ${infoTable([
       infoRow("Plan", planName),
+      infoRow("Sucursal", branchName),
       infoRow("Clases incluidas", classesText),
       infoRow("Inicio", fmtDate(startDate)),
       infoRow("Vencimiento", fmtDate(endDate)),
@@ -248,6 +249,7 @@ async function sendMembershipActivated(opts) {
     content,
     ctaUrl: `${SITE_URL}/app/classes`,
     ctaText: "Reservar clases",
+    branchName,
   });
   await sendEmail({ to, subject: `Tu membresía está activa — Tu Espacio Pilates`, html });
 }
@@ -265,6 +267,7 @@ async function sendBookingConfirmed(opts) {
     instructor,
     classesLeft,
     isWaitlist,
+    branchName = "Villa Magna",
     cancelHours = 12,
     rescheduleHours = 8,
   } = opts;
@@ -292,6 +295,7 @@ async function sendBookingConfirmed(opts) {
     <div style="text-align:center;margin:8px 0 16px;">${statusPill}</div>
     ${infoTable([
       infoRow("Clase", className),
+      infoRow("Sucursal", branchName),
       infoRow("Fecha", fmtDate(date)),
       infoRow("Hora", fmtTime(startTime)),
       ...(instructor ? [infoRow("Instructora", instructor)] : []),
@@ -305,6 +309,7 @@ async function sendBookingConfirmed(opts) {
     content,
     ctaUrl: `${SITE_URL}/app/bookings`,
     ctaText: "Ver mis reservas",
+    branchName,
   });
   await sendEmail({ to, subject: isWaitlist ? `En lista de espera — ${className}` : `Reserva confirmada — ${className}`, html });
 }
@@ -322,6 +327,7 @@ async function sendBookingCancelled(opts) {
     creditRestored,
     isLate,
     classesLeft,
+    branchName = "Villa Magna",
     cancelHours = 12,
     rescheduleHours = 8,
   } = opts;
@@ -337,6 +343,7 @@ async function sendBookingCancelled(opts) {
     ${p("Tu reserva para la siguiente clase ha sido cancelada:")}
     ${infoTable([
       infoRow("Clase", className),
+      infoRow("Sucursal", branchName),
       infoRow("Fecha", fmtDate(date)),
       infoRow("Hora", fmtTime(startTime)),
       ...(classesLeftText ? [infoRow("Clases restantes", classesLeftText)] : []),
@@ -352,6 +359,7 @@ async function sendBookingCancelled(opts) {
     content,
     ctaUrl: `${SITE_URL}/app/classes`,
     ctaText: "Ver horario",
+    branchName,
   });
   await sendEmail({ to, subject: `Reserva cancelada — ${className}`, html });
 }
@@ -360,7 +368,7 @@ async function sendBookingCancelled(opts) {
 // ── 4. RECORDATORIO SEMANAL ──────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 async function sendWeeklyReminder(opts) {
-  const { to, name, classesLeft, endDate } = opts;
+  const { to, name, classesLeft, endDate, branchName = "Villa Magna" } = opts;
 
   const classesText = classesLeft === null
     ? "Tienes clases <strong>ilimitadas</strong> esta semana."
@@ -383,6 +391,7 @@ async function sendWeeklyReminder(opts) {
     content,
     ctaUrl: `${SITE_URL}/app/classes`,
     ctaText: "Programar mi semana",
+    branchName,
   });
   await sendEmail({ to, subject: `Programa tu semana — Tu Espacio Pilates`, html });
 }
@@ -391,7 +400,7 @@ async function sendWeeklyReminder(opts) {
 // ── 5. RECORDATORIO DE RENOVACIÓN ────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 async function sendRenewalReminder(opts) {
-  const { to, name, planName, classesLeft, endDate, reason } = opts;
+  const { to, name, planName, classesLeft, endDate, reason, branchName = "Villa Magna" } = opts;
 
   const isLastClass = reason === "last_class";
 
@@ -405,6 +414,7 @@ async function sendRenewalReminder(opts) {
     ${p("Mantener tu constancia es la clave del progreso. No dejes que tu entrenamiento se detenga.")}
     ${infoTable([
       infoRow("Plan actual", planName),
+      infoRow("Sucursal", branchName),
       ...(classesLeft !== null ? [infoRow("Clases restantes", `${classesLeft}`)] : []),
       ...(endDate ? [infoRow("Vencimiento", fmtDate(endDate))] : []),
     ])}
@@ -418,6 +428,7 @@ async function sendRenewalReminder(opts) {
     content,
     ctaUrl: `${SITE_URL}/app/checkout`,
     ctaText: "Renovar membresía",
+    branchName,
   });
   await sendEmail({
     to,
@@ -457,10 +468,11 @@ async function sendPasswordResetEmail(opts) {
 // ── 7. RECHAZO DE COMPROBANTE ────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 async function sendOrderRejected(opts) {
-  const { to, name, reason } = opts;
+  const { to, name, reason, branchName = "Villa Magna" } = opts;
   const content = `
     ${h1(`Comprobante no aprobado`)}
     ${p(`Hola ${name.split(" ")[0]}, revisamos tu comprobante de pago y lamentablemente <strong>no pudo ser aprobado</strong>.`)}
+    ${infoTable([infoRow("Sucursal", branchName)])}
     ${alertBox(`<strong>Motivo:</strong> ${reason}`, "error")}
     ${p("Si crees que hubo un error, contáctanos por WhatsApp o acércate al estudio. ¡Estamos para ayudarte!")}
   `;
@@ -469,6 +481,7 @@ async function sendOrderRejected(opts) {
     content,
     ctaUrl: `${SITE_URL}/app/checkout`,
     ctaText: "Reintentar pago",
+    branchName,
   });
   await sendEmail({ to, subject: "Comprobante no aprobado — Tu Espacio Pilates", html });
 }
@@ -593,6 +606,7 @@ async function sendPaymentReceipt(opts) {
     ${p(`Hola ${String(name || "").trim().split(/\s+/)[0] || "Alumna"}, gracias por tu pago. Aquí tienes tu comprobante.`)}
     ${infoTable([
       infoRow("Folio", m.orderNumber || "—"),
+      infoRow("Sucursal", opts.branchName || "Villa Magna"),
       infoRow("Fecha de pago", fmtDate(m.paidAt)),
       infoRow("Método de pago", m.methodLabel),
     ])}
@@ -604,6 +618,7 @@ async function sendPaymentReceipt(opts) {
     content,
     ctaUrl: `${SITE_URL}/app/orders`,
     ctaText: "Ver mis órdenes",
+    branchName: opts.branchName || "Villa Magna",
   });
   await sendEmail({ to, subject: `Comprobante de pago${numSuffix} — Tu Espacio Pilates`, html });
 }

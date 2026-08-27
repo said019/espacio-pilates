@@ -10,8 +10,17 @@ import { cn } from "@/lib/utils";
 import {
   Check, Loader2, CreditCard, Copy, Building2,
   Tag, ChevronRight, ArrowLeft, Upload, CheckCircle, Sparkles, X, Plus, Minus,
+  Dumbbell, MapPin,
 } from "lucide-react";
 import imgPilates from "@/assets/pilates_2320695.png";
+import { BranchSelector } from "@/components/BranchSelector";
+import {
+  getEntityProgram,
+  matchesBranch,
+  programLabel,
+  useBranch,
+  type StudioProgram,
+} from "@/hooks/useBranch";
 
 type Step = "select" | "method" | "bank" | "upload" | "done";
 type PaymentMethod = "transfer" | "card";
@@ -72,8 +81,8 @@ function flag(value: unknown): boolean {
 
 // ── Plan card ─────────────────────────────────────────────────────────────────
 const PlanCard = ({
-  plan, selected, onSelect,
-}: { plan: any; selected: boolean; onSelect: () => void }) => {
+  plan, selected, onSelect, branchName, program,
+}: { plan: any; selected: boolean; onSelect: () => void; branchName: string; program: StudioProgram }) => {
   const classLimit = plan.classLimit ?? plan.class_limit ?? null;
   const durationDays = Number(plan.durationDays ?? plan.duration_days ?? 0);
   const nonTransferable = flag(plan.isNonTransferable ?? plan.is_non_transferable);
@@ -102,7 +111,9 @@ const PlanCard = ({
       )}
       <div className="flex items-start gap-3 pr-7">
         <div className="h-11 w-11 rounded-xl border flex items-center justify-center shrink-0 border-[#D9B5BA]/30 bg-[#D9B5BA]/10">
-          <img src={imgPilates} alt="" className="h-7 w-7 object-contain" />
+          {program === "functional"
+            ? <Dumbbell size={20} className="text-[#8C6B6F]" />
+            : <img src={imgPilates} alt="" className="h-7 w-7 object-contain" />}
         </div>
         <div className="min-w-0">
           <p className="text-sm font-semibold text-[#1A1A1A]/85 leading-snug">{plan.name}</p>
@@ -131,6 +142,9 @@ const PlanCard = ({
         </ul>
       )}
       <div className="flex flex-wrap gap-2 mt-2">
+        <span className="text-[10px] text-[#6B4F53] bg-[#D9B5BA]/15 border border-[#D9B5BA]/25 rounded-full px-2 py-0.5">
+          {programLabel(program)} en {branchName}
+        </span>
         {durationDays > 0 && durationDays < 365 && (
           <span className="text-[10px] text-[#6B4F53] bg-[#D9B5BA]/15 border border-[#D9B5BA]/25 rounded-full px-2 py-0.5">
             {Number(classLimit) >= 2 ? "Vence fin de mes" : `${durationDays} días`}
@@ -209,6 +223,9 @@ const Checkout = () => {
   const [orderUuid, setOrderUuid] = useState<string | null>(null);
   const [bankDetails, setBankDetails] = useState<any>(null);
   const [file, setFile] = useState<File | null>(null);
+  const { branch, branchCode, setBranchCode } = useBranch();
+  const [program, setProgram] = useState<StudioProgram>("pilates");
+  const previousBranch = useRef(branchCode);
 
   // If arriving with ?orderId=xxx, jump straight to upload step
   useEffect(() => {
@@ -217,7 +234,32 @@ const Checkout = () => {
       setOrderUuid(oid);
       setStep("upload");
     }
-  }, []);
+    const requestedBranch = searchParams.get("branch");
+    if (requestedBranch === "pozos" || requestedBranch === "villa-magna") {
+      setBranchCode(requestedBranch);
+    }
+    const requestedProgram = searchParams.get("program");
+    if (requestedProgram === "functional" || requestedProgram === "prenatal") setProgram(requestedProgram);
+  }, [searchParams, setBranchCode]);
+
+  useEffect(() => {
+    if (previousBranch.current === branchCode) return;
+    previousBranch.current = branchCode;
+    if (cart.length > 0) {
+      toast({
+        title: "Carrito actualizado",
+        description: "Quitamos los planes anteriores para mantener la compra en una sola sucursal.",
+      });
+    }
+    setCart([]);
+    setDiscountResult(null);
+    if (!searchParams.get("orderId")) setStep("select");
+    if (branchCode === "villa-magna" && program === "functional") setProgram("pilates");
+  }, [branchCode, cart.length, program, searchParams, toast]);
+
+  useEffect(() => {
+    if (branchCode !== "pozos" && program === "functional") setProgram("pilates");
+  }, [branchCode, program]);
 
   const {
     data: plansData,
@@ -226,8 +268,8 @@ const Checkout = () => {
     refetch: refetchPlans,
     isFetching: refetchingPlans,
   } = useQuery({
-    queryKey: ["plans"],
-    queryFn: async () => (await api.get("/plans")).data,
+    queryKey: ["plans", branchCode],
+    queryFn: async () => (await api.get("/plans", { params: { branch: branchCode } })).data,
     retry: 2,
   });
 
@@ -239,36 +281,82 @@ const Checkout = () => {
 
   // One-time inscription status (auth). Auto-added server-side to class-package orders.
   const { data: inscriptionData } = useQuery({
-    queryKey: ["inscription-status"],
-    queryFn: async () => (await api.get("/inscription-status")).data,
+    queryKey: ["inscription-status", branch.id, program],
+    queryFn: async () => (await api.get("/inscription-status", {
+      params: { branch_id: branch.id, branch: branchCode, program },
+    })).data,
   });
   const inscriptionInfo = inscriptionData?.data ?? inscriptionData;
-  const needsInscription: boolean = Boolean(inscriptionInfo?.needsInscription);
-  const inscriptionPrice: number = Number(inscriptionInfo?.price ?? 500) || 500;
-  const hasPendingPackage: boolean = Boolean(inscriptionInfo?.hasPendingPackage);
+  const quoteBranch = String(inscriptionInfo?.branchCode ?? inscriptionInfo?.branch_code ?? "");
+  const quoteBranchId = String(inscriptionInfo?.branchId ?? inscriptionInfo?.branch_id ?? "");
+  const quoteProgram = String(inscriptionInfo?.program ?? "");
+  const hasScopedQuote = Boolean(quoteProgram) && quoteProgram === program
+    && (!quoteBranch || quoteBranch === branchCode)
+    && (!quoteBranchId || quoteBranchId === String(branch.id));
+  const needsInscription: boolean = hasScopedQuote
+    ? Boolean(inscriptionInfo?.needsInscription ?? inscriptionInfo?.needs_inscription)
+    : branchCode === "villa-magna" && program === "pilates"
+      ? Boolean(inscriptionInfo?.needsInscription ?? inscriptionInfo?.needs_inscription)
+      : true;
+  const fallbackInscriptionPrice = program === "functional" ? 300 : 500;
+  const inscriptionPrice: number = hasScopedQuote
+    ? Number(inscriptionInfo?.price ?? fallbackInscriptionPrice) || fallbackInscriptionPrice
+    : fallbackInscriptionPrice;
   // Puede comprar "Clase Extra" si ya está inscrita o tiene un paquete pendiente.
-  const canBuyClaseExtra: boolean = inscriptionInfo?.canBuyClaseExtra ?? !needsInscription;
+  const canBuyClaseExtra: boolean = inscriptionInfo?.canBuyClaseExtra
+    ?? inscriptionInfo?.can_buy_clase_extra
+    ?? !needsInscription;
   // Mostrar la tarjeta de "Inscripción" solo si realmente necesita inscribirse y
   // no tiene ya un paquete pendiente que se la esté cobrando (evita doble pago).
-  const showInscriptionCard: boolean = needsInscription && !hasPendingPackage;
-
   const rawPlans: any[] = Array.isArray(plansData?.data) ? plansData.data : Array.isArray(plansData) ? plansData : [];
-  const allPlans = rawPlans
+  const branchPlans = rawPlans
     .filter((p) => (p.isActive ?? p.is_active) !== false)
+    .filter((p) => {
+      if (matchesBranch(p, branch)) return true;
+      const hasBranch = p?.branchId || p?.branch_id || p?.branchCode || p?.branch_code || p?.branch_name;
+      return !hasBranch && branchCode === "pozos" && getEntityProgram(p) === "pilates";
+    });
+  const availablePrograms: StudioProgram[] = [
+    "pilates",
+    ...(branchCode === "pozos" ? ["functional" as const] : []),
+    ...(branchPlans.some((plan) => getEntityProgram(plan) === "prenatal") ? ["prenatal" as const] : []),
+  ];
+  const selectedProgramAvailable = availablePrograms.includes(program);
+  const allPlans = branchPlans
+    .filter((p) => getEntityProgram(p) === program)
     .filter((p) => !(p.name ?? "").toLowerCase().includes("paquete +"))
     .sort((a, b) => (a.sortOrder ?? a.sort_order ?? 99) - (b.sortOrder ?? b.sort_order ?? 99));
+
+  useEffect(() => {
+    if (!loadingPlans && !selectedProgramAvailable) setProgram("pilates");
+  }, [loadingPlans, selectedProgramAvailable, program]);
 
   const trialPlan = allPlans.find((p) => (p.name ?? "").toLowerCase().includes("muestra"));
   const plans = allPlans
     .filter((p) => p !== trialPlan)
-    .filter((p) => showInscriptionCard || !/inscrip/i.test(String(p.name ?? "")));
+    .filter((p) => !/inscrip/i.test(String(p.name ?? "")));
 
   // ── Carrito: helpers ───────────────────────────────────────────────────────
-  const planClassLimit = (p: any) => Number(p?.classLimit ?? p?.class_limit ?? 0);
   const planNonRepeatable = (p: any) => flag(p?.isNonRepeatable ?? p?.is_non_repeatable);
+  const planIsPackage = (p: any) => {
+    const name = String(p?.name ?? "").toLowerCase();
+    const explicit = p?.isPackage ?? p?.is_package;
+    if (explicit !== undefined) return flag(explicit);
+    if (/inscrip|clase\s*extra|suelta|visita|muestra/.test(name)) return false;
+    const rawLimit = p?.classLimit ?? p?.class_limit;
+    return rawLimit === null || Number(rawLimit) >= 2 || name.includes("ilimitad");
+  };
   const inCart = (id: string) => cart.find((c) => c.plan.id === id);
 
   const addToCart = (plan: any) => {
+    if (getEntityProgram(plan) !== program || !matchesBranch(plan, branch, program === "pilates" ? "universal" : "villa-magna")) {
+      toast({
+        title: "Ese plan no corresponde a tu selección",
+        description: `Elige un paquete de ${programLabel(program)} para ${branch.name}.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setDiscountResult(null);
     setCart((prev) => {
       const existing = prev.find((c) => c.plan.id === plan.id);
@@ -278,6 +366,19 @@ const Checkout = () => {
       }
       return [...prev, { plan, quantity: 1 }];
     });
+  };
+  const selectProgram = (nextProgram: StudioProgram) => {
+    if (nextProgram === program) return;
+    if (cart.length > 0) {
+      toast({
+        title: "Carrito actualizado",
+        description: "Quitamos los planes anteriores para mantener un solo programa por compra.",
+      });
+    }
+    setCart([]);
+    setDiscountResult(null);
+    setProgram(nextProgram);
+    setStep("select");
   };
   const changeQty = (id: string, delta: number) => {
     setDiscountResult(null);
@@ -300,7 +401,7 @@ const Checkout = () => {
   });
   const itemsSubtotal = round2(lineRows.reduce((a, l) => a + l.lineTotal, 0));
   const codeDiscount = discountResult ? Number(discountResult.discount_amount ?? 0) : 0;
-  const hasPackage = cart.some((c) => planClassLimit(c.plan) >= 2);
+  const hasPackage = cart.some((c) => planIsPackage(c.plan));
   const cartHasInscription = cart.some((c) => /inscrip/i.test(String(c.plan.name ?? "")));
   // No mostrar el cargo de inscripción auto si ya va la Inscripción como renglón.
   const showInscription = hasPackage && needsInscription && !cartHasInscription;
@@ -312,7 +413,7 @@ const Checkout = () => {
   const grandTotal = round2(afterDiscount + platformFee);
 
   // Plan principal (para validar el código y mostrar el nombre)
-  const primaryPlan = cart.find((c) => planClassLimit(c.plan) >= 2)?.plan ?? cart[0]?.plan ?? null;
+  const primaryPlan = cart.find((c) => planIsPackage(c.plan))?.plan ?? cart[0]?.plan ?? null;
 
   // "Clase Extra" solo para inscritas: se bloquea SOLO si no puede comprarla (no
   // inscrita ni con paquete pendiente) y el carrito no trae un paquete ni la
@@ -321,7 +422,13 @@ const Checkout = () => {
   const blockedClaseExtra = cartHasClaseExtra && !canBuyClaseExtra && !hasPackage && !cartHasInscription;
 
   const validateCodeMutation = useMutation({
-    mutationFn: () => api.post("/discount-codes/validate", { code: discountCode, planId: primaryPlan?.id }),
+    mutationFn: () => api.post("/discount-codes/validate", {
+      code: discountCode,
+      planId: primaryPlan?.id,
+      branchId: branch.id,
+      branch_id: branch.id,
+      program,
+    }),
     onSuccess: (res) => setDiscountResult(res.data?.data ?? res.data),
     onError: () => toast({ title: "Código inválido", variant: "destructive" }),
   });
@@ -330,6 +437,11 @@ const Checkout = () => {
     mutationFn: () =>
       api.post("/orders", {
         items: cart.map((c) => ({ planId: c.plan.id, quantity: c.quantity })),
+        branchId: branch.id,
+        branch_id: branch.id,
+        branchCode,
+        branch_code: branchCode,
+        program,
         discountCode: discountResult?.code,
         paymentMethod,
       }),
@@ -376,7 +488,47 @@ const Checkout = () => {
     <ClientAuthGuard requiredRoles={["client"]}>
       <ClientLayout>
         <div className="max-w-xl mx-auto space-y-6">
-          <h1 className="text-xl font-bold text-[#1A1A1A]">Comprar membresía</h1>
+          <div>
+            <h1 className="text-xl font-bold text-[#1A1A1A]">Comprar membresía</h1>
+            <p className="mt-1 text-xs leading-5 text-[#3D3A3A]">
+              Cada paquete se usa únicamente en la sucursal y el programa seleccionados.
+            </p>
+          </div>
+
+          {step === "select" && (
+            <div className="space-y-4 rounded-2xl border border-[#8C6B6F]/15 bg-white p-4">
+              <BranchSelector label="1. Elige tu sucursal" />
+              <div className="space-y-2">
+                <p className="flex items-center gap-2 text-[0.68rem] font-medium uppercase tracking-[0.16em] text-[#8C6B6F]">
+                  <Dumbbell size={13} /> 2. Elige tu programa
+                </p>
+                <div className={cn(
+                  "grid gap-1 rounded-xl border border-[#D9B5BA]/60 bg-[#D9B5BA]/15 p-1",
+                  availablePrograms.length >= 3 ? "grid-cols-3" : availablePrograms.length === 2 ? "grid-cols-2" : "grid-cols-1",
+                )}>
+                  {availablePrograms.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-pressed={program === option}
+                      onClick={() => selectProgram(option)}
+                      className={cn(
+                        "rounded-lg px-3 py-2 text-xs font-medium transition-colors active:scale-[0.98]",
+                        program === option ? "bg-[#1A1A1A] text-white shadow-sm" : "text-[#1A1A1A]/60 hover:bg-white/70",
+                      )}
+                    >
+                      {programLabel(option)}
+                    </button>
+                  ))}
+                </div>
+                {program === "functional" && (
+                  <p className="text-[11px] leading-5 text-[#6B4F53]">
+                    Funcional está disponible exclusivamente en Pozos. La inscripción es de ${inscriptionPrice.toLocaleString("es-MX")} MXN cuando corresponde.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           <StepBar current={step} />
 
@@ -389,7 +541,7 @@ const Checkout = () => {
                     <div key={i} className="h-28 rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] animate-pulse" />
                   ))}
                 </div>
-              ) : plansError || allPlans.length === 0 ? (
+              ) : plansError ? (
                 // Antes, si /plans fallaba o venía vacío, la pantalla quedaba sin
                 // nada abajo del título y parecía rota. Ahora se explica y se
                 // puede reintentar sin salir del checkout.
@@ -407,6 +559,23 @@ const Checkout = () => {
                   >
                     {refetchingPlans && <Loader2 className="animate-spin" size={14} />}
                     {refetchingPlans ? "Cargando…" : "Reintentar"}
+                  </button>
+                </div>
+              ) : allPlans.length === 0 ? (
+                <div className="rounded-2xl border border-[#8C6B6F]/20 bg-white p-6 text-center space-y-3">
+                  <p className="text-sm font-semibold text-[#1A1A1A]">
+                    Aún no hay paquetes de {programLabel(program)} disponibles en {branch.name}
+                  </p>
+                  <p className="text-xs leading-5 text-[#3D3A3A]">
+                    Vuelve a intentarlo más tarde o elige otro programa.
+                  </p>
+                  <button
+                    onClick={() => refetchPlans()}
+                    disabled={refetchingPlans}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#8C6B6F]/30 px-5 py-2.5 text-sm font-semibold text-[#8C6B6F] transition-colors hover:bg-[#8C6B6F]/10 disabled:opacity-50"
+                  >
+                    {refetchingPlans && <Loader2 className="animate-spin" size={14} />}
+                    Reintentar
                   </button>
                 </div>
               ) : (
@@ -466,6 +635,8 @@ const Checkout = () => {
                           plan={plan}
                           selected={Boolean(inCart(plan.id))}
                           onSelect={() => addToCart(plan)}
+                          branchName={branch.name}
+                          program={program}
                         />
                       ))}
                     </div>
@@ -477,7 +648,12 @@ const Checkout = () => {
               {/* Carrito + continuar */}
               {cart.length > 0 && (
                 <div className="rounded-2xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] p-4 space-y-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8C6B6F]/70">Tu carrito</p>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8C6B6F]/70">Tu carrito</p>
+                    <p className="flex items-center gap-1 text-[11px] font-medium text-[#6B4F53]">
+                      <MapPin size={11} /> {programLabel(program)} en {branch.name}
+                    </p>
+                  </div>
 
                   {/* Renglones */}
                   <div className="space-y-2.5">
@@ -535,7 +711,7 @@ const Checkout = () => {
                   <div className="space-y-1.5 pt-3 border-t border-[#8C6B6F]/15 text-xs">
                     <div className="flex justify-between"><span className="text-[#1A1A1A]/60">Subtotal</span><span className="font-semibold text-[#1A1A1A]/80">${itemsSubtotal.toLocaleString("es-MX")} MXN</span></div>
                     {codeDiscount > 0 && (<div className="flex justify-between text-[#6E7F4F]"><span>Descuento</span><span>−${codeDiscount.toLocaleString("es-MX")} MXN</span></div>)}
-                    {showInscription && (<div className="flex justify-between"><span className="text-[#1A1A1A]/60">Inscripción (pago único)</span><span className="font-semibold text-[#1A1A1A]/80">${inscriptionAmount.toLocaleString("es-MX")} MXN</span></div>)}
+                    {showInscription && (<div className="flex justify-between"><span className="text-[#1A1A1A]/60">Inscripción {programLabel(program)} (pago único)</span><span className="font-semibold text-[#1A1A1A]/80">${inscriptionAmount.toLocaleString("es-MX")} MXN</span></div>)}
                     {platformFee > 0 && (<div className="flex justify-between"><span className="text-[#1A1A1A]/60">Uso de plataforma (4%)</span><span className="font-semibold text-[#1A1A1A]/80">${platformFee.toLocaleString("es-MX")} MXN</span></div>)}
                   </div>
 
@@ -580,6 +756,9 @@ const Checkout = () => {
                   <span className="text-sm text-[#1A1A1A]/70">{cart.length === 1 ? primaryPlan?.name : `${cart.length} artículos`}</span>
                   <span className="text-lg font-bold text-[#1A1A1A]">${grandTotal.toLocaleString("es-MX")} MXN</span>
                 </div>
+                <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-[#6B4F53]">
+                  <MapPin size={11} /> {programLabel(program)} en {branch.name}
+                </p>
                 <div className="mt-2 pt-2 border-t border-[#8C6B6F]/10 space-y-1">
                   <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
                     <span>Subtotal</span>
@@ -592,7 +771,7 @@ const Checkout = () => {
                   )}
                   {showInscription && (
                     <div className="flex justify-between items-center text-[11px] text-[#1A1A1A]/55">
-                      <span>Inscripción (pago único)</span>
+                      <span>Inscripción {programLabel(program)} (pago único)</span>
                       <span>${inscriptionAmount.toLocaleString("es-MX")} MXN</span>
                     </div>
                   )}

@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -31,6 +32,7 @@ const PALETTE_COLORS = [
 const typeSchema = z.object({
   name: z.string().min(1),
   color: z.string().default("#D9B5BA"),
+  category: z.enum(["reformer", "barre", "pilates", "bienestar", "prenatal", "funcional"]).default("reformer"),
   defaultDuration: z.coerce.number().min(1),
   maxCapacity: z.coerce.number().min(1),
   isActive: z.boolean().default(true),
@@ -51,7 +53,7 @@ const ClassTypesList = () => {
   });
   const types = Array.isArray(data?.data) ? data.data : [];
 
-  const form = useForm<TypeFormData>({ resolver: zodResolver(typeSchema), defaultValues: { color: "#D9B5BA", defaultDuration: 60, maxCapacity: 5, isActive: true } });
+  const form = useForm<TypeFormData>({ resolver: zodResolver(typeSchema), defaultValues: { color: "#D9B5BA", category: "reformer", defaultDuration: 60, maxCapacity: 5, isActive: true } });
 
   const createMutation = useMutation({
     mutationFn: (d: TypeFormData) => api.post("/class-types", d),
@@ -72,6 +74,7 @@ const ClassTypesList = () => {
     form.reset({
       name: t.name,
       color: t.color,
+      category: t.category ?? "reformer",
       defaultDuration: t.defaultDuration ?? t.durationMin ?? 60,
       maxCapacity: t.maxCapacity ?? t.capacity ?? 10,
       isActive: t.isActive,
@@ -79,7 +82,7 @@ const ClassTypesList = () => {
     setEditing(t);
     setOpen(true);
   };
-  const openCreate = () => { form.reset({ color: "#D9B5BA", defaultDuration: 60, maxCapacity: 5, isActive: true }); setEditing(null); setOpen(true); };
+  const openCreate = () => { form.reset({ color: "#D9B5BA", category: "reformer", defaultDuration: 60, maxCapacity: 5, isActive: true }); setEditing(null); setOpen(true); };
 
   return (
     <AuthGuard>
@@ -95,6 +98,7 @@ const ClassTypesList = () => {
                 <TableRow>
                   <TableHead>Color</TableHead>
                   <TableHead>Nombre</TableHead>
+                  <TableHead>Categoría</TableHead>
                   <TableHead>Duración</TableHead>
                   <TableHead>Capacidad</TableHead>
                   <TableHead>Estado</TableHead>
@@ -106,6 +110,11 @@ const ClassTypesList = () => {
                   <TableRow key={t.id}>
                     <TableCell><div className="w-5 h-5 rounded-full" style={{ backgroundColor: t.color }} /></TableCell>
                     <TableCell className="font-medium">{t.name}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">
+                        {t.category === "funcional" ? "Funcional" : t.category === "reformer" ? "Pilates Reformer" : t.category}
+                      </Badge>
+                    </TableCell>
                     <TableCell>{t.defaultDuration ?? t.durationMin ?? "—"} min</TableCell>
                     <TableCell>{t.maxCapacity ?? t.capacity ?? "—"}</TableCell>
                     <TableCell><Badge variant={t.isActive ? "default" : "secondary"}>{t.isActive ? "Activo" : "Inactivo"}</Badge></TableCell>
@@ -130,6 +139,23 @@ const ClassTypesList = () => {
             <DialogHeader><DialogTitle>{editing ? "Editar tipo" : "Nuevo tipo de clase"}</DialogTitle></DialogHeader>
             <form onSubmit={form.handleSubmit((d) => editing ? updateMutation.mutate({ ...d, id: editing.id }) : createMutation.mutate(d))} className="space-y-4">
               <div className="space-y-1"><Label>Nombre</Label><Input {...form.register("name")} /></div>
+              <div className="space-y-1">
+                <Label>Categoría</Label>
+                <Select
+                  value={form.watch("category")}
+                  onValueChange={(value) => form.setValue("category", value as TypeFormData["category"])}
+                >
+                  <SelectTrigger><SelectValue placeholder="Selecciona una categoría" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="reformer">Pilates Reformer</SelectItem>
+                    <SelectItem value="barre">Barre</SelectItem>
+                    <SelectItem value="bienestar">Bienestar</SelectItem>
+                    <SelectItem value="prenatal">Prenatal</SelectItem>
+                    <SelectItem value="funcional">Funcional</SelectItem>
+                    <SelectItem value="pilates">Pilates (legacy)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2">
                 <Label>Color</Label>
                 <div className="flex flex-wrap gap-2">

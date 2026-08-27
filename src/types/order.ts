@@ -29,10 +29,17 @@ export interface Order {
   mp_payment_status?: string | null;
   created_at: string;
   updated_at: string;
+  branch_id?: string;
+  branch_code?: string;
+  branch_name?: string;
+  program?: string;
 }
 
 export interface CreateOrderRequest {
   planId: string;
+  branchId?: string;
+  branchCode?: string;
+  program?: string;
   discountCode?: string;
   paymentMethod: "transfer" | "cash" | "card";
 }

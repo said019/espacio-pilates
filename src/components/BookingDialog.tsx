@@ -14,7 +14,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Clock, CalendarDays, CheckCircle2 } from "lucide-react";
+import { Loader2, Clock, CalendarDays, CheckCircle2, MapPin } from "lucide-react";
+import { programLabel, type StudioProgram } from "@/hooks/useBranch";
 
 export interface ClassItem {
   id: string;
@@ -25,6 +26,11 @@ export interface ClassItem {
   duration: string;   // '50 min'
   date?: Date;
   color?: string;
+  branchId?: string;
+  branchCode?: "villa-magna" | "pozos";
+  branchName?: string;
+  branchAddress?: string | null;
+  program?: StudioProgram;
 }
 
 interface Props {
@@ -40,6 +46,7 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
   const user = useAuthStore((s) => s.user);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [joinedWaitlist, setJoinedWaitlist] = useState(false);
   const cancellationConfig = useCancellationConfig();
 
   if (!classData) return null;
@@ -52,11 +59,26 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
     }
     setLoading(true);
     try {
-      await api.post("/bookings", { classId: classData.id });
+      const response = await api.post("/bookings", {
+        classId: classData.id,
+        branchId: classData.branchId,
+        branch_id: classData.branchId,
+        program: classData.program,
+      });
+      const payload = response.data?.data ?? response.data;
+      const waitlist = payload?.booking?.status === "waitlist" || payload?.status === "waitlist";
+      setJoinedWaitlist(waitlist);
       setDone(true);
-      toast({ title: "✅ ¡Reserva confirmada!", description: `${classData.type} · ${classData.time}` });
+      toast({
+        title: waitlist ? "Te uniste a la lista de espera" : "Reserva confirmada",
+        description: `${classData.type} en ${classData.branchName ?? "Villa Magna"}, ${classData.time}`,
+      });
       onSuccess?.();
-      setTimeout(() => { setDone(false); onOpenChange(false); }, 2000);
+      setTimeout(() => {
+        setDone(false);
+        setJoinedWaitlist(false);
+        onOpenChange(false);
+      }, 2000);
     } catch (err: any) {
       toast({
         title: "Error al reservar",
@@ -71,7 +93,7 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
   const accentColor = classData.color ?? "#A48550";
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!loading) { setDone(false); onOpenChange(v); } }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!loading) { setDone(false); setJoinedWaitlist(false); onOpenChange(v); } }}>
       <DialogContent className="max-w-sm">
         {/* Color bar */}
         <div className="absolute top-0 left-0 right-0 h-1 rounded-t-xl" style={{ background: accentColor }} />
@@ -83,8 +105,14 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
         {done ? (
           <div className="flex flex-col items-center gap-3 py-8">
             <CheckCircle2 size={52} className="text-[#6E7F4F]" />
-            <p className="font-semibold text-lg">¡Reserva confirmada!</p>
-            <p className="text-sm text-muted-foreground">Te esperamos en el estudio 🎉</p>
+            <p className="font-semibold text-lg">
+              {joinedWaitlist ? "Estás en la lista de espera" : "Reserva confirmada"}
+            </p>
+            <p className="text-center text-sm text-muted-foreground">
+              {joinedWaitlist
+                ? "Te avisaremos si se libera un lugar."
+                : `Te esperamos en ${classData.branchName ?? "Villa Magna"}.`}
+            </p>
           </div>
         ) : (
           <>
@@ -100,6 +128,18 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
               <div className="flex items-center gap-3 text-sm">
                 <Clock size={15} className="text-muted-foreground shrink-0" />
                 <span>{classData.time} · {classData.duration}</span>
+              </div>
+              <div className="flex items-start gap-3 text-sm">
+                <MapPin size={15} className="mt-0.5 shrink-0 text-muted-foreground" />
+                <span>
+                  <span className="font-medium">Sucursal {classData.branchName ?? "Villa Magna"}</span>
+                  {classData.program && (
+                    <span className="block text-xs text-muted-foreground">{programLabel(classData.program)}</span>
+                  )}
+                  {classData.branchAddress && (
+                    <span className="mt-0.5 block text-xs text-muted-foreground">{classData.branchAddress}</span>
+                  )}
+                </span>
               </div>
             </div>
 
@@ -125,13 +165,15 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
             </Button>
             <Button
               onClick={handleBook}
-              disabled={loading || classData.spots === 0}
+              disabled={loading}
               style={{ background: accentColor, color: "#fff", border: "none" }}
               className="hover:opacity-90"
             >
               {loading
                 ? <><Loader2 size={14} className="animate-spin mr-2" />Reservando…</>
-                : user ? "Confirmar reserva" : "Iniciar sesión para reservar"
+                : user
+                  ? classData.spots === 0 ? "Unirme a lista de espera" : "Confirmar reserva"
+                  : "Iniciar sesión para reservar"
               }
             </Button>
           </DialogFooter>

@@ -13,6 +13,11 @@ import {
   UsersRound,
 } from "lucide-react";
 import { AuthGuard } from "@/components/admin/AuthGuard";
+import {
+  BranchSelector,
+  branchQueryParams,
+  useAdminBranchScope,
+} from "@/components/admin/BranchScope";
 import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import brandMark from "@/assets/tep-mark-ink.png";
@@ -41,6 +46,8 @@ interface CoachClass {
   reservedCount: number;
   waitlistCount: number;
   reservations: CoachReservation[];
+  branchId?: string;
+  branchName?: string;
 }
 
 interface CoachSchedule {
@@ -156,6 +163,7 @@ const ClassCard = ({ classItem, isToday }: { classItem: CoachClass; isToday: boo
           )}
         </div>
         <p className="mt-1 truncate text-xs text-[#7C686E]">{classItem.instructorName}</p>
+        <p className="mt-0.5 text-[10px] font-medium text-[#8C6B6F]">{classItem.branchName ?? "Sucursal sin asignar"}</p>
       </div>
 
       <div className="flex shrink-0 items-center gap-2 text-[#6E565E]">
@@ -202,10 +210,13 @@ const ClassCard = ({ classItem, isToday }: { classItem: CoachClass; isToday: boo
 const CoachPortalContent = () => {
   const navigate = useNavigate();
   const logout = useAuthStore((state) => state.logout);
+  const branchScope = useAdminBranchScope();
   const [mode, setMode] = useState<"today" | "future">("today");
   const scheduleQuery = useQuery<CoachSchedule>({
-    queryKey: ["coach-schedule"],
-    queryFn: async () => (await api.get("/coach/schedule")).data.data,
+    queryKey: ["coach-schedule", branchScope.branchScope],
+    queryFn: async () => (await api.get("/coach/schedule", {
+      params: branchQueryParams(branchScope.branchScope),
+    })).data.data,
     staleTime: 30_000,
     refetchInterval: 60_000,
   });
@@ -245,6 +256,7 @@ const CoachPortalContent = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <BranchSelector compact />
             <div className="hidden text-right sm:block">
               <p className="max-w-44 truncate text-sm font-medium">{schedule?.coach.displayName || "Coach"}</p>
               <p className="max-w-44 truncate text-[0.68rem] text-[#826E74]">{schedule?.coach.email || "Cuenta del estudio"}</p>

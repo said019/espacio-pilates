@@ -6,6 +6,12 @@ import { z } from "zod";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import {
+  BranchRequiredNotice,
+  branchNameFromRow,
+  branchQueryParams,
+  useAdminBranchScope,
+} from "@/components/admin/BranchScope";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { MoreHorizontal, Plus } from "lucide-react";
 
 const scheduleSchema = z.object({
+  branchId: z.string().min(1, "Sucursal requerida"),
   dayOfWeek: z.coerce.number().min(0).max(6),
   classTypeId: z.string().min(1),
   instructorId: z.string().min(1),
@@ -31,23 +38,35 @@ const scheduleSchema = z.object({
 });
 
 type ScheduleFormData = z.infer<typeof scheduleSchema>;
-interface Schedule extends ScheduleFormData { id: string; classTypeName?: string; instructorName?: string }
+interface Schedule extends ScheduleFormData {
+  id: string;
+  classTypeName?: string;
+  instructorName?: string;
+  branchName?: string;
+}
 
 const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
 const WeeklySchedule = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const branchScope = useAdminBranchScope();
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [mobileDay, setMobileDay] = useState(new Date().getDay());
 
   const { data } = useQuery<{ data: Schedule[] }>({
-    queryKey: ["schedules"],
-    queryFn: async () => (await api.get("/schedules")).data,
+    queryKey: ["schedules", branchScope.branchScope],
+    queryFn: async () => (await api.get("/schedules", { params: branchQueryParams(branchScope.branchScope) })).data,
   });
-  const schedules = Array.isArray(data?.data) ? data.data : [];
+  const schedules = Array.isArray(data?.data)
+    ? data.data.map((row: any) => ({
+        ...row,
+        branchId: String(row?.branchId ?? row?.branch_id ?? ""),
+        branchName: row?.branchName ?? row?.branch_name,
+      }))
+    : [];
 
   const { data: typesData } = useQuery<{ data: { id: string; name: string }[] }>({
     queryKey: ["class-types"],
@@ -59,7 +78,10 @@ const WeeklySchedule = () => {
     queryFn: async () => (await api.get("/instructors")).data,
   });
 
-  const form = useForm<ScheduleFormData>({ resolver: zodResolver(scheduleSchema), defaultValues: { maxCapacity: 5, isActive: true } });
+  const form = useForm<ScheduleFormData>({
+    resolver: zodResolver(scheduleSchema),
+    defaultValues: { branchId: "", maxCapacity: 5, isActive: true },
+  });
 
   const createMutation = useMutation({
     mutationFn: (d: ScheduleFormData) => api.post("/schedules", d),
@@ -72,13 +94,22 @@ const WeeklySchedule = () => {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/schedules/${id}`),
+    mutationFn: (schedule: Schedule) => api.delete(`/schedules/${schedule.id}`, {
+      params: { branch_id: schedule.branchId },
+      data: { branchId: schedule.branchId },
+    }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); toast({ title: "Horario eliminado" }); },
   });
 
-  const openEdit = (s: Schedule) => { form.reset(s); setEditing(s); setOpen(true); };
+  const openEdit = (s: Schedule) => {
+    const row = s as any;
+    form.reset({ ...s, branchId: String(row.branchId ?? row.branch_id ?? branchScope.branchId ?? "") });
+    setEditing(s);
+    setOpen(true);
+  };
   const openCreate = (dayOfWeek = mobileDay) => {
-    form.reset({ dayOfWeek, maxCapacity: 5, isActive: true });
+    if (!branchScope.branchId) return;
+    form.reset({ branchId: branchScope.branchId, dayOfWeek, maxCapacity: 5, isActive: true });
     setEditing(null);
     setOpen(true);
   };
@@ -91,8 +122,9 @@ const WeeklySchedule = () => {
   const scheduleCard = (s: Schedule) => (
     <div key={s.id} className="mb-2 p-2.5 bg-[#8C6B6F]/[0.05] rounded-xl border border-[#8C6B6F]/12 text-xs">
       <div className="font-semibold text-[#1A1A1A]/80 text-[11px] truncate">{s.classTypeName ?? s.classTypeId}</div>
-      <div className="text-[#1A1A1A]/50 text-[10px] mt-0.5">{s.startTime}–{s.endTime}</div>
+      <div className="text-[#1A1A1A]/50 text-[10px] mt-0.5">{s.startTime} - {s.endTime}</div>
       <div className="text-[#1A1A1A]/35 text-[10px] truncate">{s.instructorName ?? s.instructorId}</div>
+      <div className="mt-0.5 text-[10px] text-[#8C6B6F]">{branchNameFromRow(s, branchScope.branches)}</div>
       <div className="flex items-center justify-between mt-1.5">
         <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border ${s.isActive ? "text-[#4ade80] border-[#4ade80]/30 bg-[#4ade80]/5" : "text-[#1A1A1A]/25 border-[#8C6B6F]/15"}`}>
           {s.isActive ? "Activo" : "Inactivo"}
@@ -105,7 +137,7 @@ const WeeklySchedule = () => {
           </DropdownMenuTrigger>
           <DropdownMenuContent className="bg-[#F0D0D5] border-[#8C6B6F]/15">
             <DropdownMenuItem className="text-[#1A1A1A]/70 hover:text-[#1A1A1A]" onClick={() => openEdit(s)}>Editar</DropdownMenuItem>
-            <DropdownMenuItem className="text-[#f87171]" onClick={() => { if (window.confirm("¿Eliminar este horario?")) deleteMutation.mutate(s.id); }}>Eliminar</DropdownMenuItem>
+            <DropdownMenuItem className="text-[#f87171]" onClick={() => { if (window.confirm("¿Eliminar este horario?")) deleteMutation.mutate(s); }}>Eliminar</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -123,11 +155,15 @@ const WeeklySchedule = () => {
             </div>
             <button
               onClick={() => openCreate(isMobile ? mobileDay : new Date().getDay())}
-              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] px-4 py-2 text-sm font-semibold text-[#1A1A1A] transition-opacity hover:opacity-90"
+              disabled={!branchScope.branchId}
+              title={!branchScope.branchId ? "Selecciona una sucursal" : undefined}
+              className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] px-4 py-2 text-sm font-semibold text-[#1A1A1A] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
             >
               <Plus size={14} /> Nuevo horario
             </button>
           </div>
+
+          {!branchScope.branchId && <BranchRequiredNotice action="crear o modificar horarios" />}
 
           {isMobile ? (
             <div className="space-y-3">
@@ -203,6 +239,20 @@ const WeeklySchedule = () => {
               )}
               className="space-y-4"
             >
+              <div className="space-y-1">
+                <Label className="text-[#1A1A1A]/60 text-xs">Sucursal</Label>
+                <Select value={form.watch("branchId") || undefined} disabled>
+                  <SelectTrigger className={form.formState.errors.branchId ? "border-destructive" : "bg-[#8C6B6F]/[0.06] border-[#8C6B6F]/15 text-[#1A1A1A]"}>
+                    <SelectValue placeholder="Selecciona la sucursal en el encabezado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branchScope.branches.map((branch) => (
+                      <SelectItem key={branch.id} value={branch.id}>{branch.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {form.formState.errors.branchId && <p className="text-xs text-destructive">{form.formState.errors.branchId.message}</p>}
+              </div>
               <div className="space-y-1">
                 <Label className="text-[#1A1A1A]/60 text-xs">Día</Label>
                 <Select

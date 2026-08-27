@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { ReceiptDialog } from "@/components/ReceiptDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Clock, CheckCircle, XCircle, AlertTriangle, ShoppingBag, CreditCard, Loader2, Ban, FileText } from "lucide-react";
+import { Upload, Clock, CheckCircle, XCircle, AlertTriangle, ShoppingBag, CreditCard, Loader2, Ban, FileText, MapPin } from "lucide-react";
+import { getEntityBranchCode, getEntityBranchName, matchesBranch, useBranch } from "@/hooks/useBranch";
 
 const STATUS_CONFIG: Record<string, { label: string; icon: any; className: string }> = {
   pending_payment:      { label: "Pendiente de pago",  icon: Clock,         className: "border-[#E5CF9F] text-[#B5832F] bg-[#F4EAD6]" },
@@ -29,10 +30,11 @@ const MyOrders = () => {
   const [params] = useSearchParams();
   const checkoutResult = params.get("checkout"); // 'success' | 'failure' | 'pending' | null
   const [receiptOrder, setReceiptOrder] = useState<any | null>(null);
+  const { branch, branchCode } = useBranch();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["my-orders"],
-    queryFn: async () => (await api.get("/orders")).data,
+    queryKey: ["my-orders", branchCode],
+    queryFn: async () => (await api.get("/orders", { params: { branch: branchCode } })).data,
     refetchInterval: (query) => {
       const rows: any[] = Array.isArray((query.state.data as any)?.data) ? (query.state.data as any).data : [];
       const waitingCard = rows.some(
@@ -42,7 +44,8 @@ const MyOrders = () => {
     },
   });
 
-  const orders: any[] = Array.isArray(data?.data) ? data.data : [];
+  const orders: any[] = (Array.isArray(data?.data) ? data.data : [])
+    .filter((order: any) => matchesBranch(order, branch));
 
   const cancelMutation = useMutation({
     mutationFn: async (orderId: string) => (await api.post(`/orders/${orderId}/cancel`)).data,
@@ -59,7 +62,12 @@ const MyOrders = () => {
       <ClientLayout>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-bold text-[#1A1A1A]">Mis órdenes</h1>
+            <div>
+              <h1 className="text-xl font-bold text-[#1A1A1A]">Mis órdenes</h1>
+              <p className="mt-1 flex items-center gap-1 text-xs font-medium text-[#8C6B6F]">
+                <MapPin size={12} /> Sucursal {branch.name}
+              </p>
+            </div>
             <Button asChild size="sm" variant="outline">
               <Link to="/app/checkout"><ShoppingBag size={14} className="mr-2" />Nueva orden</Link>
             </Button>
@@ -127,6 +135,9 @@ const MyOrders = () => {
                           {o.order_number && <span className="font-mono">{o.order_number} · </span>}
                           {o.created_at && format(new Date(o.created_at), "d MMM yyyy · HH:mm", { locale: es })}
                         </p>
+                        <p className="flex items-center gap-1 text-[11px] font-medium text-[#8C6B6F]">
+                          <MapPin size={11} /> {getEntityBranchName(o, branch)}
+                        </p>
                       </div>
                       <Badge variant="outline" className={cfg.className}>
                         <Icon size={11} className="mr-1" />
@@ -142,7 +153,7 @@ const MyOrders = () => {
                           </Button>
                         ) : (
                           <Button asChild size="sm">
-                            <Link to={`/app/checkout?orderId=${o.id}`}>
+                            <Link to={`/app/checkout?orderId=${o.id}&branch=${getEntityBranchCode(o) ?? branchCode}`}>
                               <Upload size={14} className="mr-2" />Subir comprobante
                             </Link>
                           </Button>

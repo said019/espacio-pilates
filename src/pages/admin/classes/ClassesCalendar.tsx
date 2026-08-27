@@ -8,6 +8,12 @@ import { es } from "date-fns/locale";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import {
+  BranchRequiredNotice,
+  branchNameFromRow,
+  branchQueryParams,
+  useAdminBranchScope,
+} from "@/components/admin/BranchScope";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,13 +61,15 @@ interface ClassInstance {
   currentBookings?: number;
   isCancelled: boolean;
   notes?: string;
+  branchId?: string;
+  branchName?: string;
 }
 
 interface ClassType {
   id: string;
   name: string;
   color: string;
-  category?: "reformer" | "barre" | "pilates" | "bienestar" | "prenatal";
+  category?: "reformer" | "barre" | "pilates" | "bienestar" | "prenatal" | "funcional";
   defaultDuration?: number;
   durationMin?: number;
   maxCapacity?: number;
@@ -90,6 +98,7 @@ type TabKey = (typeof TABS)[number]["key"];
 
 /* ── Schemas ── */
 const classSchema = z.object({
+  branchId: z.string().min(1, "Sucursal requerida"),
   classTypeId: z.string().min(1),
   instructorId: z.string().min(1),
   startTime: z.string().min(1),
@@ -102,7 +111,7 @@ type ClassFormData = z.infer<typeof classSchema>;
 const typeSchema = z.object({
   name: z.string().min(1),
   color: z.string().default("#D1B9B4"),
-  category: z.enum(["reformer", "barre", "pilates", "bienestar", "prenatal"]).default("reformer"),
+  category: z.enum(["reformer", "barre", "pilates", "bienestar", "prenatal", "funcional"]).default("reformer"),
   defaultDuration: z.coerce.number().min(1),
   maxCapacity: z.coerce.number().min(1),
   isActive: z.boolean().default(true),
@@ -201,7 +210,7 @@ const STATUS_COLOR: Record<string, string> = {
   cancelled: "bg-gray-500/15 text-gray-500",
 };
 
-const ClassAttendees = ({ classId }: { classId: string }) => {
+const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: string }) => {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [showWalkIn, setShowWalkIn] = useState(false);
@@ -219,20 +228,22 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
 
   const { data, isLoading } = useQuery({
     queryKey: ["class-roster-mini", classId],
-    queryFn: async () => (await api.get(`/classes/${classId}/roster`)).data,
+    queryFn: async () => (await api.get(`/classes/${classId}/roster`, {
+      params: branchId ? { branch_id: branchId } : undefined,
+    })).data,
     enabled: !!classId,
   });
 
   const { data: plansData } = useQuery({
-    queryKey: ["plans-walkin-admin"],
+    queryKey: ["plans-walkin-admin", branchId],
     queryFn: async () => {
       // Try admin-aware endpoint first (includes TotalPass and other admin-only
       // plans). Fall back to public /plans if not deployed yet.
       try {
-        const r = await api.get("/admin/plans/walkin");
+        const r = await api.get("/admin/plans/walkin", { params: branchId ? { branch_id: branchId } : undefined });
         return r.data;
       } catch {
-        const r = await api.get("/plans");
+        const r = await api.get("/plans", { params: branchId ? { branch_id: branchId } : undefined });
         return r.data;
       }
     },
@@ -251,7 +262,7 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
   const userOptions = Array.isArray(usersData?.data) ? usersData.data : [];
 
   const walkInMutation = useMutation({
-    mutationFn: (body: any) => api.post(`/admin/classes/${classId}/walkin`, body),
+    mutationFn: (body: any) => api.post(`/admin/classes/${classId}/walkin`, { ...body, branchId }),
     onSuccess: () => {
       invalidateRoster();
       qc.invalidateQueries({ queryKey: ["payments"] });
@@ -270,7 +281,10 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
   });
 
   const cancelWalkInMutation = useMutation({
-    mutationFn: (bookingId: string) => api.delete(`/admin/bookings/${bookingId}/walkin`),
+    mutationFn: (bookingId: string) => api.delete(`/admin/bookings/${bookingId}/walkin`, {
+      params: branchId ? { branch_id: branchId } : undefined,
+      data: { branchId },
+    }),
     onSuccess: () => {
       invalidateRoster();
       toast({ title: "Lugar liberado" });
@@ -279,7 +293,7 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
   });
 
   const assignMutation = useMutation({
-    mutationFn: (userId: string) => api.post("/admin/bookings/assign", { classId, userId }),
+    mutationFn: (userId: string) => api.post("/admin/bookings/assign", { classId, userId, branchId }),
     onSuccess: (res: any) => {
       invalidateRoster();
       toast({ title: res?.data?.message ?? "Reserva asignada" });
@@ -290,7 +304,7 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
   });
 
   const checkinMutation = useMutation({
-    mutationFn: (bookingId: string) => api.put(`/bookings/${bookingId}/check-in`),
+    mutationFn: (bookingId: string) => api.put(`/bookings/${bookingId}/check-in`, { branchId }),
     onSuccess: () => {
       invalidateRoster();
       toast({ title: "Check-in registrado" });
@@ -299,7 +313,7 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
   });
 
   const noShowMutation = useMutation({
-    mutationFn: (bookingId: string) => api.put(`/bookings/${bookingId}/no-show`),
+    mutationFn: (bookingId: string) => api.put(`/bookings/${bookingId}/no-show`, { branchId }),
     onSuccess: () => {
       invalidateRoster();
       toast({ title: "Marcado como no asistió" });
@@ -309,7 +323,7 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
 
   const cancelMemberMutation = useMutation({
     mutationFn: ({ bookingId, force }: { bookingId: string; force?: boolean }) =>
-      api.put(`/admin/bookings/${bookingId}/cancel${force ? "?force=1" : ""}`),
+      api.put(`/admin/bookings/${bookingId}/cancel${force ? "?force=1" : ""}`, { branchId }),
     onSuccess: (res: any) => {
       invalidateRoster();
       const d = res?.data?.data ?? res?.data;
@@ -341,10 +355,10 @@ const ClassAttendees = ({ classId }: { classId: string }) => {
           Asistentes ({roster.length})
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setShowAssign(true)}>
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setShowAssign(true)} disabled={!branchId}>
             <Plus size={12} className="mr-1" />Asignar miembro
           </Button>
-          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setShowWalkIn(true)}>
+          <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setShowWalkIn(true)} disabled={!branchId}>
             <Plus size={12} className="mr-1" />Bloquear lugar
           </Button>
         </div>
@@ -630,6 +644,7 @@ function CalendarTab({
   qc: any;
 }) {
   const isMobile = useIsMobile();
+  const branchScope = useAdminBranchScope();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
@@ -641,9 +656,11 @@ function CalendarTab({
   const end = format(addDays(weekStart, 6), "yyyy-MM-dd");
 
   const { data } = useQuery<{ data: ClassInstance[] }>({
-    queryKey: ["classes", start, end],
+    queryKey: ["classes", start, end, branchScope.branchScope],
     queryFn: async () => {
-      const res = await api.get("/classes?start=" + start + "&end=" + end);
+      const res = await api.get("/classes", {
+        params: { start, end, ...branchQueryParams(branchScope.branchScope) },
+      });
       const raw: any[] = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : []);
       // Normalise snake_case → camelCase expected by ClassInstance
       const mapped: ClassInstance[] = raw.map((c: any) => ({
@@ -662,13 +679,18 @@ function CalendarTab({
         currentBookings:  c.current_bookings ?? 0,
         isCancelled:      c.status === "cancelled" || c.is_cancelled === true,
         notes:            c.notes,
+        branchId:         c.branchId ?? c.branch_id,
+        branchName:       c.branchName ?? c.branch_name,
       }));
       return { data: mapped };
     },
   });
   const classes = Array.isArray(data?.data) ? data.data : [];
 
-  const form = useForm<ClassFormData>({ resolver: zodResolver(classSchema) });
+  const form = useForm<ClassFormData>({
+    resolver: zodResolver(classSchema),
+    defaultValues: { branchId: "" },
+  });
 
   const createMutation = useMutation({
     mutationFn: (d: ClassFormData) => api.post("/classes", d),
@@ -680,7 +702,8 @@ function CalendarTab({
   });
 
   const cancelMutation = useMutation({
-    mutationFn: (id: string) => api.put("/classes/" + id + "/cancel"),
+    mutationFn: ({ id, branchId }: { id: string; branchId?: string }) =>
+      api.put("/classes/" + id + "/cancel", { branchId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["classes"] });
       toast({ title: "Clase cancelada" });
@@ -689,7 +712,10 @@ function CalendarTab({
   });
 
   const clearWeekMutation = useMutation({
-    mutationFn: () => api.delete("/classes/week", { data: { startDate: start, endDate: end } }),
+    mutationFn: (branchId: string) => api.delete("/classes/week", {
+      params: { branch_id: branchId },
+      data: { startDate: start, endDate: end, branchId },
+    }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["classes"] });
       const deleted = Number(res?.data?.deleted ?? 0);
@@ -716,8 +742,9 @@ function CalendarTab({
   }, [weekStart, mobileDay, days]);
 
   const openCreate = (date: string) => {
+    if (!branchScope.branchId) return;
     setSelectedDate(date);
-    form.reset({ startTime: date + "T09:00", endTime: date + "T10:00", maxCapacity: 5 });
+    form.reset({ branchId: branchScope.branchId, startTime: date + "T09:00", endTime: date + "T10:00", maxCapacity: 5 });
     setCreateOpen(true);
   };
 
@@ -727,15 +754,15 @@ function CalendarTab({
     if (isMobile) setMobileDay(format(next, "yyyy-MM-dd"));
   };
 
-  const weekLabel = `${format(weekStart, "d MMM", { locale: es })} – ${format(addDays(weekStart, 6), "d MMM yyyy", { locale: es })}`;
+  const weekLabel = `${format(weekStart, "d MMM", { locale: es })} - ${format(addDays(weekStart, 6), "d MMM yyyy", { locale: es })}`;
 
   const handleClearWeek = () => {
-    if (classes.length === 0 || clearWeekMutation.isPending) return;
+    if (!branchScope.branchId || classes.length === 0 || clearWeekMutation.isPending) return;
     const confirmed = window.confirm(
-      `Esto eliminará todas las clases de la semana (${weekLabel}). Esta acción no se puede deshacer.`
+      `Esto eliminará todas las clases de ${branchScope.selectedBranch?.name ?? "la sucursal"} en la semana (${weekLabel}). Esta acción no se puede deshacer.`
     );
     if (!confirmed) return;
-    clearWeekMutation.mutate();
+    clearWeekMutation.mutate(branchScope.branchId);
   };
 
   const mobileDayDate = parseISO(mobileDay);
@@ -743,6 +770,8 @@ function CalendarTab({
 
   return (
     <>
+      {!branchScope.branchId && <BranchRequiredNotice action="crear clases o limpiar una semana" />}
+
       {/* Week nav */}
       <div className="mb-4 flex flex-col gap-2 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center justify-center gap-2 sm:gap-3">
@@ -759,7 +788,8 @@ function CalendarTab({
             type="button"
             variant="outline"
             onClick={handleClearWeek}
-            disabled={clearWeekMutation.isPending || classes.length === 0}
+            disabled={clearWeekMutation.isPending || classes.length === 0 || !branchScope.branchId}
+            title={!branchScope.branchId ? "Selecciona una sucursal antes de limpiar" : undefined}
             className="min-h-[44px] border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
           >
             {clearWeekMutation.isPending && <Loader2 size={14} className="mr-2 animate-spin" />}
@@ -803,7 +833,7 @@ function CalendarTab({
                 <p className="text-xs uppercase tracking-widest text-[#444444]/45">{DAYS_ES[mobileDayDate.getDay()]}</p>
                 <p className="text-sm font-semibold text-[#444444]">{format(mobileDayDate, "d 'de' MMMM", { locale: es })}</p>
               </div>
-              <Button size="sm" className="h-9" onClick={() => openCreate(mobileDay)}>
+              <Button size="sm" className="h-9" onClick={() => openCreate(mobileDay)} disabled={!branchScope.branchId}>
                 <Plus size={14} className="mr-1" /> Nueva
               </Button>
             </div>
@@ -825,6 +855,7 @@ function CalendarTab({
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-[#444444]">{c.classTypeName ?? "Clase"}</p>
+                        <p className="text-[10px] text-[#716D64]">{branchNameFromRow(c, branchScope.branches)}</p>
                         <p className="text-xs text-[#444444]/60">
                           {c.startTime ? format(parseISO(c.startTime), "HH:mm") : "—"}
                           {" - "}
@@ -873,6 +904,8 @@ function CalendarTab({
                     type="button"
                     className="mb-3 flex w-full items-center justify-between rounded-xl px-1 py-1 text-left transition-colors hover:bg-valiance-surface2/70"
                     onClick={() => openCreate(dayKey)}
+                    disabled={!branchScope.branchId}
+                    title={!branchScope.branchId ? "Selecciona una sucursal para crear" : undefined}
                   >
                     <div>
                       <p className="text-[0.62rem] font-semibold uppercase tracking-[0.18em] text-valiance-mauve/65">
@@ -904,6 +937,7 @@ function CalendarTab({
                           <div className="mb-2 flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-valiance-charcoal">{c.classTypeName ?? "Clase"}</p>
+                              <p className="text-[10px] text-valiance-mauve">{branchNameFromRow(c, branchScope.branches)}</p>
                               <p className="mt-0.5 text-xs font-medium tabular-nums text-valiance-mauve">
                                 {c.startTime ? format(parseISO(c.startTime), "HH:mm") : "—"} - {c.endTime ? format(parseISO(c.endTime), "HH:mm") : "—"}
                               </p>
@@ -949,7 +983,8 @@ function CalendarTab({
                     <button
                       type="button"
                       onClick={() => openCreate(dayKey)}
-                      className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed border-valiance-oat bg-valiance-surface2/50 text-valiance-mauve transition-colors hover:border-valiance-fern/45 hover:bg-valiance-surface2"
+                      disabled={!branchScope.branchId}
+                      className="flex min-h-11 w-full items-center justify-center rounded-2xl border border-dashed border-valiance-oat bg-valiance-surface2/50 text-valiance-mauve transition-colors hover:border-valiance-fern/45 hover:bg-valiance-surface2 disabled:cursor-not-allowed disabled:opacity-40"
                       aria-label={`Crear clase para ${format(day, "d MMM", { locale: es })}`}
                     >
                       <Plus size={15} />
@@ -967,6 +1002,9 @@ function CalendarTab({
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Nueva clase</DialogTitle></DialogHeader>
           <form onSubmit={form.handleSubmit((d) => createMutation.mutate(d))} className="space-y-4">
+            <div className="rounded-xl border border-border bg-muted/40 px-3 py-2 text-sm">
+              Sucursal: <span className="font-semibold">{branchScope.selectedBranch?.name ?? "Sin seleccionar"}</span>
+            </div>
             <div className="space-y-1">
               <Label>Tipo de clase</Label>
               <Select onValueChange={(v) => form.setValue("classTypeId", v)}>
@@ -1002,7 +1040,7 @@ function CalendarTab({
             <div className="space-y-1"><Label>Notas</Label><Input {...form.register("notes")} /></div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button>
-              <Button type="submit" disabled={createMutation.isPending} className="bg-gradient-to-r from-[#D1B9B4] to-[#716D64] text-white">Crear</Button>
+              <Button type="submit" disabled={createMutation.isPending || !branchScope.branchId} className="bg-gradient-to-r from-[#D1B9B4] to-[#716D64] text-white">Crear</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -1029,15 +1067,16 @@ function CalendarTab({
                 </div>
               </div>
               <div><span className="font-medium">Inicio:</span> {selectedClass.startTime ? new Date(selectedClass.startTime).toLocaleString("es-MX", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : "—"}</div>
+              <div><span className="font-medium">Sucursal:</span> {branchNameFromRow(selectedClass, branchScope.branches)}</div>
               <div><span className="font-medium">Cupo:</span> {(selectedClass.bookedCount ?? selectedClass.currentBookings ?? 0) + " / " + (selectedClass.maxCapacity ?? selectedClass.capacity ?? "?")}</div>
               {selectedClass.notes && <div><span className="font-medium">Notas:</span> {selectedClass.notes}</div>}
 
               {/* ── Attendees list ── */}
-              <ClassAttendees classId={selectedClass.id} />
+              <ClassAttendees classId={selectedClass.id} branchId={selectedClass.branchId} />
 
               <div className="pt-2 flex flex-col gap-2">
                 {!selectedClass.isCancelled && (
-                  <Button variant="destructive" onClick={() => cancelMutation.mutate(selectedClass.id)} disabled={cancelMutation.isPending}>
+                  <Button variant="destructive" onClick={() => cancelMutation.mutate({ id: selectedClass.id, branchId: selectedClass.branchId })} disabled={cancelMutation.isPending || !selectedClass.branchId}>
                     Cancelar clase
                   </Button>
                 )}
@@ -1236,7 +1275,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
               <Label>Categoría</Label>
               <Select
                 value={form.watch("category")}
-                onValueChange={(v) => form.setValue("category", v as "reformer" | "barre" | "pilates" | "bienestar" | "prenatal")}
+                onValueChange={(v) => form.setValue("category", v as "reformer" | "barre" | "pilates" | "bienestar" | "prenatal" | "funcional")}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar categoría" />
@@ -1246,6 +1285,7 @@ function TypesTab({ types, toast, qc }: { types: ClassType[]; toast: any; qc: an
                   <SelectItem value="barre">Barre</SelectItem>
                   <SelectItem value="bienestar">Bienestar</SelectItem>
                   <SelectItem value="prenatal">Prenatal</SelectItem>
+                  <SelectItem value="funcional">Funcional</SelectItem>
                   <SelectItem value="pilates">Pilates (legacy)</SelectItem>
                 </SelectContent>
               </Select>
@@ -1304,6 +1344,8 @@ function GenerateTab({
   instructors: { id: string; displayName: string }[];
   toast: any;
 }) {
+  const branchScope = useAdminBranchScope();
+  const qc = useQueryClient();
   const [selectedDays, setSelectedDays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -1333,6 +1375,7 @@ function GenerateTab({
   const generateMutation = useMutation({
     mutationFn: () =>
       api.post("/classes/generate", {
+        branchId: branchScope.branchId,
         classTypeId,
         instructorId,
         startDate,
@@ -1342,7 +1385,10 @@ function GenerateTab({
         endTime,
         maxCapacity,
       }),
-    onSuccess: (res: any) => toast({ title: `✨ ${res.data?.created ?? 0} clases generadas` }),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["classes"] });
+      toast({ title: `${res.data?.created ?? 0} clases generadas` });
+    },
     onError: (error: any) =>
       toast({
         title: error?.response?.data?.message ?? "Error generando clases",
@@ -1356,10 +1402,12 @@ function GenerateTab({
     );
   };
 
-  const canGenerate = classTypeId && instructorId && startDate && endDate && selectedDays.length > 0;
+  const canGenerate = Boolean(branchScope.branchId && classTypeId && instructorId && startDate && endDate && selectedDays.length > 0);
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      {!branchScope.branchId && <BranchRequiredNotice action="generar clases" />}
+
       {/* Header */}
       <div className="text-center mb-2">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-[#D1B9B4]/10 to-[#716D64]/10 border border-[#D1B9B4]/20 mb-3">
@@ -1368,6 +1416,9 @@ function GenerateTab({
         </div>
         <h2 className="text-2xl font-bold text-[#444444]">Generar clases en bloque</h2>
         <p className="text-sm text-[#444444]/40 mt-1">Selecciona tipo, instructor, rango de fechas y días</p>
+        <p className="mt-2 text-xs font-medium text-[#716D64]">
+          Sucursal: {branchScope.selectedBranch?.name ?? "sin seleccionar"}
+        </p>
       </div>
 
       {/* ── Step 1: Class type + Instructor ── */}

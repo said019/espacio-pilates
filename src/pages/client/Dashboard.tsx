@@ -12,47 +12,60 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MembershipCard } from "@/components/MembershipCard";
-import { Calendar, ClipboardList, Clock, ShoppingBag, ArrowRight, Sparkles, Upload, CreditCard } from "lucide-react";
+import { Calendar, ClipboardList, Clock, ShoppingBag, ArrowRight, Sparkles, Upload, CreditCard, MapPin } from "lucide-react";
 import coachGuidance from "@/assets/tu-espacio-studio/coach-guidance.webp";
 import type { ClientMembership } from "@/types/membership";
 import type { BookingClient } from "@/types/booking";
+import {
+  extractMemberships,
+  getEntityProgram,
+  getEntityBranchName,
+  matchesBranch,
+  programLabel,
+  useBranch,
+} from "@/hooks/useBranch";
 
 const Dashboard = () => {
   const { user } = useAuthStore();
+  const { branch, branchCode } = useBranch();
 
   const { data: membershipData, isLoading: loadingMembership } = useQuery({
-    queryKey: ["my-membership"],
-    queryFn: async () => (await api.get("/memberships/my")).data,
+    queryKey: ["my-membership", branchCode],
+    queryFn: async () => (await api.get("/memberships/my", { params: { branch: branchCode } })).data,
   });
 
   const { data: bookingsData, isLoading: loadingBookings } = useQuery({
-    queryKey: ["my-bookings"],
-    queryFn: async () => (await api.get("/bookings/my-bookings")).data,
+    queryKey: ["my-bookings", branchCode],
+    queryFn: async () => (await api.get("/bookings/my-bookings", { params: { branch: branchCode } })).data,
   });
 
   const { data: ordersData } = useQuery({
-    queryKey: ["my-orders"],
-    queryFn: async () => (await api.get("/orders")).data,
+    queryKey: ["my-orders", branchCode],
+    queryFn: async () => (await api.get("/orders", { params: { branch: branchCode } })).data,
   });
 
   const pendingOrders: any[] = (Array.isArray(ordersData?.data) ? ordersData.data : [])
+    .filter((order: any) => matchesBranch(order, branch))
     .filter((o: any) => o.status === "pending_payment" || o.status === "pending_verification");
 
-  // API returns { data: <membership|null> } — extract the inner payload.
-  // Guard against the wrapper object being truthy when the actual value is null.
-  const rawMembership = membershipData?.data !== undefined ? membershipData.data : membershipData;
-  const membership: ClientMembership | null =
-    rawMembership && typeof rawMembership === "object" && "id" in rawMembership ? rawMembership : null;
+  const memberships = extractMemberships(membershipData)
+    .filter((membership) => membership.status === "active" && matchesBranch(membership, branch)) as ClientMembership[];
 
-  const bookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
+  const rawBookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
+  const bookings = rawBookings.filter((booking) => matchesBranch(booking, branch));
 
   const upcomingBookings = bookings
     .filter((b) => b.status === "confirmed" || b.status === "waitlist")
     .slice(0, 2);
 
-  const classesRemaining = membership?.classesRemaining ?? membership?.classes_remaining ?? null;
-  const isLowCredits = membership && classesRemaining !== null && classesRemaining <= 2;
-  const noMembership = !loadingMembership && !membership;
+  const remainingValues = memberships.map((membership) => membership.classesRemaining ?? membership.classes_remaining ?? null);
+  const hasUnlimited = remainingValues.some((remaining) => remaining === null || remaining === 9999);
+  const classesRemaining = hasUnlimited
+    ? null
+    : remainingValues.reduce((total, remaining) => total + Number(remaining ?? 0), 0);
+  const classesDisplay = memberships.length === 0 ? "-" : hasUnlimited ? "∞" : classesRemaining;
+  const isLowCredits = memberships.length > 0 && !hasUnlimited && classesRemaining <= 2;
+  const noMembership = !loadingMembership && memberships.length === 0;
   const firstName = (user?.displayName ?? user?.display_name ?? user?.email?.split("@")[0] ?? "Hola").split(" ")[0];
 
   return (
@@ -79,6 +92,9 @@ const Dashboard = () => {
                 <p className="mt-4 max-w-[34rem] text-[0.98rem] leading-7 text-valiance-nude/72">
                   Elige tu clase, revisa tus créditos y llega lista. Todo lo importante está aquí para que reservar sea rápido.
                 </p>
+                <p className="mt-3 flex items-center gap-1.5 text-sm font-medium text-valiance-nude/80">
+                  <MapPin size={14} /> Sucursal {branch.name}
+                </p>
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <Button asChild className="h-12 rounded-full bg-valiance-nude px-6 text-valiance-charcoal hover:bg-valiance-blush">
                     <Link to="/app/classes">
@@ -99,7 +115,7 @@ const Dashboard = () => {
                 <div className="rounded-2xl border border-valiance-nude/12 bg-valiance-nude/10 p-3 backdrop-blur-sm sm:p-4">
                   <p className="text-[0.55rem] uppercase tracking-[0.14em] text-valiance-nude/75 sm:text-[0.64rem] sm:tracking-[0.18em]">Clases</p>
                   <p className="mt-2 font-display text-2xl leading-none text-valiance-nude tabular-nums sm:text-3xl">
-                    {classesRemaining == null ? "—" : classesRemaining}
+                    {classesDisplay}
                   </p>
                   <p className="mt-1 text-xs text-valiance-nude/58">disponibles</p>
                 </div>
@@ -144,7 +160,7 @@ const Dashboard = () => {
                       <p className="text-xs text-muted-foreground">
                         {noMembership
                           ? "Elige el plan ideal para ti y comienza a reservar clases"
-                          : `Te quedan ${classesRemaining} clase${classesRemaining === 1 ? "" : "s"} — renueva para seguir entrenando`}
+                          : `Te quedan ${classesRemaining} clase${classesRemaining === 1 ? "" : "s"}. Renueva para seguir entrenando`}
                       </p>
                     </div>
                   </div>
@@ -157,13 +173,24 @@ const Dashboard = () => {
           <div className="grid gap-5 lg:grid-cols-[1.15fr_0.85fr]">
             <Card className="border-valiance-blush/30 bg-valiance-blush/[0.06] shadow-valiance-soft">
               <CardHeader className="pb-2">
-                <CardTitle className="font-body text-sm font-semibold text-valiance-mauve">Mi membresía</CardTitle>
+                <CardTitle className="font-body text-sm font-semibold text-valiance-mauve">
+                  {memberships.length === 1 ? "Mi membresía" : "Mis membresías"} en {branch.name}
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 {loadingMembership ? (
                   <Skeleton className="h-40 w-full rounded-2xl" />
-                ) : membership ? (
-                  <MembershipCard membership={membership} />
+                ) : memberships.length > 0 ? (
+                  <div className="space-y-3">
+                    {memberships.map((membership) => (
+                      <div key={membership.id}>
+                        <p className="mb-2 flex items-center gap-1 text-xs font-medium text-valiance-mauve">
+                          <MapPin size={12} /> {programLabel(getEntityProgram(membership))} en {branch.name}
+                        </p>
+                        <MembershipCard membership={membership} />
+                      </div>
+                    ))}
+                  </div>
                 ) : (
                   <div className="rounded-2xl border border-dashed border-valiance-blush/35 bg-valiance-blush/12 p-5">
                     <p className="text-sm font-medium text-valiance-charcoal">No tienes membresía activa</p>
@@ -200,6 +227,9 @@ const Dashboard = () => {
                             <p className="mt-1 text-xs leading-5 text-muted-foreground">
                               {b.start_time ? format(safeParse(b.start_time), "EEEE d MMM · HH:mm", { locale: es }) : "—"} · {b.instructor_name ?? b.class_type_name}
                             </p>
+                            <p className="mt-1 flex items-center gap-1 text-[11px] font-medium text-valiance-mauve">
+                              <MapPin size={11} /> {getEntityBranchName(b, branch)}
+                            </p>
                           </div>
                           <Badge variant={b.status === "waitlist" ? "secondary" : "default"} className="rounded-full">
                             {b.status === "waitlist" ? "Espera" : "Confirmada"}
@@ -230,6 +260,9 @@ const Dashboard = () => {
                           <p className="text-sm font-semibold text-valiance-charcoal">{o.plan_name}</p>
                           <p className="text-xs text-muted-foreground">
                             ${Number(o.total_amount).toLocaleString("es-MX")} MXN · {o.payment_method === "cash" ? "Efectivo" : "Transferencia"}
+                          </p>
+                          <p className="flex items-center gap-1 text-[11px] font-medium text-valiance-mauve">
+                            <MapPin size={11} /> {getEntityBranchName(o, branch)}
                           </p>
                           {o.order_number && (
                             <p className="font-mono text-[10px] text-valiance-mauve">Orden: {o.order_number}</p>

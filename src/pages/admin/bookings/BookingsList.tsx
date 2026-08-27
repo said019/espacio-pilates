@@ -5,6 +5,11 @@ import { es } from "date-fns/locale";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import {
+  branchNameFromRow,
+  branchQueryParams,
+  useAdminBranchScope,
+} from "@/components/admin/BranchScope";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,16 +53,17 @@ const statusConfig: Record<string, { label: string; className: string }> = {
 };
 
 // ── Class Roster panel ─────────────────────────────────────────────────────────
-const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void }) => {
+const ClassRoster = ({ classId, branchId, onBack }: { classId: string; branchId: string; onBack: () => void }) => {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const branchScope = useAdminBranchScope();
   const [assignOpen, setAssignOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
   const debouncedMemberSearch = useDebounce(memberSearch, 250);
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["roster", classId],
-    queryFn: async () => (await api.get(`/classes/${classId}/roster`)).data,
+    queryKey: ["roster", classId, branchId],
+    queryFn: async () => (await api.get(`/classes/${classId}/roster`, { params: { branch_id: branchId } })).data,
     refetchInterval: 15000,
   });
 
@@ -73,7 +79,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   const userOptions = Array.isArray(usersData?.data) ? usersData.data : [];
 
   const checkinMutation = useMutation({
-    mutationFn: (id: string) => api.put(`/bookings/${id}/check-in`),
+    mutationFn: (id: string) => api.put(`/bookings/${id}/check-in`, { branchId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["roster", classId] });
       toast({ title: "✅ Check-in registrado" });
@@ -83,7 +89,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
 
   const cancelMutation = useMutation({
     mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
-      api.put(`/admin/bookings/${id}/cancel${force ? "?force=1" : ""}`),
+      api.put(`/admin/bookings/${id}/cancel${force ? "?force=1" : ""}`, { branchId }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["class-roster", classId] });
       const d = res?.data?.data ?? res?.data;
@@ -106,7 +112,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   });
 
   const noShowMutation = useMutation({
-    mutationFn: (id: string) => api.put(`/bookings/${id}/no-show`),
+    mutationFn: (id: string) => api.put(`/bookings/${id}/no-show`, { branchId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["roster", classId] });
       toast({ title: "Marcado como no asistió" });
@@ -115,7 +121,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
   });
 
   const assignMutation = useMutation({
-    mutationFn: (userId: string) => api.post("/admin/bookings/assign", { classId, userId }),
+    mutationFn: (userId: string) => api.post("/admin/bookings/assign", { classId, userId, branchId }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["roster", classId] });
       const msg = res?.data?.message ?? "Reserva asignada";
@@ -171,6 +177,7 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
                   : classInfo.date ?? "—"}
               </p>
               <p className="text-xs text-[#1A1A1A]/35 mt-0.5">Instructor: {classInfo.instructorName}</p>
+              <p className="text-xs font-medium text-[#8C6B6F] mt-0.5">{branchNameFromRow({ ...classInfo, branchId }, branchScope.branches)}</p>
             </div>
             <button
               onClick={() => refetch()}
@@ -371,14 +378,20 @@ const ClassRoster = ({ classId, onBack }: { classId: string; onBack: () => void 
 };
 
 // ── Weekly class picker ────────────────────────────────────────────────────────
-const ClassPicker = ({ onSelectClass }: { onSelectClass: (id: string) => void }) => {
+const ClassPicker = ({ onSelectClass }: { onSelectClass: (selection: { id: string; branchId: string }) => void }) => {
+  const branchScope = useAdminBranchScope();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
 
   const { data, isLoading } = useQuery({
-    queryKey: ["admin-classes-week", format(weekStart, "yyyy-MM-dd")],
-    queryFn: async () =>
-      (await api.get(`/classes?start=${format(weekStart, "yyyy-MM-dd")}&end=${format(weekEnd, "yyyy-MM-dd")}`)).data,
+    queryKey: ["admin-classes-week", format(weekStart, "yyyy-MM-dd"), branchScope.branchScope],
+    queryFn: async () => (await api.get("/classes", {
+      params: {
+        start: format(weekStart, "yyyy-MM-dd"),
+        end: format(weekEnd, "yyyy-MM-dd"),
+        ...branchQueryParams(branchScope.branchScope),
+      },
+    })).data,
   });
   const classes: any[] = Array.isArray(data?.data) ? data.data : [];
 
@@ -401,7 +414,7 @@ const ClassPicker = ({ onSelectClass }: { onSelectClass: (id: string) => void })
           <ChevronLeft size={14} />
         </button>
         <span className="text-sm font-semibold text-[#1A1A1A]/70 min-w-[200px] text-center">
-          {format(weekStart, "d MMM", { locale: es })} – {format(weekEnd, "d MMM yyyy", { locale: es })}
+          {format(weekStart, "d MMM", { locale: es })} - {format(weekEnd, "d MMM yyyy", { locale: es })}
         </span>
         <button
           onClick={() => setWeekStart((w) => addWeeks(w, 1))}
@@ -455,6 +468,7 @@ const ClassPicker = ({ onSelectClass }: { onSelectClass: (id: string) => void })
               ) : (
                 <div className="space-y-2">
                   {dayClasses.map((cls) => {
+                    const classBranchId = String(cls.branchId ?? cls.branch_id ?? "");
                     const time = cls.start_time
                       ? new Date(cls.start_time).toLocaleTimeString("es-MX", {
                           hour: "2-digit",
@@ -471,8 +485,9 @@ const ClassPicker = ({ onSelectClass }: { onSelectClass: (id: string) => void })
                     return (
                       <button
                         key={cls.id}
-                        onClick={() => onSelectClass(cls.id)}
-                        className="w-full flex items-center gap-4 p-4 rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] hover:border-[#8C6B6F]/30 hover:bg-[#8C6B6F]/5 transition-all group text-left"
+                        onClick={() => onSelectClass({ id: cls.id, branchId: classBranchId })}
+                        disabled={!classBranchId}
+                        className="w-full flex items-center gap-4 p-4 rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] hover:border-[#8C6B6F]/30 hover:bg-[#8C6B6F]/5 transition-all group text-left disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <span
                           className="w-2.5 h-2.5 rounded-full shrink-0"
@@ -483,6 +498,7 @@ const ClassPicker = ({ onSelectClass }: { onSelectClass: (id: string) => void })
                             {cls.class_type_name ?? cls.className ?? "Clase"}
                           </p>
                           <p className="text-xs text-[#1A1A1A]/35">{time} · {cls.instructor_name ?? "—"}</p>
+                          <p className="text-[10px] font-medium text-[#8C6B6F]">{branchNameFromRow(cls, branchScope.branches)}</p>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
                           <div className="text-right">
@@ -521,7 +537,7 @@ const ClassPicker = ({ onSelectClass }: { onSelectClass: (id: string) => void })
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 const BookingsList = () => {
-  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [selectedClass, setSelectedClass] = useState<{ id: string; branchId: string } | null>(null);
 
   return (
     <AuthGuard>
@@ -530,16 +546,16 @@ const BookingsList = () => {
           <div className="mb-7">
             <h1 className="text-3xl font-bold text-[#1A1A1A] mb-1">Reservas</h1>
             <p className="text-sm text-[#1A1A1A]/35">
-              {selectedClassId
+              {selectedClass
                 ? "Lista de alumnos · check-in y asistencia"
                 : "Selecciona una clase para ver su lista de alumnos"}
             </p>
           </div>
 
-          {selectedClassId ? (
-            <ClassRoster classId={selectedClassId} onBack={() => setSelectedClassId(null)} />
+          {selectedClass ? (
+            <ClassRoster classId={selectedClass.id} branchId={selectedClass.branchId} onBack={() => setSelectedClass(null)} />
           ) : (
-            <ClassPicker onSelectClass={setSelectedClassId} />
+            <ClassPicker onSelectClass={setSelectedClass} />
           )}
         </div>
       </AdminLayout>

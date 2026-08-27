@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import { branchQueryParams, useAdminBranchScope } from "@/components/admin/BranchScope";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -28,38 +29,42 @@ const ACCENT = {
 } as const;
 
 const ReportsPage = () => {
+  const branchScope = useAdminBranchScope();
   // Filtro de rango (opcional). Si ambos campos están definidos se aplica.
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
   const rangeActive = !!from && !!to && from <= to;
 
   const { data: overview, isLoading: loadingOverview } = useQuery({
-    queryKey: ["reports-overview"],
-    queryFn: async () => (await api.get("/reports/overview")).data,
+    queryKey: ["reports-overview", branchScope.branchScope],
+    queryFn: async () => (await api.get("/reports/overview", { params: branchQueryParams(branchScope.branchScope) })).data,
   });
 
   const { data: revenue, isLoading: loadingRevenue } = useQuery({
-    queryKey: ["reports-revenue", rangeActive ? `${from}_${to}` : "12m"],
+    queryKey: ["reports-revenue", rangeActive ? `${from}_${to}` : "12m", branchScope.branchScope],
     queryFn: async () => {
-      const params = rangeActive ? { from, to } : undefined;
+      const params = {
+        ...(rangeActive ? { from, to } : {}),
+        ...branchQueryParams(branchScope.branchScope),
+      };
       return (await api.get("/reports/revenue", { params })).data;
     },
   });
   const granularity: "day" | "month" = revenue?.granularity === "day" ? "day" : "month";
 
   const { data: classesData, isLoading: loadingClasses } = useQuery({
-    queryKey: ["reports-classes"],
-    queryFn: async () => (await api.get("/reports/classes")).data,
+    queryKey: ["reports-classes", branchScope.branchScope],
+    queryFn: async () => (await api.get("/reports/classes", { params: branchQueryParams(branchScope.branchScope) })).data,
   });
 
   const { data: instructorsData, isLoading: loadingInstructors } = useQuery({
-    queryKey: ["reports-instructors"],
-    queryFn: async () => (await api.get("/reports/instructors")).data,
+    queryKey: ["reports-instructors", branchScope.branchScope],
+    queryFn: async () => (await api.get("/reports/instructors", { params: branchQueryParams(branchScope.branchScope) })).data,
   });
 
   const { data: retentionData } = useQuery({
-    queryKey: ["reports-retention"],
-    queryFn: async () => (await api.get("/reports/retention")).data,
+    queryKey: ["reports-retention", branchScope.branchScope],
+    queryFn: async () => (await api.get("/reports/retention", { params: branchQueryParams(branchScope.branchScope) })).data,
   });
 
   const o = overview?.data ?? overview ?? {};
@@ -200,7 +205,12 @@ const ReportsPage = () => {
     <AuthGuard>
       <AdminLayout>
         <div className="admin-page max-w-6xl">
-          <h1 className="text-2xl font-bold mb-6">Reportes</h1>
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold">Reportes</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {branchScope.selectedBranch?.name ?? "Todas las sucursales"}
+            </p>
+          </div>
 
           {/* ── Primary KPIs ── */}
           <div className="stagger-in grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">

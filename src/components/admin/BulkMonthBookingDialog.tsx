@@ -28,6 +28,8 @@ type Props = {
   onOpenChange: (v: boolean) => void;
   userId: string;
   userName?: string;
+  branchId: string;
+  branchName?: string;
 };
 
 const DAY_LABELS: Record<number, string> = {
@@ -47,7 +49,7 @@ function formatDbDate(yyyy_mm_dd: string): string {
   return `${d}/${m}/${y}`;
 }
 
-export function BulkMonthBookingDialog({ open, onOpenChange, userId, userName }: Props) {
+export function BulkMonthBookingDialog({ open, onOpenChange, userId, userName, branchId, branchName }: Props) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const today = new Date();
@@ -58,9 +60,9 @@ export function BulkMonthBookingDialog({ open, onOpenChange, userId, userName }:
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const { data: slotsRes, isLoading: loadingSlots } = useQuery({
-    queryKey: ["admin-schedule-slots"],
-    queryFn: async () => (await api.get("/admin/schedule-slots")).data,
-    enabled: open,
+    queryKey: ["admin-schedule-slots", branchId],
+    queryFn: async () => (await api.get("/admin/schedule-slots", { params: { branch_id: branchId } })).data,
+    enabled: open && Boolean(branchId),
   });
   const slots: ScheduleSlot[] = Array.isArray(slotsRes?.data) ? slotsRes.data : [];
 
@@ -120,6 +122,7 @@ export function BulkMonthBookingDialog({ open, onOpenChange, userId, userName }:
     mutationFn: async () => {
       const res = await api.post("/admin/bookings/bulk-month", {
         userId,
+        branchId,
         scheduleSlotId: scheduleId,
         selectedDates: Array.from(selected).sort(),
       });
@@ -154,7 +157,7 @@ export function BulkMonthBookingDialog({ open, onOpenChange, userId, userName }:
     },
   });
 
-  const canSubmit = !!scheduleId && selected.size > 0 && !submit.isPending;
+  const canSubmit = Boolean(branchId && scheduleId && selected.size > 0 && !submit.isPending);
 
   // Opciones de año: actual y siguiente
   const yearOptions = [today.getFullYear(), today.getFullYear() + 1];
@@ -172,6 +175,7 @@ export function BulkMonthBookingDialog({ open, onOpenChange, userId, userName }:
         {userName && (
           <p className="text-sm text-muted-foreground -mt-1">
             Cliente: <span className="font-medium text-foreground">{userName}</span>
+            {branchName ? <> en <span className="font-medium text-foreground">{branchName}</span></> : null}
           </p>
         )}
 

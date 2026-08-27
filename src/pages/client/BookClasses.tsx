@@ -15,6 +15,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronLeft, ChevronRight, Check, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BookingClient } from "@/types/booking";
+import {
+  getEntityProgram,
+  matchesBranch,
+  programLabel,
+  useBranch,
+  type StudioProgram,
+} from "@/hooks/useBranch";
 
 const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"] as const;
 
@@ -42,7 +49,7 @@ const prettyTime = (date: Date): string => {
 const DEFAULT_CAPACITY = 8;
 
 // ── Membership banner (rebranded VM: blush + ink + gold hairlines) ────────────
-const MembershipBanner = ({ membership }: { membership: Record<string, unknown> }) => {
+const MembershipBanner = ({ membership, branchName }: { membership: Record<string, unknown>; branchName: string }) => {
   const planName = (membership.planName ?? membership.plan_name) as string | undefined;
   const remaining = (membership.classesRemaining ?? membership.classes_remaining) as number | null | undefined;
   const isUnlimited = remaining === null || remaining === undefined || remaining === 9999;
@@ -54,6 +61,9 @@ const MembershipBanner = ({ membership }: { membership: Record<string, unknown> 
         <span className="inline-block w-6 h-px bg-valiance-gold shrink-0" />
         <span className="font-display text-[1.25rem] leading-none text-valiance-charcoal truncate">
           {planName ?? "Tu plan"}
+        </span>
+        <span className="hidden rounded-full bg-valiance-blush/40 px-2 py-1 text-[0.62rem] font-medium text-valiance-mauve sm:inline-flex">
+          {programLabel(getEntityProgram(membership))} en {branchName}
         </span>
       </div>
       <div className="flex items-center gap-6 shrink-0">
@@ -87,34 +97,63 @@ const BookClasses = () => {
   );
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 0 });
   const navigate = useNavigate();
+  const { branch, branchCode } = useBranch();
 
   const { data: classesData, isLoading: loadingClasses } = useQuery({
-    queryKey: ["public-classes", format(weekStart, "yyyy-MM-dd")],
+    queryKey: ["public-classes", branchCode, format(weekStart, "yyyy-MM-dd")],
     queryFn: async () =>
-      (await api.get(`/classes?start=${format(weekStart, "yyyy-MM-dd")}&end=${format(weekEnd, "yyyy-MM-dd")}`)).data,
+      (await api.get("/classes", {
+        params: {
+          start: format(weekStart, "yyyy-MM-dd"),
+          end: format(weekEnd, "yyyy-MM-dd"),
+          branch: branchCode,
+        },
+      })).data,
   });
 
   const { data: bookingsData } = useQuery({
-    queryKey: ["my-bookings"],
-    queryFn: async () => (await api.get("/bookings/my-bookings")).data,
+    queryKey: ["my-bookings", branchCode],
+    queryFn: async () => (await api.get("/bookings/my-bookings", { params: { branch: branchCode } })).data,
   });
 
   const { data: membershipData } = useQuery({
-    queryKey: ["my-membership"],
-    queryFn: async () => (await api.get("/memberships/my")).data,
+    queryKey: ["my-membership", branchCode],
+    queryFn: async () => (await api.get("/memberships/my", { params: { branch: branchCode } })).data,
   });
 
-  const classes: Record<string, unknown>[] = Array.isArray(classesData?.data)
+  const rawClasses: Record<string, unknown>[] = Array.isArray(classesData?.data)
     ? classesData.data
     : Array.isArray(classesData) ? classesData : [];
-  const myBookings: BookingClient[] = Array.isArray(bookingsData?.data)
+  const classes = rawClasses.filter((item) => matchesBranch(item, branch));
+  const rawBookings: BookingClient[] = Array.isArray(bookingsData?.data)
     ? bookingsData.data
     : Array.isArray(bookingsData) ? bookingsData : [];
-  const rawMem = membershipData?.data !== undefined ? membershipData.data : membershipData;
-  const membership = rawMem && typeof rawMem === "object" && "id" in rawMem
-    ? (rawMem as Record<string, unknown>)
-    : null;
-  const hasActive = membership?.status === "active";
+  const myBookings = rawBookings.filter((item) => matchesBranch(item, branch));
+
+  const membershipPayload = membershipData?.data !== undefined ? membershipData.data : membershipData;
+  const membershipCollection = [
+    ...(Array.isArray(membershipData?.memberships) ? membershipData.memberships : []),
+    ...(Array.isArray(membershipPayload?.memberships) ? membershipPayload.memberships : []),
+    ...(Array.isArray(membershipPayload) ? membershipPayload : []),
+    ...(membershipPayload && typeof membershipPayload === "object" && "id" in membershipPayload
+      ? [membershipPayload]
+      : []),
+  ] as Record<string, unknown>[];
+  const memberships = membershipCollection
+    .filter((item, index, rows) => rows.findIndex((candidate) => candidate.id === item.id) === index)
+    .filter((item) => matchesBranch(item, branch))
+    .filter((item) => item.status === "active");
+  const hasActive = memberships.length > 0;
+
+  const membershipSupports = (membership: Record<string, unknown>, program: StudioProgram) => {
+    const raw = membership.classCategories ?? membership.class_categories;
+    const categories = Array.isArray(raw)
+      ? raw.map((value) => String(value).toLowerCase())
+      : [String(membership.classCategory ?? membership.class_category ?? membership.program ?? "").toLowerCase()];
+    if (categories.includes(program) || (program === "functional" && categories.includes("funcional"))) return true;
+    if (categories.includes("all") || categories.includes("mixto")) return program === "pilates";
+    return getEntityProgram(membership) === program;
+  };
 
   const myBookedClassIds = new Set(myBookings.map((b) => b.class_id));
 
@@ -180,14 +219,18 @@ const BookClasses = () => {
           </div>
 
           {/* ── Membership status ── */}
-          {hasActive && membership ? (
-            <MembershipBanner membership={membership} />
+          {hasActive ? (
+            <div className="grid gap-2 lg:grid-cols-2">
+              {memberships.map((membership) => (
+                <MembershipBanner key={String(membership.id)} membership={membership} branchName={branch.name} />
+              ))}
+            </div>
           ) : (
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-2xl border border-valiance-gold/25 bg-valiance-lavender/12 px-5 py-4">
               <div className="flex items-center gap-2.5">
                 <span className="inline-block w-6 h-px bg-valiance-gold shrink-0" />
                 <span className="font-body text-[0.88rem] text-valiance-charcoal/80">
-                  Aún no tienes una membresía activa.
+                  Aún no tienes una membresía activa en {branch.name}.
                 </span>
               </div>
               <button
@@ -205,8 +248,9 @@ const BookClasses = () => {
             <div className="grid grid-cols-7 gap-2 sm:gap-2.5 min-w-[680px]">
               {days.map((day, i) => {
                 const isToday = isSameDay(day, today);
-                const theme = DAY_THEMES[day.getDay()];
                 const dayClasses = classesForDay(day);
+                const hasPilates = dayClasses.some((item) => getEntityProgram(item) === "pilates");
+                const theme = hasPilates ? DAY_THEMES[day.getDay()] : "";
 
                 return (
                   <div key={i} className="flex flex-col">
@@ -256,16 +300,10 @@ const BookClasses = () => {
                           const className = typeof cls.class_type_name === "string" && cls.class_type_name
                             ? cls.class_type_name
                             : "Pilates";
-                          const classCategory = String(cls.class_category ?? "all").toLowerCase();
-                          const membershipCategoriesRaw = membership?.classCategories ?? membership?.class_categories;
-                          const membershipCategories = Array.isArray(membershipCategoriesRaw)
-                            ? membershipCategoriesRaw.map((value) => String(value).toLowerCase())
-                            : [String(membership?.classCategory ?? membership?.class_category ?? "all").toLowerCase()];
-                          const isPrenatalClass = classCategory === "prenatal" || className.toLowerCase() === "prenatal";
-                          const hasPrenatalAccess = membershipCategories.includes("prenatal");
-                          const hasRegularAccess = membershipCategories.some((category) => category !== "prenatal");
-                          const prenatalAccessMismatch = hasActive
-                            && (isPrenatalClass ? !hasPrenatalAccess : !hasRegularAccess);
+                          const classProgram = getEntityProgram(cls);
+                          const isPrenatalClass = classProgram === "prenatal";
+                          const hasProgramAccess = memberships.some((item) => membershipSupports(item, classProgram));
+                          const accessMismatch = hasActive && !hasProgramAccess;
 
                           // Availability — disciplina única, cupo 8.
                           const rawCurrent = cls.current_bookings;
@@ -279,7 +317,7 @@ const BookClasses = () => {
 
                           // Full future classes stay selectable so the client can
                           // continue to the confirmation screen and join the waitlist.
-                          const disabled = !isBooked && (isPast || prenatalAccessMismatch);
+                          const disabled = !isBooked && (isPast || accessMismatch);
 
                           // Apparatus — 'reformer' | 'tower'; default reformer.
                           const rawApparatus =
@@ -290,7 +328,9 @@ const BookClasses = () => {
                           // Tower se conserva como excepción de aparato.
                           const classFocus =
                             typeof cls.focus === "string" && cls.focus ? cls.focus : theme;
-                          const apparatusLabel = isTower
+                          const apparatusLabel = classProgram === "functional"
+                            ? "Funcional"
+                            : isTower
                             ? "Tower"
                             : isPrenatalClass ? "Reformer" : (classFocus || "Pilates");
 
@@ -333,11 +373,15 @@ const BookClasses = () => {
                                 {className}
                               </p>
 
+                              <p className="mt-1 text-[0.58rem] font-medium text-valiance-mauve">
+                                {branch.name}
+                              </p>
+
                               {/* Apparatus — Reformer (default) / Tower (lavender·gold accent) */}
                               <span
                                 className={cn(
                                   "mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.56rem] tracking-[0.12em] uppercase font-medium",
-                                  isTower || isPrenatalClass
+                                  isTower || isPrenatalClass || classProgram === "functional"
                                     ? "bg-valiance-lavender/25 text-valiance-plum ring-1 ring-valiance-gold/30"
                                     : "bg-valiance-charcoal/[0.05] text-valiance-mauve ring-1 ring-valiance-charcoal/8"
                                 )}
@@ -345,7 +389,7 @@ const BookClasses = () => {
                                 <span
                                   className={cn(
                                     "w-1 h-1 rounded-full",
-                                    isTower || isPrenatalClass ? "bg-valiance-gold" : "bg-valiance-mauve/60"
+                                    isTower || isPrenatalClass || classProgram === "functional" ? "bg-valiance-gold" : "bg-valiance-mauve/60"
                                   )}
                                 />
                                 {apparatusLabel}
@@ -356,9 +400,9 @@ const BookClasses = () => {
                                 <p className="text-[0.6rem] tracking-[0.1em] uppercase text-valiance-gold font-medium mt-1.5">
                                   Reservada
                                 </p>
-                              ) : prenatalAccessMismatch ? (
+                              ) : accessMismatch ? (
                                 <p className="text-[0.6rem] text-valiance-mauve mt-1.5 leading-tight">
-                                  {isPrenatalClass ? "Requiere membresía Prenatal" : "Tu membresía es solo Prenatal"}
+                                  Requiere membresía {programLabel(classProgram)} en {branch.name}
                                 </p>
                               ) : isFull ? (
                                 <p className="text-[0.6rem] text-valiance-mauve mt-1.5 leading-tight">
@@ -396,7 +440,7 @@ const BookClasses = () => {
               <span className="w-2.5 h-2.5 rounded-full bg-valiance-lavender/30" />
               Lleno · lista de espera
             </span>
-            <span className="ml-auto text-valiance-mauve/70 hidden sm:inline">Cupo de 8 por clase</span>
+            <span className="ml-auto text-valiance-mauve/70 hidden sm:inline">Sucursal {branch.name}</span>
           </div>
         </div>
       </ClientLayout>

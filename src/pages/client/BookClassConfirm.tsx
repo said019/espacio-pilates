@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import api from "@/lib/api";
@@ -11,13 +12,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { Calendar, Clock, Users, User, ArrowLeft } from "lucide-react";
+import { Calendar, Clock, Users, User, ArrowLeft, MapPin } from "lucide-react";
+import {
+  getEntityBranchCode,
+  getEntityBranchName,
+  getEntityProgram,
+  programLabel,
+  useBranch,
+} from "@/hooks/useBranch";
 
 const BookClassConfirm = () => {
   const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { branch, branches, setBranchCode } = useBranch();
 
   const { data: classData, isLoading } = useQuery({
     queryKey: ["class-detail", classId],
@@ -25,9 +34,21 @@ const BookClassConfirm = () => {
   });
 
   const cls = classData?.data ?? classData ?? null;
+  const classBranchCode = getEntityBranchCode(cls);
+  const classBranch = branches.find((item) => item.code === classBranchCode) ?? branch;
+  const classProgram = getEntityProgram(cls);
+
+  useEffect(() => {
+    if (classBranchCode) setBranchCode(classBranchCode);
+  }, [classBranchCode, setBranchCode]);
 
   const bookMutation = useMutation({
-    mutationFn: () => api.post("/bookings", { classId }),
+    mutationFn: () => api.post("/bookings", {
+      classId,
+      branchId: classBranch.id,
+      branch_id: classBranch.id,
+      program: classProgram,
+    }),
     onSuccess: (res) => {
       const data = res.data;
       qc.invalidateQueries({ queryKey: ["my-bookings"] });
@@ -69,9 +90,16 @@ const BookClassConfirm = () => {
             <Card>
               <CardHeader>
                 <CardTitle>{cls.class_type_name}</CardTitle>
-                <Badge variant="outline" className="w-fit">{cls.level ?? "Todos los niveles"}</Badge>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline" className="w-fit">{cls.level ?? "Todos los niveles"}</Badge>
+                  <Badge variant="secondary" className="w-fit">{programLabel(classProgram)}</Badge>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <MapPin size={14} className="text-valiance-mauve" />
+                  Sucursal {getEntityBranchName(cls, classBranch)}
+                </div>
                 <div className="flex items-center gap-2 text-sm">
                   <Calendar size={14} className="text-muted-foreground" />
                   {cls.start_time ? format(safeParse(cls.start_time), "EEEE d 'de' MMMM yyyy", { locale: es }) : "—"}
@@ -90,7 +118,7 @@ const BookClassConfirm = () => {
                 </div>
                 {(cls.current_bookings ?? 0) >= (cls.max_capacity ?? 0) && (
                   <p className="text-xs text-valiance-mauve">
-                    Clase llena — te unirás a la lista de espera y te avisaremos si se libera un lugar.
+                    Clase llena. Te unirás a la lista de espera y te avisaremos si se libera un lugar.
                   </p>
                 )}
                 <Button

@@ -20,6 +20,15 @@ import {
   isMembershipCategoryCompatible,
   normalizeClassCategory,
 } from "./lib/classAccess.js";
+import {
+  DEFAULT_BRANCH_CODE,
+  DEFAULT_BRANCH_ID,
+  extractBranchReference,
+  isPackagePlan,
+  normalizeProgram,
+  programForClassCategory,
+  validateSingleScope,
+} from "./lib/branchAccess.js";
 import { createPreference, createCardPayment, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
 import { computeCartTotals } from "./lib/cartPricing.js";
 import {
@@ -504,7 +513,7 @@ pool.on("error", (err) => {
 // sus propios slots martes/jueves 6:30 pm. Esta es la ÚNICA
 // fuente de verdad del horario: el seed inicial, el RESYNC versionado y la
 // generación de clases bookables leen de aquí.
-const SCHEDULE_SLOTS = [
+const VM_SCHEDULE_SLOTS = [
   // Lunes (1)
   { time_slot: "7:00 am", day_of_week: 1, apparatus: "reformer" },
   { time_slot: "8:00 am", day_of_week: 1, apparatus: "reformer" },
@@ -538,30 +547,68 @@ const SCHEDULE_SLOTS = [
   { time_slot: "9:00 am", day_of_week: 6, apparatus: "reformer" },
 ];
 
+// Pozos receives the complete regular Pilates timetable from Villa Magna.
+// Prenatal is present for operational setup but stays inactive/hidden; the
+// three Functional classes coexist with Pilates at 08:00 because program/type
+// is part of schedule uniqueness.
+const SCHEDULE_SLOTS = [
+  ...VM_SCHEDULE_SLOTS.map((slot) => ({ ...slot, branch_code: "villa-magna" })),
+  ...VM_SCHEDULE_SLOTS
+    .filter((slot) => (slot.class_type_name || "Pilates") === "Pilates")
+    .map((slot) => ({ ...slot, branch_code: "pozos", instructor_name: "Coach Tu Espacio" })),
+  ...VM_SCHEDULE_SLOTS
+    .filter((slot) => slot.class_type_name === "Prenatal")
+    .map((slot) => ({ ...slot, branch_code: "pozos", instructor_name: "Coach Tu Espacio", is_active: false })),
+  ...[1, 3, 5].map((day) => ({
+    branch_code: "pozos",
+    time_slot: "8:00 am",
+    day_of_week: day,
+    apparatus: "functional",
+    class_type_name: "Functional",
+    instructor_name: "Coach Tu Espacio",
+    starts_on: "2026-09-02",
+    is_active: true,
+  })),
+];
+
 // Insert the canonical slots into schedule_slots. Regular rows default to
 // class_type_name='Pilates'; Prenatal rows carry their own type and start date.
 // Idempotent via ON CONFLICT DO NOTHING on the (time_slot, day_of_week) partial
 // unique index. Pass a pool or a client (within a txn) as `q`.
 async function buildScheduleSlotsInsert(q) {
-  const values = [];
-  const params = [];
-  SCHEDULE_SLOTS.forEach((s, i) => {
-    const b = i * 5;
-    values.push(`($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5})`);
-    params.push(
-      s.time_slot,
-      s.day_of_week,
-      s.class_type_name || "Pilates",
-      s.apparatus,
-      s.starts_on || null,
+  const branchesRes = await q.query("SELECT id, code FROM branches WHERE code = ANY($1::text[])", [["villa-magna", "pozos"].flat()]);
+  const branchIds = new Map(branchesRes.rows.map((row) => [row.code, row.id]));
+  for (const slot of SCHEDULE_SLOTS) {
+    const branchId = branchIds.get(slot.branch_code);
+    if (!branchId) throw new Error(`Sucursal no encontrada para horario: ${slot.branch_code}`);
+    const classTypeName = slot.class_type_name || "Pilates";
+    const params = [
+      branchId,
+      slot.time_slot,
+      slot.day_of_week,
+      classTypeName,
+      slot.instructor_name || "Coach Tu Espacio",
+      slot.apparatus || "reformer",
+      slot.starts_on || null,
+      slot.is_active !== false,
+    ];
+    const existing = await q.query(
+      `SELECT id FROM schedule_slots
+        WHERE branch_id = $1 AND time_slot = $2 AND day_of_week = $3
+          AND LOWER(COALESCE(class_type_name, 'pilates')) = LOWER($4)
+        LIMIT 1`,
+      params.slice(0, 4),
     );
-  });
-  await q.query(
-    `INSERT INTO schedule_slots (time_slot, day_of_week, class_type_name, apparatus, starts_on)
-     VALUES ${values.join(", ")}
-     ON CONFLICT DO NOTHING`,
-    params,
-  );
+    if (!existing.rows.length) {
+      await q.query(
+        `INSERT INTO schedule_slots
+           (branch_id, time_slot, day_of_week, class_type_name, instructor_name, apparatus, starts_on, is_active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8)
+         ON CONFLICT DO NOTHING`,
+        params,
+      );
+    }
+  }
 }
 
 // Parse a time_slot string like '7:00 am' / '5:30 pm' → 24h "HH:MM".
@@ -595,10 +642,11 @@ function addScheduleMinutes(hhmm, mins) {
 // empty-DB seed and the versioned RESYNC.
 async function generateClassesFromSchedule({ weeks = 4 } = {}) {
   const instRes = await pool.query(
-    "SELECT id FROM instructors WHERE is_active = true ORDER BY created_at ASC LIMIT 1"
+    "SELECT id, display_name FROM instructors WHERE is_active = true ORDER BY created_at ASC"
   );
   const slotsRes = await pool.query(
-    `SELECT ss.time_slot, ss.day_of_week, ss.apparatus, ss.starts_on,
+    `SELECT ss.branch_id, ss.time_slot, ss.day_of_week, ss.apparatus, ss.starts_on,
+            ss.instructor_name, COALESCE(ss.class_type_name, ct.name) AS class_type_name,
             COALESCE(ss.class_type_id, ct.id) AS class_type_id,
             COALESCE(ct.capacity, 8) AS capacity
        FROM schedule_slots ss
@@ -611,7 +659,10 @@ async function generateClassesFromSchedule({ weeks = 4 } = {}) {
   if (instRes.rows.length === 0 || slotsRes.rows.length === 0) {
     return 0;
   }
-  const instructorId = instRes.rows[0].id;
+  const defaultInstructorId = instRes.rows[0].id;
+  const instructorsByName = new Map(
+    instRes.rows.map((row) => [String(row.display_name || "").trim().toLowerCase(), row.id]),
+  );
 
   // Monday of the current week (day_of_week: 1=Mon … 6=Sat, no Sunday).
   const today = new Date();
@@ -636,12 +687,15 @@ async function generateClassesFromSchedule({ weeks = 4 } = {}) {
         : String(slot.starts_on || "").slice(0, 10);
       if (startsOn && dateStr < startsOn) continue;
       planned.push({
+        branchId: slot.branch_id,
         date: dateStr,
         start,
         end: addScheduleMinutes(start, CLASS_DURATION_MIN),
         apparatus: slot.apparatus || "reformer",
         classTypeId: slot.class_type_id,
+        classTypeName: slot.class_type_name,
         capacity: Number(slot.capacity) || 8,
+        instructorId: instructorsByName.get(String(slot.instructor_name || "").trim().toLowerCase()) || defaultInstructorId,
       });
     }
   }
@@ -651,14 +705,17 @@ async function generateClassesFromSchedule({ weeks = 4 } = {}) {
     // Skip if a class already exists for this (date, start_time) — keeps the
     // function idempotent and never duplicates an already-bookable slot.
     const exists = await pool.query(
-      "SELECT 1 FROM classes WHERE date = $1 AND start_time = $2 LIMIT 1",
-      [c.date, c.start]
+      `SELECT 1 FROM classes
+        WHERE branch_id = $1 AND date = $2 AND start_time = $3 AND class_type_id = $4
+        LIMIT 1`,
+      [c.branchId, c.date, c.start, c.classTypeId]
     );
     if (exists.rows.length > 0) continue;
     await pool.query(
-      `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status, apparatus)
-       VALUES ($1,$2,$3,$4,$5,$6,'scheduled',$7)`,
-      [c.classTypeId, instructorId, c.date, c.start, c.end, c.capacity, c.apparatus]
+      `INSERT INTO classes
+         (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, status, apparatus)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'scheduled',$8)`,
+      [c.branchId, c.classTypeId, c.instructorId, c.date, c.start, c.end, c.capacity, c.apparatus]
     );
     inserted++;
   }
@@ -682,6 +739,17 @@ async function ensureSchema() {
         await pool.query(schemaSql);
         console.log("✅ Base de datos inicializada (schema_complete.sql)");
       }
+    }
+    // No migration runner is invoked by start.sh. Execute the idempotent
+    // multi-branch migration here as well so live and fresh databases converge
+    // before any legacy seed/generator touches branch-scoped data.
+    {
+      const multiBranchSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202608270001_multibranch_pozos.sql"),
+        "utf8",
+      );
+      await pool.query(multiBranchSql);
+      console.log("✅ Multi-sucursal Villa Magna/Pozos lista");
     }
     // ── Ensure all users columns the app needs ────────────────────────────
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`).catch(() => { });
@@ -824,7 +892,10 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS apparatus VARCHAR(20) DEFAULT 'reformer'`).catch(() => { });
     // Etiqueta de grupo muscular por clase (Lower/Upper/Full body/Core). NULL = el front cae al default por día.
     await pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS focus VARCHAR(40)`).catch(() => { });
-    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_slots_slot ON schedule_slots(time_slot, day_of_week) WHERE is_active = true`).catch(() => { });
+    await pool.query(`DROP INDEX IF EXISTS idx_schedule_slots_slot`).catch(() => { });
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_slots_branch_type
+      ON schedule_slots(branch_id, day_of_week, time_slot, LOWER(COALESCE(class_type_name, 'pilates')))
+      WHERE is_active = true`).catch(() => { });
     // ── schedule_templates (plantilla simple con class_label) ───────────────
     await pool.query(`
       CREATE TABLE IF NOT EXISTS schedule_templates (
@@ -931,9 +1002,25 @@ async function ensureSchema() {
          WHERE NOT EXISTS (SELECT 1 FROM class_types WHERE name = 'Prenatal')`,
         [prenatalDesc],
       ).catch(() => { });
-      // Desactivar tipos genéricos pre-sembrados que no forman parte de TEP.
-      await pool.query(`UPDATE class_types SET is_active = false WHERE name NOT IN ('Pilates', 'Prenatal')`).catch(() => { });
-      console.log("✅ Ensured Tu Espacio class types 'Pilates' and 'Prenatal'");
+      const functionalDesc = "Entrenamiento funcional de 55 minutos en grupos de 8.";
+      await pool.query(
+        `UPDATE class_types
+            SET subtitle = 'Lunes, miércoles y viernes · 8:00 am', description = $1,
+                category = 'funcional', intensity = 'media', level = 'all',
+                duration_min = 55, capacity = 8, color = '#A8B7A2', emoji = '🏋️',
+                sort_order = 3, is_active = true
+          WHERE LOWER(name) IN ('functional','funcional')`,
+        [functionalDesc],
+      ).catch(() => { });
+      await pool.query(
+        `INSERT INTO class_types
+           (name, subtitle, description, category, intensity, level, duration_min, capacity, color, emoji, sort_order, is_active)
+         SELECT 'Functional', 'Lunes, miércoles y viernes · 8:00 am', $1,
+                'funcional', 'media', 'all', 55, 8, '#A8B7A2', '🏋️', 3, true
+         WHERE NOT EXISTS (SELECT 1 FROM class_types WHERE LOWER(name) IN ('functional','funcional'))`,
+        [functionalDesc],
+      ).catch(() => { });
+      console.log("✅ Ensured Tu Espacio class types Pilates, Prenatal and Functional");
     }
     // ── Seed schedule_slots si la tabla está vacía ─────────────────────────
     // Horario semanal canónico (day_of_week: 1=Lun … 6=Sáb). Todas las clases
@@ -941,10 +1028,10 @@ async function ensureSchema() {
     // 25 slots en total (23 Studio + 2 Prenatal). Esta misma lista alimenta el seed inicial y el RESYNC
     // versionado de más abajo, vía buildScheduleSlotsInsert().
     const insertSeedSlots = async () => buildScheduleSlotsInsert(pool);
-    const ssCount = await pool.query("SELECT COUNT(*) FROM schedule_slots");
-    if (parseInt(ssCount.rows[0].count) === 0) {
-      await insertSeedSlots();
-    }
+    // Always converge the canonical rows. This is idempotent and is required
+    // on a fresh DB because the schema migration creates Functional rows before
+    // this first boot has had a chance to insert/clone the Pilates timetable.
+    await insertSeedSlots();
     // ── Ensure plans columns exist ───────────────────────────────────────
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS description TEXT`).catch(() => { });
     await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'MXN'`).catch(() => { });
@@ -1049,43 +1136,10 @@ async function ensureSchema() {
     } catch (legacyTopErr) {
       console.warn("[schema] Legacy session lookup failed:", legacyTopErr?.message || legacyTopErr);
     }
-    // ── Seed canónico Tu Espacio Pilates VM: IDEMPOTENTE en cualquier estado ──
-    // schema_complete.sql pre-siembra planes, así que un guard `if empty` nunca
-    // dispararía. En su lugar: (1) desactivamos TODO, (2) upsert por nombre de
-    // los 7 planes VM (re-activándolos). Resultado: solo los 7 planes VM quedan
-    // activos (más TotalPass 154 admin-only, que se re-activa en su propio
-    // bloque idempotente más abajo). No requiere UNIQUE(name).
-    const VM_PLANS = [
-      { name: "Paquete 7 Clases",      desc: "7 clases al mes. Vence al fin del mes de compra.",  price: 880,  dur: 30,   cl: 7,  cat: "all",      so: 1, feat: ["7 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 9 Clases",      desc: "9 clases al mes. Vence al fin del mes de compra.",  price: 1050, dur: 30,   cl: 9,  cat: "all",      so: 2, feat: ["9 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Paquete 14 Clases",     desc: "14 clases al mes. Vence al fin del mes de compra.", price: 1400, dur: 30,   cl: 14, cat: "all",      so: 3, feat: ["14 clases", "Vigencia: hasta fin de mes", "Personal e intransferible", "Solo transferencia"] },
-      { name: "Prenatal",              desc: "7 clases de Pilates Prenatal, martes y jueves a las 6:30 pm.", price: 1180, dur: 30, cl: 7, cat: "prenatal", so: 4, startsOn: "2026-08-01", feat: ["7 clases Prenatal", "Martes y jueves · 6:30 pm", "Uso exclusivo en clases Prenatal", "Vigencia: hasta fin de mes"] },
-      { name: "Clase Extra",           desc: "Clase adicional para alumnas ya inscritas.",        price: 130,  dur: 30,   cl: 1,  cat: "all",      so: 5, feat: ["1 clase extra", "Solo para inscritas"] },
-      { name: "Clase Suelta / Visita", desc: "Clase individual sin inscripción.",                 price: 250,  dur: 7,    cl: 1,  cat: "all",      so: 6, feat: ["1 clase", "Sin inscripción", "Si te inscribes se toma a cuenta"] },
-      { name: "Inscripción",           desc: "Pago único de inscripción. Se re-paga tras ausencia mayor a 6 meses.", price: 500, dur: 3650, cl: 0, cat: "all", so: 7, feat: ["Pago único", "Requerida para paquetes"] },
-    ];
-    // (1) Desactivar todo antes de upsertar los planes VM. TotalPass 154 se
-    //     re-activa en su propio bloque (que corre después de éste).
-    await pool.query(`UPDATE plans SET is_active = false`).catch(() => { });
-    // (2) Upsert por nombre: UPDATE (re-activa + corrige) luego INSERT-if-missing.
-    for (const p of VM_PLANS) {
-      const feat = JSON.stringify(p.feat);
-      await pool.query(
-        `UPDATE plans
-            SET description = $2, price = $3, currency = 'MXN', duration_days = $4,
-                class_limit = $5, class_category = $6, features = $7::jsonb,
-                starts_on = $8::date, is_active = true, sort_order = $9, updated_at = NOW()
-          WHERE name = $1`,
-        [p.name, p.desc, p.price, p.dur, p.cl, p.cat, feat, p.startsOn || null, p.so],
-      ).catch(() => { });
-      await pool.query(
-        `INSERT INTO plans (name, description, price, currency, duration_days, class_limit, class_category, features, starts_on, is_active, sort_order)
-         SELECT $1::text, $2::text, $3::numeric, 'MXN', $4::int, $5::int, $6::text, $7::jsonb, $8::date, true, $9::int
-         WHERE NOT EXISTS (SELECT 1 FROM plans WHERE name = $1::text)`,
-        [p.name, p.desc, p.price, p.dur, p.cl, p.cat, feat, p.startsOn || null, p.so],
-      ).catch(() => { });
-    }
-    console.log("[schema] Seeded/ensured Tu Espacio Pilates VM plans (idempotent)");
+    // The versioned multi-branch migration owns canonical SKUs using the stable
+    // `(branch_id, code)` key. Never deactivate or update the whole catalog by
+    // display name here: Villa Magna and Pozos intentionally share plan names.
+    console.log("[schema] Multi-sucursal plan catalog ensured by stable branch/code seed");
     // ── Backfill class_category on existing plans ──
     await pool.query(`UPDATE plans SET class_category = 'all' WHERE class_category IS NULL`).catch(() => { });
     // ── Allow reformer/barre categories. Drop legacy CHECK constraints on
@@ -2013,16 +2067,11 @@ async function ensureSchema() {
     console.error("Demo classes seed warning:", err.message);
   }
 
-  // ── One-time versioned RESYNC of schedule_slots + future classes ──────────
-  // The live DB (tep_vm) already holds the OLD schedule + classes, so the
-  // empty-table guards above never fire for it. This block runs ONCE per
-  // deploy of SCHEDULE_VERSION (tracked via the `schedule_version` settings
-  // key) to: (a) replace schedule_slots with the canonical 25 slots, (b) drop
-  // ONLY future un-booked classes, and (c) regenerate from the new schedule.
-  // It NEVER deletes a class that has a non-cancelled booking, and is wrapped
-  // so a failure logs and continues rather than crashing boot.
+  // ── Versioned, non-destructive schedule convergence ──────────────────────
+  // Startup only upserts canonical slots and creates missing future classes.
+  // Existing classes and bookings are never deleted as part of schema startup.
   try {
-    const SCHEDULE_VERSION = "vm-2026-08-prenatal-v1";
+    const SCHEDULE_VERSION = "branches-2026-09-pozos-functional-v1";
     const markerRes = await pool.query(
       "SELECT value FROM settings WHERE key = 'schedule_version' LIMIT 1"
     );
@@ -2032,21 +2081,10 @@ async function ensureSchema() {
       console.log(
         `↻ Schedule RESYNC: stored=${JSON.stringify(storedVersion)} → ${SCHEDULE_VERSION}`
       );
-      // a) Replace schedule_slots with the canonical Studio + Prenatal slots.
-      await pool.query("DELETE FROM schedule_slots");
+      // a) Converge canonical Villa Magna + Pozos slots without deleting edits,
+      //    classes or reservations.
       await buildScheduleSlotsInsert(pool);
-      // b) Delete ONLY future classes with no non-cancelled booking. A class
-      //    referenced by any confirmed/checked-in/waitlisted booking is kept.
-      const del = await pool.query(`
-        DELETE FROM classes
-        WHERE date >= CURRENT_DATE
-          AND id NOT IN (
-            SELECT DISTINCT class_id FROM bookings
-            WHERE status <> 'cancelled' AND class_id IS NOT NULL
-          )
-        RETURNING id
-      `);
-      // c) Regenerate bookable classes from the new schedule.
+      // b) Generate only missing bookable classes (branch + time + type key).
       // Ocho semanas cubren agosto completo desde el despliegue de julio.
       const regen = await generateClassesFromSchedule({ weeks: 8 });
       // c2) Normalizar duración: TODAS las clases futuras (incluidas las ya
@@ -2074,7 +2112,7 @@ async function ensureSchema() {
         [JSON.stringify(SCHEDULE_VERSION)]
       );
       console.log(
-        `✅ Schedule RESYNC done: deleted ${del.rowCount} future un-booked classes, regenerated ${regen}, normalized ${durFix.rowCount} durations to ${CLASS_DURATION_MIN}min, marker=${SCHEDULE_VERSION}`
+        `✅ Schedule sync done: generated ${regen} missing classes, normalized ${durFix.rowCount} durations to ${CLASS_DURATION_MIN}min, marker=${SCHEDULE_VERSION}`
       );
     }
   } catch (err) {
@@ -2272,6 +2310,66 @@ function camelRow(row) {
 }
 function camelRows(rows) { return rows.map(camelRow); }
 
+function requestBranchReference(req) {
+  return extractBranchReference({ ...(req?.query || {}), ...(req?.body || {}) });
+}
+
+async function resolveBranch(reference = null, dbClient = pool, { includeInactive = false } = {}) {
+  const raw = String(reference || DEFAULT_BRANCH_CODE).trim().toLowerCase();
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw);
+  const r = await dbClient.query(
+    `SELECT id, code, name, address, phone, timezone, is_active, sort_order
+       FROM branches
+      WHERE ${isUuid ? "id = $1::uuid" : "LOWER(code) = $1"}
+        ${includeInactive ? "" : "AND is_active = true"}
+      LIMIT 1`,
+    [raw],
+  );
+  return r.rows[0] || null;
+}
+
+async function resolveRequestBranch(req, dbClient = pool, options = {}) {
+  return resolveBranch(requestBranchReference(req), dbClient, options);
+}
+
+function planProgram(plan) {
+  return normalizeProgram(plan?.program || plan?.class_category || plan?.classCategory, "pilates");
+}
+
+function enrollmentProgram(program) {
+  const normalized = normalizeProgram(program);
+  return normalized === "prenatal" ? "pilates" : normalized;
+}
+
+function normalizePlanKind(value, { name = "", classLimit = null } = {}) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (["package", "single", "registration", "internal"].includes(raw)) return raw;
+  if (String(name).toLowerCase().includes("inscripci")) return "registration";
+  return isPackagePlan({ name, class_limit: classLimit }) ? "package" : "single";
+}
+
+function makePlanCode(value, name, program) {
+  const raw = String(value || `${program}-${name}`).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return raw.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 100);
+}
+
+// Public, stable branch catalog. `data` is kept consistent with all existing
+// public list endpoints and every row is camel-cased for the React client.
+app.get("/api/branches", async (_req, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT id, code, name, address, phone, timezone, is_active, sort_order
+         FROM branches
+        WHERE is_active = true
+        ORDER BY sort_order, name`,
+    );
+    return res.json({ data: camelRows(r.rows) });
+  } catch (err) {
+    console.error("Branches error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 function normalizeDiscountType(value) {
   const raw = String(value ?? "").trim().toLowerCase();
   if (raw === "percent" || raw === "percentage" || raw === "%") return "percent";
@@ -2462,7 +2560,7 @@ function checkPlanTimeRestriction(membership, classDate, classStartTime) {
   return { allowed: true };
 }
 
-async function selectMembershipForClass({ userId, classCategory, classDate = null, classStartTime = null, client = null }) {
+async function selectMembershipForClass({ userId, branchId = DEFAULT_BRANCH_ID, classCategory, classDate = null, classStartTime = null, client = null }) {
   if (!userId) return null;
   const q = client ?? pool;
   const clsCat = normalizeClassCategory(classCategory, "all");
@@ -2476,13 +2574,16 @@ async function selectMembershipForClass({ userId, classCategory, classDate = nul
             m.classes_remaining,
             m.end_date,
             m.created_at,
+            m.branch_id,
             COALESCE(p.class_category, 'all') AS class_category,
+            COALESCE(p.program, 'pilates') AS program,
             p.repeat_key,
             p.name AS plan_name,
             p.time_restriction
        FROM memberships m
        LEFT JOIN plans p ON p.id = m.plan_id
       WHERE m.user_id = $1
+        AND m.branch_id = $5
         AND m.status = 'active'
         AND (m.end_date IS NULL OR m.end_date >= COALESCE($3::date, CURRENT_DATE))
         AND COALESCE(p.class_category, 'all') = ANY($4::text[])
@@ -2502,7 +2603,7 @@ async function selectMembershipForClass({ userId, classCategory, classDate = nul
         m.end_date ASC,
         CASE WHEN m.classes_remaining IS NULL OR m.classes_remaining >= 9999 THEN 1 ELSE 0 END ASC,
         m.created_at ASC`,
-    [userId, clsCat, classDate, compatibleCategories]
+    [userId, clsCat, classDate, compatibleCategories, branchId]
   );
   const candidates = r.rows;
   if (!candidates.length) return null;
@@ -2966,15 +3067,26 @@ async function findNonRepeatablePlanConflict({
 const INSCRIPTION_PLAN_NAME = "Inscripción";
 const INSCRIPTION_FALLBACK_PRICE = 500;
 
-async function clientNeedsInscription(userId) {
+async function clientNeedsInscription(userId, { branchId = DEFAULT_BRANCH_ID, program = "pilates", client = pool } = {}) {
   if (!userId) return false;
   try {
-    const r = await pool.query(
-      `SELECT 1 FROM memberships
-        WHERE user_id = $1
-          AND (status = 'active' OR (end_date IS NOT NULL AND end_date >= (CURRENT_DATE - INTERVAL '6 months')))
+    const normalizedProgram = enrollmentProgram(program);
+    const r = await client.query(
+      `SELECT 1
+         FROM enrollments e
+        WHERE e.user_id = $1 AND e.branch_id = $2 AND e.program = $3
+          AND GREATEST(e.paid_at, e.last_activity_at) >= NOW() - INTERVAL '6 months'
+       UNION ALL
+       SELECT 1
+         FROM memberships m
+         LEFT JOIN plans p ON p.id = m.plan_id
+        WHERE m.user_id = $1 AND m.branch_id = $2
+          AND (CASE WHEN COALESCE(p.program, 'pilates') = 'prenatal' THEN 'pilates' ELSE COALESCE(p.program, 'pilates') END) = $3
+          AND COALESCE(p.plan_kind, 'single') <> 'registration'
+          AND m.end_date IS NOT NULL
+          AND m.end_date >= CURRENT_DATE - INTERVAL '6 months'
         LIMIT 1`,
-      [userId]
+      [userId, branchId, normalizedProgram]
     );
     return r.rows.length === 0;
   } catch (err) {
@@ -2986,17 +3098,21 @@ async function clientNeedsInscription(userId) {
 }
 
 // Reads the active "Inscripción" plan price; falls back to 500 if unavailable.
-async function getInscriptionPrice(dbClient = pool) {
+async function getInscriptionPrice({ branchId = DEFAULT_BRANCH_ID, program = "pilates", client = pool } = {}) {
   try {
-    const r = await dbClient.query(
-      `SELECT price FROM plans WHERE name = $1 LIMIT 1`,
-      [INSCRIPTION_PLAN_NAME]
+    const normalizedProgram = enrollmentProgram(program);
+    const r = await client.query(
+      `SELECT price FROM plans
+        WHERE branch_id = $1 AND program = $2 AND plan_kind = 'registration' AND is_active = true
+        ORDER BY sort_order LIMIT 1`,
+      [branchId, normalizedProgram]
     );
     const price = r.rows.length ? Number(r.rows[0].price) : NaN;
-    return Number.isFinite(price) && price > 0 ? price : INSCRIPTION_FALLBACK_PRICE;
+    const fallback = normalizedProgram === "functional" ? 300 : INSCRIPTION_FALLBACK_PRICE;
+    return Number.isFinite(price) && price > 0 ? price : fallback;
   } catch (err) {
     console.warn("[inscription] getInscriptionPrice query failed, using fallback:", err?.message || err);
-    return INSCRIPTION_FALLBACK_PRICE;
+    return enrollmentProgram(program) === "functional" ? 300 : INSCRIPTION_FALLBACK_PRICE;
   }
 }
 
@@ -3005,23 +3121,53 @@ async function getInscriptionPrice(dbClient = pool) {
 // caso ya está "inscribiéndose": se le permite comprar "Clase Extra" sin esperar
 // la aprobación. Cierra el hueco de la ventana pendiente. Money-path safe: ante
 // fallo de la consulta, devuelve false (no desbloquea de más).
-async function clientHasPendingPackage(userId, dbClient = pool) {
+async function clientHasPendingPackage(userId, { branchId = DEFAULT_BRANCH_ID, program = "pilates", client = pool } = {}) {
   if (!userId) return false;
   try {
-    const r = await dbClient.query(
+    const normalizedProgram = enrollmentProgram(program);
+    const r = await client.query(
       `SELECT 1 FROM orders o
-         JOIN plans p ON p.id = o.plan_id
-        WHERE o.user_id = $1
+        WHERE o.user_id = $1 AND o.branch_id = $2
+          AND (CASE WHEN o.program = 'prenatal' THEN 'pilates' ELSE o.program END) = $3
           AND o.status IN ('pending_payment','pending_verification')
-          AND COALESCE(p.class_limit, 0) >= 2
+          AND (
+            EXISTS (
+              SELECT 1 FROM plans p
+               WHERE p.id = o.plan_id
+                 AND (p.plan_kind = 'package' OR COALESCE(p.class_limit, 0) >= 2
+                      OR (p.class_limit IS NULL AND LOWER(p.name) ~ '(ilimitad|unlimited)'))
+            )
+            OR EXISTS (
+              SELECT 1 FROM order_plan_items i JOIN plans p ON p.id = i.plan_id
+               WHERE i.order_id = o.id
+                 AND (p.plan_kind = 'package' OR COALESCE(p.class_limit, 0) >= 2
+                      OR (p.class_limit IS NULL AND LOWER(p.name) ~ '(ilimitad|unlimited)'))
+            )
+          )
         LIMIT 1`,
-      [userId]
+      [userId, branchId, normalizedProgram]
     );
     return r.rows.length > 0;
   } catch (err) {
     console.warn("[inscription] clientHasPendingPackage query failed, defaulting to false:", err?.message || err);
     return false;
   }
+}
+
+async function upsertEnrollment({ userId, branchId, program, registrationPlanId = null, orderId = null, paid = false, client = pool }) {
+  if (!userId || !branchId) return;
+  const normalizedProgram = enrollmentProgram(program);
+  await client.query(
+    `INSERT INTO enrollments
+       (user_id, branch_id, program, registration_plan_id, registration_order_id, paid_at, last_activity_at)
+     VALUES ($1,$2,$3,$4,$5,NOW(),NOW())
+     ON CONFLICT (user_id, branch_id, program) DO UPDATE
+       SET registration_plan_id = COALESCE(EXCLUDED.registration_plan_id, enrollments.registration_plan_id),
+           registration_order_id = COALESCE(EXCLUDED.registration_order_id, enrollments.registration_order_id),
+           paid_at = CASE WHEN $6::boolean THEN NOW() ELSE enrollments.paid_at END,
+           last_activity_at = NOW(), updated_at = NOW()`,
+    [userId, branchId, normalizedProgram, registrationPlanId, orderId, paid],
+  );
 }
 
 function serializeSpecialtiesForDb(value) {
@@ -3389,6 +3535,9 @@ app.post("/api/auth/reset-password", async (req, res) => {
 app.get("/api/coach/schedule", coachMiddleware, async (req, res) => {
   try {
     const today = mexicoCityDate();
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const [coachResult, scheduleResult] = await Promise.all([
       pool.query(
         "SELECT display_name, email FROM users WHERE id = $1 LIMIT 1",
@@ -3403,6 +3552,9 @@ app.get("/api/coach/schedule", coachMiddleware, async (req, res) => {
                 c.status AS class_status,
                 c.focus,
                 c.apparatus,
+                c.branch_id,
+                br.code AS branch_code,
+                br.name AS branch_name,
                 ct.name AS class_type_name,
                 ct.category,
                 i.display_name AS instructor_name,
@@ -3411,6 +3563,7 @@ app.get("/api/coach/schedule", coachMiddleware, async (req, res) => {
                 b.checked_in_at,
                 COALESCE(u.display_name, NULLIF(b.guest_name, ''), 'Invitada') AS client_name
            FROM classes c
+           JOIN branches br ON br.id = c.branch_id
            JOIN class_types ct ON ct.id = c.class_type_id
            LEFT JOIN instructors i ON i.id = c.instructor_id
            LEFT JOIN bookings b
@@ -3418,6 +3571,7 @@ app.get("/api/coach/schedule", coachMiddleware, async (req, res) => {
             AND b.status != 'cancelled'
            LEFT JOIN users u ON u.id = b.user_id
           WHERE c.date >= $1
+            AND ($2::uuid IS NULL OR c.branch_id = $2)
             AND c.status != 'cancelled'
           ORDER BY c.date ASC,
                    c.start_time ASC,
@@ -3430,7 +3584,7 @@ app.get("/api/coach/schedule", coachMiddleware, async (req, res) => {
                    END,
                    client_name ASC
           LIMIT 4000`,
-        [today],
+        [today, branch?.id || null],
       ),
     ]);
 
@@ -3446,6 +3600,10 @@ app.get("/api/coach/schedule", coachMiddleware, async (req, res) => {
           status: row.class_status,
           classTypeName: row.class_type_name || "Clase",
           category: row.category || null,
+          program: programForClassCategory(row.category),
+          branchId: row.branch_id,
+          branchCode: row.branch_code,
+          branchName: row.branch_name,
           focus: row.focus || null,
           apparatus: row.apparatus || null,
           instructorName: row.instructor_name || "Coach Tu Espacio",
@@ -3497,27 +3655,25 @@ app.get("/api/coach/schedule", coachMiddleware, async (req, res) => {
 
 // GET /api/plans
 app.get("/api/plans", async (req, res) => {
-  // Public endpoint: hides admin-only plans (e.g. TotalPass walk-in).
-  // Resilient: if `is_admin_only` column doesn't exist yet, fall back to all
-  // active plans so the frontend never breaks.
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const requestedProgram = req.query.program ? normalizeProgram(req.query.program, null) : null;
+    if (req.query.program && !requestedProgram) return res.status(400).json({ message: "Programa no válido" });
     const r = await pool.query(
-      "SELECT * FROM plans WHERE is_active = true AND COALESCE(is_admin_only, false) = false ORDER BY sort_order ASC, price ASC"
+      `SELECT p.*, b.code AS branch_code, b.name AS branch_name
+         FROM plans p
+         JOIN branches b ON b.id = p.branch_id
+        WHERE ($1::uuid IS NULL OR p.branch_id = $1)
+          AND p.is_active = true
+          AND COALESCE(p.is_admin_only, false) = false
+          AND ($2::text IS NULL OR p.program = $2)
+        ORDER BY p.sort_order ASC, p.price ASC`,
+      [branch?.id || null, requestedProgram],
     );
     return res.json({ data: camelRows(r.rows) });
   } catch (err) {
-    if (err.code === "42703") {
-      // column "is_admin_only" does not exist — fallback
-      try {
-        const r = await pool.query(
-          "SELECT * FROM plans WHERE is_active = true ORDER BY sort_order ASC, price ASC"
-        );
-        return res.json({ data: camelRows(r.rows) });
-      } catch (e2) {
-        console.error("Plans fallback error:", e2);
-        return res.status(500).json({ message: "Error interno" });
-      }
-    }
     console.error("Plans error:", err);
     return res.status(500).json({ message: "Error interno" });
   }
@@ -3528,8 +3684,15 @@ app.get("/api/plans", async (req, res) => {
 // TotalPass 154 are selectable but never leak to the public catalog).
 app.get("/api/admin/plans/walkin", adminMiddleware, async (req, res) => {
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const r = await pool.query(
-      "SELECT * FROM plans WHERE is_active = true ORDER BY sort_order ASC, price ASC"
+      `SELECT p.*, b.code AS branch_code, b.name AS branch_name
+         FROM plans p JOIN branches b ON b.id = p.branch_id
+        WHERE ($1::uuid IS NULL OR p.branch_id = $1) AND p.is_active = true
+        ORDER BY p.sort_order ASC, p.price ASC`,
+      [branch?.id || null],
     );
     return res.json({ data: camelRows(r.rows) });
   } catch (err) {
@@ -3614,20 +3777,14 @@ app.get("/api/combo-pricing", async (req, res) => {
 // GET /api/memberships/my
 app.get("/api/memberships/my", authMiddleware, async (req, res) => {
   try {
-    // Ensure optional columns exist (idempotent, safe to run on every request)
-    await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS plan_name_override VARCHAR(255)`).catch(() => { });
-    await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS class_limit_override INTEGER`).catch(() => { });
-    await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS cancellations_used INTEGER NOT NULL DEFAULT 0`).catch(() => { });
-    await pool.query(`ALTER TABLE memberships ADD COLUMN IF NOT EXISTS order_id UUID`).catch(() => { });
-    await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS class_category VARCHAR(20) DEFAULT 'all'`).catch(() => { });
-    await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS class_limit INTEGER`).catch(() => { });
-    await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS duration_days INTEGER NOT NULL DEFAULT 30`).catch(() => { });
-    await pool.query(`ALTER TABLE plans ADD COLUMN IF NOT EXISTS features JSONB DEFAULT '[]'::jsonb`).catch(() => { });
-
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const requestedProgram = req.query.program ? normalizeProgram(req.query.program, null) : null;
     const r = await pool.query(
       `SELECT m.id, m.user_id, m.plan_id, m.status, m.start_date, m.end_date,
               m.classes_remaining, m.payment_method, m.created_at, m.updated_at,
-              m.order_id, m.cancellations_used,
+              m.order_id, m.cancellations_used, m.branch_id,
+              b.code AS branch_code, b.name AS branch_name,
               COALESCE(m.plan_name_override, '') AS plan_name_override,
               m.class_limit_override,
               COALESCE(p.name, m.plan_name_override, 'Membresía') AS plan_name,
@@ -3635,10 +3792,15 @@ app.get("/api/memberships/my", authMiddleware, async (req, res) => {
               COALESCE(p.duration_days, 30)                        AS duration_days,
               p.features,
               COALESCE(p.class_category, 'all')                    AS class_category,
-              p.repeat_key
+              p.repeat_key, COALESCE(p.program, 'pilates') AS program,
+              COALESCE(p.plan_kind, 'single') AS plan_kind,
+              p.code AS plan_code
        FROM memberships m
        LEFT JOIN plans p ON m.plan_id = p.id
+       JOIN branches b ON b.id = m.branch_id
        WHERE m.user_id = $1
+         AND m.branch_id = $2
+         AND ($3::text IS NULL OR COALESCE(p.program, 'pilates') = $3)
          AND m.status IN ('active', 'pending_activation', 'pending_payment')
          AND (m.status <> 'active' OR m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
        ORDER BY CASE m.status
@@ -3660,51 +3822,17 @@ app.get("/api/memberships/my", authMiddleware, async (req, res) => {
            ELSE 0
          END ASC,
          m.end_date ASC NULLS LAST,
-         m.created_at DESC
-       LIMIT 1`,
-      [req.userId]
+         m.created_at DESC`,
+      [req.userId, branch.id, requestedProgram]
     );
-    if (!r.rows[0]) return res.json({ data: null });
-    const row = camelRows([r.rows[0]])[0];
-    // Treat 9999 or very large numbers as unlimited (null)
-    if (row.classesRemaining >= 9999) row.classesRemaining = null;
-    if (row.classLimit >= 9999) row.classLimit = null;
-    // Cobertura combinada: un combo dividido deja VARIAS membresías activas
-    // (una por disciplina) pero este endpoint devuelve una sola, y la app
-    // bloquea las tarjetas de la disciplina que no ve. Reportar la cobertura
-    // real de todas las membresías activas con crédito ('mixto' si abarcan
-    // más de una categoría). La validación por disciplina al reservar sigue
-    // intacta en POST /api/bookings.
-    // No promover cobertura si la fila primaria es una Clase Muestra: la app
-    // detecta el modo trial desde ESTA fila y ocultar su categoría escondería
-    // el banner de horarios permitidos.
-    if (row.status === "active" && !isTrialPlan({ repeat_key: row.repeatKey, plan_name: row.planName })) {
-      try {
-        const cats = await pool.query(
-          `SELECT DISTINCT COALESCE(p.class_category, 'all') AS cat
-             FROM memberships m
-             LEFT JOIN plans p ON m.plan_id = p.id
-            WHERE m.user_id = $1
-              AND m.status = 'active'
-              AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
-              AND (m.classes_remaining IS NULL OR m.classes_remaining > 0)`,
-          [req.userId]
-        );
-        // El filtro > 0 incluye a propósito el centinela 9999 (ilimitadas).
-        const covered = new Set(cats.rows.map((c) => normalizeClassCategory(c.cat, "all")));
-        row.classCategories = Array.from(covered);
-        if (covered.size > 1) {
-          row.classCategory = "mixto";
-        } else if (covered.size === 1) {
-          const only = covered.values().next().value;
-          if (only !== normalizeClassCategory(row.classCategory, "all")) row.classCategory = only;
-        }
-      } catch (e) {
-        // Pista cosmética best-effort — nunca tirar el endpoint por esto.
-        console.warn("Memberships/my combined-coverage lookup failed; using single-row category.", e?.message);
-      }
-    }
-    return res.json({ data: row });
+    const memberships = camelRows(r.rows).map((row) => {
+      if (row.classesRemaining >= 9999) row.classesRemaining = null;
+      if (row.classLimit >= 9999) row.classLimit = null;
+      row.program = normalizeProgram(row.program);
+      row.classCategories = [normalizeClassCategory(row.classCategory, "all")];
+      return row;
+    });
+    return res.json({ data: memberships[0] || null, memberships });
   } catch (err) {
     console.error("Memberships/my error:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -3717,6 +3845,8 @@ app.get("/api/memberships/my", authMiddleware, async (req, res) => {
 app.get("/api/classes", async (req, res) => {
   try {
     const { start, end, limit } = req.query;
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // Aggregate bookings once via LEFT JOIN instead of running a
     // correlated COUNT(*) subquery per class row. Combined with
     // idx_bookings_class_active this turns an O(classes * bookings)
@@ -3730,13 +3860,21 @@ app.get("/api/classes", async (req, res) => {
              c.apparatus,
              ct.name  AS class_type_name,
              ct.category AS class_category,
+             CASE
+               WHEN LOWER(COALESCE(ct.category, '')) IN ('funcional','functional') THEN 'functional'
+               WHEN LOWER(COALESCE(ct.category, '')) = 'prenatal' THEN 'prenatal'
+               ELSE 'pilates'
+             END AS program,
              ct.color AS class_type_color,
              ct.icon  AS class_type_icon,
              ct.level AS class_type_level,
              i.display_name AS instructor_name,
              i.photo_url    AS instructor_photo,
-             f.name         AS facility_name
+             f.name         AS facility_name,
+             br.code        AS branch_code,
+             br.name        AS branch_name
       FROM classes c
+      JOIN branches br       ON br.id = c.branch_id
       JOIN class_types ct    ON c.class_type_id = ct.id
       JOIN instructors i     ON c.instructor_id = i.id
       LEFT JOIN facilities f ON c.facility_id   = f.id
@@ -3746,9 +3884,9 @@ app.get("/api/classes", async (req, res) => {
         WHERE status IN ('confirmed','checked_in')
         GROUP BY class_id
       ) b_agg ON b_agg.class_id = c.id
-      WHERE c.status != 'cancelled'
+      WHERE c.status != 'cancelled' AND c.branch_id = $1
     `;
-    const params = [];
+    const params = [branch.id];
     if (start) { params.push(start); query += ` AND c.date >= $${params.length}`; }
     if (end) { params.push(end); query += ` AND c.date <= $${params.length}`; }
     query += " ORDER BY c.date ASC, c.start_time ASC";
@@ -3782,14 +3920,22 @@ app.get("/api/classes/:id", async (req, res) => {
               c.apparatus,
               ct.name  AS class_type_name,
               ct.category AS class_category,
+              CASE
+                WHEN LOWER(COALESCE(ct.category, '')) IN ('funcional','functional') THEN 'functional'
+                WHEN LOWER(COALESCE(ct.category, '')) = 'prenatal' THEN 'prenatal'
+                ELSE 'pilates'
+              END AS program,
               ct.color AS class_type_color,
               ct.icon  AS class_type_icon,
               ct.level AS class_type_level,
               i.display_name AS instructor_name,
               i.photo_url    AS instructor_photo,
               i.bio          AS instructor_bio,
-              f.name         AS facility_name
+              f.name         AS facility_name,
+              br.code        AS branch_code,
+              br.name        AS branch_name
        FROM classes c
+       JOIN branches br      ON br.id = c.branch_id
        JOIN class_types ct   ON c.class_type_id  = ct.id
        JOIN instructors i    ON c.instructor_id   = i.id
        LEFT JOIN facilities f ON c.facility_id    = f.id
@@ -3809,6 +3955,8 @@ app.get("/api/classes/:id", async (req, res) => {
 // GET /api/bookings/my-bookings
 app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
   try {
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // `has_review` previously used a correlated `EXISTS(SELECT 1 FROM reviews
     // WHERE booking_id = b.id)` subquery that ran once per booking row. The
     // unique partial index `idx_reviews_booking_unique ON reviews(booking_id)
@@ -3824,11 +3972,18 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
               c.apparatus,
               ct.name  AS class_type_name,
               ct.category AS class_category,
+              CASE
+                WHEN LOWER(COALESCE(ct.category, '')) IN ('funcional','functional') THEN 'functional'
+                WHEN LOWER(COALESCE(ct.category, '')) = 'prenatal' THEN 'prenatal'
+                ELSE 'pilates'
+              END AS program,
               ct.color AS class_color,
               i.display_name AS instructor_name,
               i.photo_url    AS instructor_photo,
               (rv.id IS NOT NULL) AS has_review,
               f.name         AS facility_name,
+              br.code        AS branch_code,
+              br.name        AS branch_name,
               CASE WHEN b.status = 'waitlist' THEN (
                 SELECT COUNT(*)::int FROM bookings b2
                  WHERE b2.class_id = b.class_id AND b2.status = 'waitlist'
@@ -3836,13 +3991,14 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
               ) END AS waitlist_position
        FROM bookings b
        JOIN classes c         ON b.class_id      = c.id
+       JOIN branches br       ON br.id            = c.branch_id
        JOIN class_types ct    ON c.class_type_id = ct.id
        JOIN instructors i     ON c.instructor_id = i.id
        LEFT JOIN facilities f ON c.facility_id   = f.id
        LEFT JOIN reviews rv   ON rv.booking_id   = b.id
-       WHERE b.user_id = $1
+       WHERE b.user_id = $1 AND c.branch_id = $2
        ORDER BY c.date DESC, c.start_time DESC`,
-      [req.userId]
+      [req.userId, branch.id]
     );
     return res.json({ data: r.rows });
   } catch (err) {
@@ -3861,7 +4017,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
 
     // Lock class row to avoid overbooking in concurrent requests
     const classRes = await client.query(
-      `SELECT c.id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
+      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
               (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc,
               ct.category AS class_category
        FROM classes c
@@ -3883,6 +4039,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     const clsCategory = normalizeClassCategory(cls.class_category, "all");
     const membership = await selectMembershipForClass({
       userId: req.userId,
+      branchId: cls.branch_id,
       classCategory: clsCategory,
       classDate: cls.date,
       classStartTime: cls.start_time,
@@ -3997,9 +4154,10 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
       const userRes = await pool.query("SELECT email, display_name, phone FROM users WHERE id = $1", [req.userId]);
       const classFullRes = await pool.query(
         `SELECT c.date, c.start_time, ct.name AS class_type_name,
-                i.display_name AS instructor_name
+                i.display_name AS instructor_name, br.name AS branch_name
          FROM classes c
          JOIN class_types ct ON c.class_type_id = ct.id
+         JOIN branches br ON c.branch_id = br.id
          LEFT JOIN instructors i ON c.instructor_id = i.id
          WHERE c.id = $1`,
         [classId]
@@ -4020,6 +4178,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
             instructor: cl.instructor_name,
             classesLeft,
             isWaitlist,
+            branchName: cl.branch_name,
           }).catch((e) => console.error("[Email] booking confirmed:", e.message));
         }
         const waName = u.display_name || "Alumna";
@@ -4063,10 +4222,11 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
   try {
     // Load booking
     const r = await pool.query(
-      `SELECT b.*, c.date, c.start_time, ct.name AS class_type_name
+      `SELECT b.*, c.date, c.start_time, ct.name AS class_type_name, br.name AS branch_name
        FROM bookings b
        JOIN classes c ON b.class_id = c.id
        JOIN class_types ct ON c.class_type_id = ct.id
+       JOIN branches br ON c.branch_id = br.id
        WHERE b.id = $1 AND b.user_id = $2`,
       [req.params.id, req.userId]
     );
@@ -4229,6 +4389,7 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
             creditRestored: shouldRefund,
             isLate: false,
             classesLeft: memAfter?.rows[0]?.classes_remaining ?? null,
+            branchName: booking.branch_name,
           }).catch((e) => console.error("[Email] booking cancelled:", e.message));
         }
         sendConfiguredWhatsAppTemplate({
@@ -4359,7 +4520,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
 
       // Lock the target class row to avoid overbooking in concurrent requests
       const newClassRes = await client.query(
-        `SELECT c.id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
+        `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
                 ct.category AS class_category,
                 (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
            FROM classes c
@@ -4390,7 +4551,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
       // (or vice versa) without consuming a new credit.
       if (booking.membership_id) {
         const accessRes = await client.query(
-          `SELECT m.id, COALESCE(p.class_category, 'all') AS class_category,
+          `SELECT m.id, m.branch_id, COALESCE(p.class_category, 'all') AS class_category,
                   p.repeat_key, p.name AS plan_name, p.time_restriction
              FROM memberships m
              LEFT JOIN plans p ON p.id = m.plan_id
@@ -4400,7 +4561,8 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
         );
         const accessMembership = accessRes.rows[0];
         const targetCategory = normalizeClassCategory(newCls.class_category, "all");
-        if (!accessMembership || !isMembershipCategoryCompatible(accessMembership.class_category, targetCategory)) {
+        if (!accessMembership || String(accessMembership.branch_id) !== String(newCls.branch_id)
+          || !isMembershipCategoryCompatible(accessMembership.class_category, targetCategory)) {
           await client.query("ROLLBACK");
           return res.status(403).json({
             code: "MEMBERSHIP_CLASS_MISMATCH",
@@ -4499,9 +4661,10 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
       const userRes = await pool.query("SELECT email, display_name, phone FROM users WHERE id = $1", [req.userId]);
       const classFullRes = await pool.query(
         `SELECT c.date, c.start_time, ct.name AS class_type_name,
-                i.display_name AS instructor_name
+                i.display_name AS instructor_name, br.name AS branch_name
            FROM classes c
            JOIN class_types ct ON c.class_type_id = ct.id
+           JOIN branches br ON c.branch_id = br.id
            LEFT JOIN instructors i ON c.instructor_id = i.id
           WHERE c.id = $1`,
         [newClassId]
@@ -4523,6 +4686,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
             instructor: cl.instructor_name,
             classesLeft,
             isWaitlist: false,
+            branchName: cl.branch_name,
           }).catch((e) => console.error("[Email] booking rescheduled:", e.message));
         }
         const waName = u.display_name || "Alumna";
@@ -4678,23 +4842,27 @@ app.post("/api/reviews", authMiddleware, async (req, res) => {
 // GET /api/orders
 app.get("/api/orders", authMiddleware, async (req, res) => {
   try {
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const r = await pool.query(
       `SELECT o.*, p.name AS plan_name, p.duration_days,
-              u.display_name AS user_name,
+              u.display_name AS user_name, b.code AS branch_code, b.name AS branch_name,
               COALESCE((
                 SELECT json_agg(json_build_object(
                          'plan_id', i.plan_id, 'plan_name', ip.name,
-                         'quantity', i.quantity, 'unit_price', i.unit_price, 'line_total', i.line_total
+                         'quantity', i.quantity, 'unit_price', i.unit_price, 'line_total', i.line_total,
+                         'branch_id', i.branch_id, 'program', i.program
                        ) ORDER BY i.created_at)
                 FROM order_plan_items i JOIN plans ip ON ip.id = i.plan_id
                 WHERE i.order_id = o.id
               ), '[]'::json) AS items
        FROM orders o
        JOIN plans p ON o.plan_id = p.id
+       JOIN branches b ON b.id = o.branch_id
        LEFT JOIN users u ON u.id = o.user_id
-       WHERE o.user_id = $1
+       WHERE o.user_id = $1 AND o.branch_id = $2
        ORDER BY o.created_at DESC`,
-      [req.userId]
+      [req.userId, branch.id]
     );
     return res.json({ data: r.rows });
   } catch (err) {
@@ -4711,9 +4879,10 @@ app.get("/api/notifications", authMiddleware, async (req, res) => {
     // 1) Orders — approved, rejected, pending
     const orders = await pool.query(
       `SELECT o.id, o.status, o.total, o.created_at, o.updated_at, o.order_number,
-              p.name AS plan_name
+              p.name AS plan_name, br.name AS branch_name
        FROM orders o
        JOIN plans p ON o.plan_id = p.id
+       JOIN branches br ON br.id = o.branch_id
        WHERE o.user_id = $1
        ORDER BY o.updated_at DESC
        LIMIT 20`,
@@ -4724,7 +4893,7 @@ app.get("/api/notifications", authMiddleware, async (req, res) => {
         notifications.push({
           id: `order-paid-${o.id}`,
           title: "Pago aprobado",
-          body: `Tu pago de $${o.total} para ${o.plan_name} fue aprobado. ¡Tu membresía está activa!`,
+          body: `Tu pago de $${o.total} para ${o.plan_name} en ${o.branch_name} fue aprobado. ¡Tu membresía está activa!`,
           time: o.updated_at,
           unread: (Date.now() - new Date(o.updated_at).getTime()) < 7 * 86400000,
           type: "success",
@@ -4733,7 +4902,7 @@ app.get("/api/notifications", authMiddleware, async (req, res) => {
         notifications.push({
           id: `order-rej-${o.id}`,
           title: "Pago rechazado",
-          body: `Tu pago para ${o.plan_name} (${o.order_number || ""}) fue rechazado. Contacta al estudio para más información.`,
+          body: `Tu pago para ${o.plan_name} en ${o.branch_name} (${o.order_number || ""}) fue rechazado. Contacta al estudio para más información.`,
           time: o.updated_at,
           unread: (Date.now() - new Date(o.updated_at).getTime()) < 7 * 86400000,
           type: "error",
@@ -4742,7 +4911,7 @@ app.get("/api/notifications", authMiddleware, async (req, res) => {
         notifications.push({
           id: `order-pend-${o.id}`,
           title: "Pago en revisión",
-          body: `Tu orden ${o.order_number || ""} para ${o.plan_name} está siendo revisada.`,
+          body: `Tu orden ${o.order_number || ""} para ${o.plan_name} en ${o.branch_name} está siendo revisada.`,
           time: o.created_at,
           unread: true,
           type: "info",
@@ -4752,10 +4921,11 @@ app.get("/api/notifications", authMiddleware, async (req, res) => {
 
     // 2) Upcoming bookings (next 48h)
     const bookings = await pool.query(
-      `SELECT b.id, b.status, c.date, c.start_time, ct.name AS class_name
+      `SELECT b.id, b.status, c.date, c.start_time, ct.name AS class_name, br.name AS branch_name
        FROM bookings b
        JOIN classes c ON b.class_id = c.id
        JOIN class_types ct ON c.class_type_id = ct.id
+       JOIN branches br ON br.id = c.branch_id
        WHERE b.user_id = $1 AND b.status = 'confirmed'
          AND ((c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City') >= NOW()
          AND ((c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City') <= NOW() + INTERVAL '48 hours'
@@ -4767,7 +4937,7 @@ app.get("/api/notifications", authMiddleware, async (req, res) => {
       notifications.push({
         id: `booking-${b.id}`,
         title: "Clase próxima",
-        body: `Tu clase de ${b.class_name} es el ${b.date} a las ${b.start_time}.`,
+        body: `Tu clase de ${b.class_name} en ${b.branch_name} es el ${b.date} a las ${b.start_time}.`,
         time: new Date().toISOString(),
         unread: true,
         type: "reminder",
@@ -4813,9 +4983,20 @@ app.get("/api/orders/:id", authMiddleware, async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT o.*, p.name AS plan_name, p.duration_days, p.features,
+              b.code AS branch_code, b.name AS branch_name,
+              COALESCE((
+                SELECT json_agg(json_build_object(
+                  'plan_id', i.plan_id, 'plan_name', ip.name, 'quantity', i.quantity,
+                  'unit_price', i.unit_price, 'line_total', i.line_total,
+                  'branch_id', i.branch_id, 'program', i.program
+                ) ORDER BY i.created_at)
+                FROM order_plan_items i JOIN plans ip ON ip.id = i.plan_id
+                WHERE i.order_id = o.id
+              ), '[]'::json) AS items,
               pp.file_url AS proof_url, pp.status AS proof_status, pp.uploaded_at AS proof_uploaded_at
        FROM orders o
        JOIN plans p ON o.plan_id = p.id
+       JOIN branches b ON b.id = o.branch_id
        LEFT JOIN payment_proofs pp ON pp.order_id = o.id
        WHERE o.id = $1 AND o.user_id = $2`,
       [req.params.id, req.userId]
@@ -4832,16 +5013,23 @@ app.get("/api/orders/:id", authMiddleware, async (req, res) => {
 // inscription (enrollment) fee on their next package purchase?
 app.get("/api/inscription-status", authMiddleware, async (req, res) => {
   try {
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const program = normalizeProgram(req.query.program || "pilates");
+    const scope = { branchId: branch.id, program };
     const [needsInscription, price, hasPendingPackage] = await Promise.all([
-      clientNeedsInscription(req.userId),
-      getInscriptionPrice(),
-      clientHasPendingPackage(req.userId),
+      clientNeedsInscription(req.userId, scope),
+      getInscriptionPrice(scope),
+      clientHasPendingPackage(req.userId, scope),
     ]);
     // Puede comprar "Clase Extra" si ya está inscrita (no necesita inscripción) o
     // si tiene un paquete pendiente que la está inscribiendo. Refleja el gate del
     // servidor para que el front bloquee/desbloquee exactamente igual.
     const canBuyClaseExtra = !needsInscription || hasPendingPackage;
-    return res.json({ data: { needsInscription, price, hasPendingPackage, canBuyClaseExtra } });
+    return res.json({ data: {
+      needsInscription, price, hasPendingPackage, canBuyClaseExtra,
+      branchId: branch.id, branchCode: branch.code, program,
+    } });
   } catch (err) {
     console.error("GET inscription-status error:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -4870,6 +5058,12 @@ async function createCartOrder(req, res, paymentMethod) {
   try {
     await client.query("BEGIN");
 
+    const requestedBranch = await resolveRequestBranch(req, client);
+    if (!requestedBranch) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Sucursal no encontrada" });
+    }
+
     // Cargar planes
     const loaded = [];
     for (const it of cart) {
@@ -4878,28 +5072,53 @@ async function createCartOrder(req, res, paymentMethod) {
       loaded.push({ plan: r.rows[0], quantity: it.quantity });
     }
 
+    const cartScope = validateSingleScope(loaded.map((item) => item.plan));
+    if (!cartScope.valid) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ code: cartScope.code, message: cartScope.message });
+    }
+    if (String(cartScope.branchId) !== String(requestedBranch.id)) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ code: "PLAN_BRANCH_MISMATCH", message: "El paquete no pertenece a la sucursal seleccionada." });
+    }
+    const scope = { branchId: requestedBranch.id, program: cartScope.program, client };
+
     // Bloquear si ya hay una orden pendiente para alguno de los planes del carrito
     // (evita acumular órdenes pendientes duplicadas; espejo del camino de 1 plan).
     const planIds = loaded.map((l) => l.plan.id);
     const dup = await client.query(
       `SELECT 1 FROM orders
-        WHERE user_id = $1 AND plan_id = ANY($2::uuid[])
+        WHERE user_id = $1 AND branch_id = $3 AND plan_id = ANY($2::uuid[])
           AND status IN ('pending_payment','pending_verification') LIMIT 1`,
-      [req.userId, planIds]
+      [req.userId, planIds, requestedBranch.id]
     );
     if (dup.rows.length) {
       await client.query("ROLLBACK");
       return res.status(409).json({ message: "Ya tienes una orden pendiente con uno de estos planes. Complétala o cancélala antes de crear otra." });
     }
 
-    const hasPackage = loaded.some((l) => Number(l.plan.class_limit) >= 2);
-    const hasInscriptionItem = loaded.some((l) => String(l.plan.name).trim().toLowerCase() === INSCRIPTION_PLAN_NAME.toLowerCase());
-    const needsInscription = await clientNeedsInscription(req.userId);
+    const hasPackage = loaded.some((l) => isPackagePlan(l.plan));
+    const hasInscriptionItem = loaded.some((l) => l.plan.plan_kind === "registration");
+    const needsInscription = await clientNeedsInscription(req.userId, scope);
     // ¿Un paquete pendiente ya la está inscribiendo? Solo se consulta si hace falta.
-    const hasPendingPackage = needsInscription ? await clientHasPendingPackage(req.userId, client) : false;
+    const hasPendingPackage = needsInscription ? await clientHasPendingPackage(req.userId, scope) : false;
 
     // Validaciones por renglón
     for (const { plan, quantity } of loaded) {
+      if (plan.plan_kind === "registration") {
+        if (quantity > 1) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ message: "La inscripción solo puede agregarse una vez por orden." });
+        }
+        if (!needsInscription) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ message: "Ya estás inscrita en este programa y sucursal." });
+        }
+        if (hasPendingPackage && !hasPackage) {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ message: "Tu inscripción ya está incluida en el paquete pendiente." });
+        }
+      }
       if (plan.is_non_repeatable) {
         if (quantity > 1) { await client.query("ROLLBACK"); return res.status(400).json({ message: `"${plan.name}" no se puede comprar más de una vez por orden.` }); }
         const conflict = await findNonRepeatablePlanConflict({ userId: req.userId, plan, client });
@@ -4929,7 +5148,7 @@ async function createCartOrder(req, res, paymentMethod) {
     itemsSubtotal = Math.round(itemsSubtotal * 100) / 100;
 
     // Plan principal: primer paquete, o el primer renglón
-    const primary = (loaded.find((l) => Number(l.plan.class_limit) >= 2) || loaded[0]).plan;
+    const primary = (loaded.find((l) => isPackagePlan(l.plan)) || loaded[0]).plan;
 
     // Descuento (código) sobre el subtotal de ítems (antes de inscripción)
     let discount = 0, appliedDiscountCode = null;
@@ -4948,7 +5167,7 @@ async function createCartOrder(req, res, paymentMethod) {
     // lleva la Inscripción como renglón explícito, NO se auto-agrega (evita doble cobro).
     let inscriptionAmount = 0;
     if (hasPackage && needsInscription && !hasInscriptionItem) {
-      inscriptionAmount = await getInscriptionPrice(client);
+      inscriptionAmount = await getInscriptionPrice(scope);
     }
 
     // Totales (helper puro testeado): subtotal incluye inscripción; +4% tarjeta sobre el descontado
@@ -4961,8 +5180,8 @@ async function createCartOrder(req, res, paymentMethod) {
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000);
     const initialStatus = paymentMethod === "cash" ? "pending_verification" : "pending_payment";
 
-    const cols = ["user_id", "plan_id", "status", "payment_method", "subtotal", "tax_amount", "total_amount", "bank_info", "expires_at"];
-    const vals = [req.userId, primary.id, initialStatus, paymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
+    const cols = ["user_id", "plan_id", "branch_id", "program", "status", "payment_method", "subtotal", "tax_amount", "total_amount", "bank_info", "expires_at"];
+    const vals = [req.userId, primary.id, requestedBranch.id, cartScope.program, initialStatus, paymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
     if (platformFee > 0) { cols.push("platform_fee"); vals.push(platformFee); }
     if (discount > 0 || appliedDiscountCode) {
       cols.push("discount_amount"); vals.push(discount);
@@ -4981,8 +5200,8 @@ async function createCartOrder(req, res, paymentMethod) {
     // Renglones del carrito (la aprobación crea 1 membresía por unidad de cada renglón)
     for (const { plan, quantity, unit, lineTotal } of lineRows) {
       await client.query(
-        `INSERT INTO order_plan_items (order_id, plan_id, quantity, unit_price, line_total) VALUES ($1,$2,$3,$4,$5)`,
-        [order.id, plan.id, quantity, unit, lineTotal]
+        `INSERT INTO order_plan_items (order_id, plan_id, branch_id, program, quantity, unit_price, line_total) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [order.id, plan.id, requestedBranch.id, cartScope.program, quantity, unit, lineTotal]
       );
     }
 
@@ -5012,7 +5231,7 @@ async function createCartOrder(req, res, paymentMethod) {
 
     const itemsOut = lineRows.map((l) => ({ plan_id: l.plan.id, plan_name: l.plan.name, quantity: l.quantity, unit_price: l.unit, line_total: l.lineTotal }));
     return res.status(201).json({
-      data: { ...order, plan_name: primary.name, items: itemsOut, mp_checkout_url, inscriptionAmount, bank_details: { ...bankInfo, amount: total, currency: "MXN" } },
+      data: { ...order, branch_code: requestedBranch.code, program: cartScope.program, plan_name: primary.name, items: itemsOut, mp_checkout_url, inscriptionAmount, bank_details: { ...bankInfo, amount: total, currency: "MXN" } },
     });
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) { }
@@ -5035,12 +5254,24 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    const requestedBranch = await resolveRequestBranch(req, client);
+    if (!requestedBranch) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Sucursal no encontrada" });
+    }
+
     const planRes = await client.query("SELECT * FROM plans WHERE id = $1 AND is_active = true", [planId]);
     if (planRes.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ message: "Plan no encontrado" });
     }
     const plan = planRes.rows[0];
+    if (String(plan.branch_id) !== String(requestedBranch.id)) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ code: "PLAN_BRANCH_MISMATCH", message: "El paquete no pertenece a la sucursal seleccionada." });
+    }
+    const program = planProgram(plan);
+    const scope = { branchId: requestedBranch.id, program, client };
     const nonRepeatableConflict = await findNonRepeatablePlanConflict({ userId: req.userId, plan, client });
     if (nonRepeatableConflict) {
       await client.query("ROLLBACK");
@@ -5048,13 +5279,13 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     }
 
     const planNameLc = String(plan.name).trim().toLowerCase();
-    const isInscriptionPlan = planNameLc === INSCRIPTION_PLAN_NAME.toLowerCase();
+    const isInscriptionPlan = plan.plan_kind === "registration";
 
     // ── Clase Extra: solo para alumnas inscritas ──────────────────────────
     // La "Clase Suelta / Visita" es el ÚNICO producto comprable SIN inscripción.
     // La "Clase Extra" ($130) es para quien ya está inscrita (membresía activa/
     // reciente) o se está inscribiendo (paquete pendiente). Si no, se bloquea.
-    if (planNameLc === "clase extra" && (await clientNeedsInscription(req.userId)) && !(await clientHasPendingPackage(req.userId, client))) {
+    if (planNameLc === "clase extra" && (await clientNeedsInscription(req.userId, scope)) && !(await clientHasPendingPackage(req.userId, scope))) {
       await client.query("ROLLBACK");
       return res.status(403).json({ message: "La clase extra es solo para alumnas inscritas. Si aún no te inscribes, paga tu Inscripción, o compra una Clase suelta / visita o un paquete." });
     }
@@ -5062,8 +5293,8 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     // ── Inscripción: no permitir pagarla si ya está inscrita o si tiene un
     //    paquete pendiente que ya se la está cobrando (evita doble cobro). ──
     if (isInscriptionPlan) {
-      const alreadyEnrolled = !(await clientNeedsInscription(req.userId));
-      const pendingPkg = alreadyEnrolled ? false : await clientHasPendingPackage(req.userId, client);
+      const alreadyEnrolled = !(await clientNeedsInscription(req.userId, scope));
+      const pendingPkg = alreadyEnrolled ? false : await clientHasPendingPackage(req.userId, scope);
       if (alreadyEnrolled) {
         await client.query("ROLLBACK");
         return res.status(409).json({ message: "Ya estás inscrita. No necesitas pagar la inscripción de nuevo." });
@@ -5077,10 +5308,10 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     // ── Block duplicate pending orders for the same plan ──
     const pendingDup = await client.query(
       `SELECT id FROM orders
-       WHERE user_id = $1 AND plan_id = $2
+       WHERE user_id = $1 AND branch_id = $3 AND plan_id = $2
          AND status IN ('pending_payment', 'pending_verification')
        LIMIT 1`,
-      [req.userId, planId]
+      [req.userId, planId, requestedBranch.id]
     );
     if (pendingDup.rows.length) {
       await client.query("ROLLBACK");
@@ -5142,9 +5373,9 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     // The discount code (computed above) intentionally applies only to the
     // base plan subtotal, never to the inscription fee.
     let inscriptionAmount = 0;
-    const isClassPackage = Number(plan.class_limit) >= 2;
-    if (isClassPackage && (await clientNeedsInscription(req.userId))) {
-      inscriptionAmount = await getInscriptionPrice(client);
+    const isClassPackage = isPackagePlan(plan);
+    if (isClassPackage && (await clientNeedsInscription(req.userId, scope))) {
+      inscriptionAmount = await getInscriptionPrice(scope);
       subtotal += inscriptionAmount;
     }
 
@@ -5163,8 +5394,8 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     // Cash orders skip proof upload → go straight to pending_verification so admin can approve
     const initialStatus = paymentMethod === "cash" ? "pending_verification" : "pending_payment";
     // Build INSERT dynamically — complement_id column may not exist yet
-    const cols = ["user_id", "plan_id", "status", "payment_method", "subtotal", "tax_amount", "total_amount", "bank_info", "expires_at"];
-    const vals = [req.userId, planId, initialStatus, paymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
+    const cols = ["user_id", "plan_id", "branch_id", "program", "status", "payment_method", "subtotal", "tax_amount", "total_amount", "bank_info", "expires_at"];
+    const vals = [req.userId, planId, requestedBranch.id, program, initialStatus, paymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
     if (platformFee > 0) {
       cols.push("platform_fee");
       vals.push(platformFee);
@@ -5245,6 +5476,8 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     return res.status(201).json({
       data: {
         ...order,
+        branch_code: requestedBranch.code,
+        program,
         plan_name: plan.name,
         mp_checkout_url,
         inscriptionAmount,
@@ -5574,12 +5807,20 @@ async function handlePaymentWebhook(mpPaymentId) {
 // Devuelve el id de la membresía principal (para registrar el pago / la consulta de complemento).
 // NO crea el registro en `payments` ni la consulta — eso lo hace cada llamador.
 async function createMembershipsForOrder(order, client, paymentMethod) {
+  const orderBranchId = order.branch_id || DEFAULT_BRANCH_ID;
+  const orderProgram = normalizeProgram(order.program || "pilates");
   // Idempotencia: si ya hay membresías para esta orden, solo reactivar y devolver la primera.
   const existingMem = await client.query(
     "SELECT id FROM memberships WHERE order_id = $1 ORDER BY created_at ASC", [order.id]
   );
   if (existingMem.rows.length) {
     await client.query("UPDATE memberships SET status = 'active' WHERE order_id = $1", [order.id]);
+    if (Number(order.inscription_amount || 0) > 0) {
+      await upsertEnrollment({
+        userId: order.user_id, branchId: orderBranchId, program: orderProgram,
+        orderId: order.id, paid: true, client,
+      });
+    }
     return existingMem.rows[0].id;
   }
 
@@ -5603,28 +5844,50 @@ async function createMembershipsForOrder(order, client, paymentMethod) {
   if (order.plan_id) {
     await client.query(
       `UPDATE orders SET status = 'cancelled', notes = COALESCE(notes,'') || ' [auto-cancelada: otra orden del mismo plan fue aprobada]'
-         WHERE user_id = $1 AND plan_id = $2 AND id != $3 AND status IN ('pending_payment','pending_verification')`,
-      [order.user_id, order.plan_id, order.id]
+         WHERE user_id = $1 AND branch_id = $4 AND plan_id = $2 AND id != $3
+           AND status IN ('pending_payment','pending_verification')`,
+      [order.user_id, order.plan_id, order.id, orderBranchId]
     );
   }
 
   const todayStr = mexicoCityDate();
   let primaryId = null;
   for (const { plan, qty } of units) {
+    const branchId = plan.branch_id || orderBranchId;
+    const program = planProgram(plan);
+    const isRegistrationPlan = plan.plan_kind === "registration"
+      || String(plan.name).trim().toLowerCase().includes("inscripci");
+    if (isRegistrationPlan) {
+      await upsertEnrollment({
+        userId: order.user_id, branchId, program, registrationPlanId: plan.id,
+        orderId: order.id, paid: true, client,
+      });
+      continue;
+    }
     const startStr = membershipStartDate(todayStr, plan);
     const endStr = calcMembershipEndDate(startStr, plan);
-    // "Inscripción" sola: marca a la alumna como inscrita pero NO otorga clases.
-    // (Sin este caso, class_limit 0 se interpretaría como ilimitado → null.)
-    const isInscriptionPlan = String(plan.name).trim().toLowerCase() === INSCRIPTION_PLAN_NAME.toLowerCase();
-    const classes = isInscriptionPlan ? 0 : (plan.class_limit === 0 ? null : (plan.class_limit ?? null));
+    const classes = plan.class_limit ?? null;
     for (let i = 0; i < qty; i++) {
       const memRes = await client.query(
-        `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, order_id)
-         VALUES ($1,$2,'active',$3,$4,$5,$6,$7) RETURNING id`,
-        [order.user_id, plan.id, paymentMethod, startStr, endStr, classes, order.id]
+        `INSERT INTO memberships
+           (user_id, plan_id, branch_id, status, payment_method, start_date, end_date, classes_remaining, order_id)
+         VALUES ($1,$2,$3,'active',$4,$5,$6,$7,$8) RETURNING id`,
+        [order.user_id, plan.id, branchId, paymentMethod, startStr, endStr, classes, order.id]
       );
       if (!primaryId) primaryId = memRes.rows[0].id;
     }
+    if (isPackagePlan(plan)) {
+      await upsertEnrollment({
+        userId: order.user_id, branchId, program, orderId: order.id,
+        paid: Number(order.inscription_amount || 0) > 0, client,
+      });
+    }
+  }
+  if (Number(order.inscription_amount || 0) > 0) {
+    await upsertEnrollment({
+      userId: order.user_id, branchId: orderBranchId, program: orderProgram,
+      orderId: order.id, paid: true, client,
+    });
   }
   return primaryId;
 }
@@ -5651,6 +5914,8 @@ async function sendReceiptForApprovedOrder(order) {
       [order.id]
     );
     if (!claim.rows.length) return; // ya se envió antes
+    const branchRes = await pool.query("SELECT name FROM branches WHERE id = $1", [order.branch_id || DEFAULT_BRANCH_ID]);
+    const branchName = branchRes.rows[0]?.name || "Villa Magna";
     const itemsRes = await pool.query(
       `SELECT i.quantity, i.line_total, p.name AS plan_name
          FROM order_plan_items i JOIN plans p ON p.id = i.plan_id
@@ -5680,6 +5945,7 @@ async function sendReceiptForApprovedOrder(order) {
       platformFee: Number(order.platform_fee || 0),
       total: Number(order.total_amount || 0),
       paymentMethod: order.payment_method,
+      branchName,
     });
   } catch (e) {
     console.error("[Receipt] comprobante de pago:", e.message);
@@ -5760,11 +6026,16 @@ async function approveOrderFromMP(orderId, mpPaymentId) {
     // Post-commit: notificaciones fire-and-forget
     try {
       if (order.plan_id) {
-        const planRes = await pool.query("SELECT * FROM plans WHERE id = $1", [order.plan_id]);
+        const planRes = await pool.query(
+          `SELECT p.*, br.name AS branch_name
+             FROM plans p JOIN branches br ON br.id = p.branch_id
+            WHERE p.id = $1`,
+          [order.plan_id],
+        );
         const planRow = planRes.rows[0];
         const uRes = await pool.query("SELECT email, display_name, phone FROM users WHERE id = $1", [order.user_id]);
         const u = uRes.rows[0];
-        if (planRow && u) {
+        if (planRow && u && planRow.plan_kind !== "registration") {
           const membershipDate = mexicoCityDate();
           const emailEndStr = calcMembershipEndDate(membershipDate, planRow);
           if (await areEmailNotificationsEnabled()) {
@@ -5772,6 +6043,7 @@ async function approveOrderFromMP(orderId, mpPaymentId) {
               to: u.email, name: u.display_name || "Alumna", planName: planRow.name,
               startDate: membershipDate, endDate: emailEndStr,
               classLimit: planRow.class_limit ?? null,
+              branchName: planRow.branch_name,
             }).catch((e) => console.error("[Email] MP approve:", e.message));
           }
           sendConfiguredWhatsAppTemplate({
@@ -8875,12 +9147,21 @@ app.delete("/api/admin/class-types/:id", adminMiddleware, async (req, res) => {
 // GET /api/admin/schedule-slots
 app.get("/api/admin/schedule-slots", adminMiddleware, async (req, res) => {
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const r = await pool.query(
-      `SELECT ss.*, ct.color as class_color, ct.emoji as class_emoji
+      `SELECT ss.*, ct.color as class_color, ct.emoji as class_emoji,
+              b.code AS branch_code, b.name AS branch_name,
+              CASE WHEN LOWER(COALESCE(ct.category, ss.class_type_name, '')) IN ('funcional','functional')
+                   THEN 'functional' WHEN LOWER(COALESCE(ct.category, ss.class_type_name, '')) = 'prenatal'
+                   THEN 'prenatal' ELSE 'pilates' END AS program
        FROM schedule_slots ss
+       JOIN branches b ON b.id = ss.branch_id
        LEFT JOIN class_types ct ON ss.class_type_id = ct.id
-       WHERE ss.is_active = true
-       ORDER BY ss.time_slot, ss.day_of_week`
+       WHERE ss.is_active = true AND ($1::uuid IS NULL OR ss.branch_id = $1)
+       ORDER BY b.sort_order, ss.time_slot, ss.day_of_week`,
+      [branch?.id || null],
     );
     return res.json({ data: r.rows });
   } catch (err) {
@@ -8891,24 +9172,31 @@ app.get("/api/admin/schedule-slots", adminMiddleware, async (req, res) => {
 
 // POST /api/admin/schedule-slots
 app.post("/api/admin/schedule-slots", adminMiddleware, async (req, res) => {
-  const { time_slot, day_of_week, class_type_id, class_type_name, instructor_name } = req.body;
+  const { time_slot, day_of_week, class_type_id, class_type_name, instructor_name, apparatus, starts_on, is_active } = req.body;
   if (!time_slot?.trim() || !day_of_week) return res.status(400).json({ message: "time_slot y day_of_week requeridos" });
   try {
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // Resolve name from class_type_id if provided
     let ctName = class_type_name || null;
     if (class_type_id && !ctName) {
       const ct = await pool.query("SELECT name FROM class_types WHERE id = $1", [class_type_id]);
       ctName = ct.rows[0]?.name || null;
     }
+    const duplicate = await pool.query(
+      `SELECT id FROM schedule_slots
+        WHERE branch_id = $1 AND day_of_week = $2 AND time_slot = $3
+          AND LOWER(COALESCE(class_type_name, 'pilates')) = LOWER(COALESCE($4, 'pilates'))
+        LIMIT 1`,
+      [branch.id, parseInt(day_of_week), time_slot.trim(), ctName],
+    );
+    if (duplicate.rows.length) return res.status(409).json({ message: "Ese horario ya existe en la sucursal y programa seleccionados." });
     const r = await pool.query(
-      `INSERT INTO schedule_slots (time_slot, day_of_week, class_type_id, class_type_name, instructor_name)
-       VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT ON CONSTRAINT idx_schedule_slots_slot DO UPDATE
-         SET class_type_id = EXCLUDED.class_type_id,
-             class_type_name = EXCLUDED.class_type_name,
-             instructor_name = EXCLUDED.instructor_name
-       RETURNING *`,
-      [time_slot.trim(), parseInt(day_of_week), class_type_id || null, ctName, instructor_name || null]
+      `INSERT INTO schedule_slots
+         (branch_id, time_slot, day_of_week, class_type_id, class_type_name, instructor_name, apparatus, starts_on, is_active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::date,$9) RETURNING *`,
+      [branch.id, time_slot.trim(), parseInt(day_of_week), class_type_id || null, ctName,
+        instructor_name || null, apparatus || "reformer", starts_on || null, is_active ?? true]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {
@@ -8964,22 +9252,27 @@ app.post("/api/admin/plans", adminMiddleware, async (req, res) => {
   const {
     name, description, price, currency, duration_days, class_limit, class_category,
     features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key,
-    discount_price, time_restriction,
+    discount_price, time_restriction, code,
   } = req.body;
   if (!name?.trim() || price === undefined) return res.status(400).json({ message: "name y price requeridos" });
   try {
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "prenatal", "all"];
     const cat = validCats.includes(class_category) ? class_category : "all";
+    const program = normalizeProgram(req.body.program || cat);
+    const planKind = normalizePlanKind(req.body.planKind ?? req.body.plan_kind, { name, classLimit: class_limit });
+    const planCode = makePlanCode(code, name, program);
     const nonTransferable = parseBooleanFlag(is_non_transferable);
     const nonRepeatable = parseBooleanFlag(is_non_repeatable);
     const safeRepeatKey = nonRepeatable ? String(repeat_key ?? "").trim() || null : null;
     const tr = sanitizeTimeRestriction(time_restriction);
     const r = await pool.query(
       `INSERT INTO plans
-        (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, discount_price, time_restriction)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
-      [name.trim(), description || null, price, currency || "MXN",
-      duration_days || 30, class_limit || null,
+        (branch_id, code, program, plan_kind, name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, discount_price, time_restriction)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
+      [branch.id, planCode, program, planKind, name.trim(), description || null, price, currency || "MXN",
+      duration_days || 30, class_limit ?? null,
         cat, JSON.stringify(features || []), is_active ?? true, sort_order ?? 0, nonTransferable, nonRepeatable, safeRepeatKey,
         discount_price != null && discount_price !== "" ? parseFloat(discount_price) : null,
         tr ? JSON.stringify(tr) : null]
@@ -8996,7 +9289,7 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
   const {
     name, description, price, currency, duration_days, class_limit, class_category,
     features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key,
-    discount_price, time_restriction,
+    discount_price, time_restriction, code,
   } = req.body;
 
   const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "prenatal", "all"];
@@ -9007,6 +9300,9 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
   // time_restriction: undefined = leave alone, null = clear, object = set/replace
   const trProvided = Object.prototype.hasOwnProperty.call(req.body, "time_restriction");
   const tr = trProvided ? sanitizeTimeRestriction(time_restriction) : undefined;
+  const programValue = req.body.program ? normalizeProgram(req.body.program) : null;
+  const kindRaw = req.body.planKind ?? req.body.plan_kind;
+  const planKindValue = kindRaw ? normalizePlanKind(kindRaw) : null;
 
   // Transacción: el UPDATE del plan y la cascada de end_date deben ser atómicos
   // para evitar estado inconsistente (plan con duración nueva pero memberships
@@ -9031,8 +9327,11 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
          repeat_key          = CASE WHEN COALESCE($12, is_non_repeatable) = true THEN $13 ELSE NULL END,
          discount_price      = $14,
          time_restriction    = CASE WHEN $16::boolean THEN $15::jsonb ELSE time_restriction END,
+         code                = COALESCE($17, code),
+         program             = COALESCE($18, program),
+         plan_kind           = COALESCE($19, plan_kind),
          updated_at    = NOW()
-       WHERE id = $17 RETURNING *`,
+       WHERE id = $20 RETURNING *`,
       [name || null, description || null, price ?? null, currency || null,
       duration_days || null, class_limit ?? null,
         cat, features ? JSON.stringify(features) : null,
@@ -9040,6 +9339,9 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
         discount_price != null && discount_price !== "" ? parseFloat(discount_price) : null,
         tr ? JSON.stringify(tr) : null,
         trProvided,
+        code ? makePlanCode(code, name || "", programValue || "pilates") : null,
+        programValue,
+        planKindValue,
         req.params.id]
     );
     if (r.rows.length === 0) {
@@ -9356,6 +9658,8 @@ app.post("/api/classes", adminMiddleware, async (req, res) => {
     const { classTypeId, instructorId, startTime, endTime, maxCapacity, capacity, notes } = req.body;
     if (!classTypeId) return res.status(400).json({ message: "classTypeId requerido" });
     if (!instructorId) return res.status(400).json({ message: "instructorId requerido" });
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
 
     // startTime may come as a full ISO/datetime-local string "YYYY-MM-DDTHH:mm"
     // The classes table uses separate DATE and TIME columns
@@ -9379,9 +9683,9 @@ app.post("/api/classes", adminMiddleware, async (req, res) => {
     }
     const cap = maxCapacity ?? capacity ?? 10;
     const r = await pool.query(
-      `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'scheduled') RETURNING *`,
-      [classTypeId, instructorId, dateStr, startTimeStr, endTimeStr, cap, notes || null]
+      `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled') RETURNING *`,
+      [branch.id, classTypeId, instructorId, dateStr, startTimeStr, endTimeStr, cap, notes || null]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) { console.error("POST /classes error:", err); return res.status(500).json({ message: "Error interno" }); }
@@ -9409,14 +9713,16 @@ app.delete("/api/classes/week", adminMiddleware, async (req, res) => {
     if (start > end) {
       return res.status(400).json({ message: "Rango de fechas inválido" });
     }
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
 
     const activeBookingsRes = await pool.query(
       `SELECT COUNT(*)::INT AS total
        FROM bookings b
        JOIN classes c ON c.id = b.class_id
-       WHERE c.date >= $1 AND c.date <= $2
+       WHERE c.branch_id = $3 AND c.date >= $1 AND c.date <= $2
          AND b.status != 'cancelled'`,
-      [start, end]
+      [start, end, branch.id]
     );
     const activeBookings = Number(activeBookingsRes.rows?.[0]?.total ?? 0);
     if (activeBookings > 0) {
@@ -9427,13 +9733,14 @@ app.delete("/api/classes/week", adminMiddleware, async (req, res) => {
     }
 
     const deleted = await pool.query(
-      "DELETE FROM classes WHERE date >= $1 AND date <= $2 RETURNING id",
-      [start, end]
+      "DELETE FROM classes WHERE branch_id = $3 AND date >= $1 AND date <= $2 RETURNING id",
+      [start, end, branch.id]
     );
     return res.json({
       deleted: deleted.rowCount ?? deleted.rows.length,
       startDate: start,
       endDate: end,
+      branchId: branch.id,
     });
   } catch (err) {
     console.error("DELETE /classes/week error:", err);
@@ -9487,6 +9794,8 @@ app.post("/api/classes/generate", adminMiddleware, async (req, res) => {
     if (!/^\d{2}:\d{2}$/.test(String(startTime || "")) || !/^\d{2}:\d{2}$/.test(String(endTime || ""))) {
       return res.status(400).json({ message: "startTime y endTime deben tener formato HH:mm" });
     }
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
 
     const created = [];
     // Append T00:00:00 to parse as local midnight (not UTC)
@@ -9504,15 +9813,15 @@ app.post("/api/classes/generate", adminMiddleware, async (req, res) => {
         // edits should not block new generation at the same slot.
         const exists = await pool.query(
           `SELECT id FROM classes
-            WHERE date = $1 AND start_time = $2 AND class_type_id = $3
+            WHERE branch_id = $4 AND date = $1 AND start_time = $2 AND class_type_id = $3
               AND status <> 'cancelled'`,
-          [classDate, startTime, classTypeId]
+          [classDate, startTime, classTypeId, branch.id]
         );
         if (exists.rows.length) { skipped++; continue; }
         const r = await pool.query(
-          `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status, focus)
-           VALUES ($1,$2,$3,$4,$5,$6,'scheduled',$7) RETURNING *`,
-          [classTypeId, instructorId, classDate, startTime, endTime, maxCapacity, focusVal]
+          `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, status, focus)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'scheduled',$8) RETURNING *`,
+          [branch.id, classTypeId, instructorId, classDate, startTime, endTime, maxCapacity, focusVal]
         );
         created.push(r.rows[0]);
       }
@@ -9536,14 +9845,14 @@ app.post("/api/classes/generate", adminMiddleware, async (req, res) => {
         if (!ct) ct = classTypes[0];
         if (!ct) continue;
         const exists = await pool.query(
-          "SELECT id FROM classes WHERE date = $1 AND start_time = $2 AND class_type_id = $3",
-          [classDate, startTimeValue, ct.id]
+          "SELECT id FROM classes WHERE branch_id = $4 AND date = $1 AND start_time = $2 AND class_type_id = $3",
+          [classDate, startTimeValue, ct.id, branch.id]
         );
         if (exists.rows.length) continue;
         const r = await pool.query(
-          `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status)
-           VALUES ($1,$2,$3,$4,$5,10,'scheduled') RETURNING *`,
-          [ct.id, instructorId, classDate, startTimeValue, endTimeValue]
+          `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, status)
+           VALUES ($1,$2,$3,$4,$5,$6,10,'scheduled') RETURNING *`,
+          [branch.id, ct.id, instructorId, classDate, startTimeValue, endTimeValue]
         );
         created.push(r.rows[0]);
       }
@@ -9557,7 +9866,16 @@ app.post("/api/classes/generate", adminMiddleware, async (req, res) => {
 // GET /api/schedules
 app.get("/api/schedules", adminMiddleware, async (req, res) => {
   try {
-    const r = await pool.query("SELECT * FROM schedule_slots ORDER BY day_of_week, time_slot");
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const r = await pool.query(
+      `SELECT ss.*, b.code AS branch_code, b.name AS branch_name
+         FROM schedule_slots ss JOIN branches b ON b.id = ss.branch_id
+        WHERE ($1::uuid IS NULL OR ss.branch_id = $1)
+        ORDER BY b.sort_order, ss.day_of_week, ss.time_slot`,
+      [branch?.id || null],
+    );
     return res.json({ data: r.rows });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
 });
@@ -9567,10 +9885,12 @@ app.post("/api/schedules", adminMiddleware, async (req, res) => {
   try {
     const { timeSlot, dayOfWeek, classTypeName, classTypeId, instructorName, isActive = true } = req.body;
     if (!timeSlot || !dayOfWeek) return res.status(400).json({ message: "timeSlot y dayOfWeek requeridos" });
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const r = await pool.query(
-      `INSERT INTO schedule_slots (time_slot, day_of_week, class_type_id, class_type_name, instructor_name, is_active)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [timeSlot, dayOfWeek, classTypeId || null, classTypeName || null, instructorName || null, isActive]
+      `INSERT INTO schedule_slots (branch_id, time_slot, day_of_week, class_type_id, class_type_name, instructor_name, is_active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [branch.id, timeSlot, dayOfWeek, classTypeId || null, classTypeName || null, instructorName || null, isActive]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
@@ -9686,6 +10006,10 @@ app.get("/api/loyalty/points/:userId", adminMiddleware, async (req, res) => {
 
 app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const branchId = branch?.id || null;
     // Compute month start in CDMX so reports align with how the studio counts
     // the month (avoids off-by-one on the 1st when server runs in UTC).
     const monthStartExpr = `date_trunc('month', NOW() AT TIME ZONE 'America/Mexico_City')`;
@@ -9702,34 +10026,35 @@ app.get("/api/reports/overview", adminMiddleware, async (req, res) => {
     };
 
     const [members, revenue, bookings, classes, newMembers, reviews] = await Promise.all([
-      safe("members",    pool.query("SELECT COUNT(*) FROM memberships WHERE status='active'")),
+      safe("members",    pool.query("SELECT COUNT(*) FROM memberships WHERE status='active' AND ($1::uuid IS NULL OR branch_id=$1)", [branchId])),
       safe("revenue",    pool.query(
         `SELECT COALESCE(SUM(total_amount),0) AS total
            FROM orders
-          WHERE status='approved' AND created_at >= ${monthStartExpr}`
+          WHERE status='approved' AND created_at >= ${monthStartExpr} AND ($1::uuid IS NULL OR branch_id=$1)`, [branchId]
       )),
       safe("bookings",   pool.query(
         `SELECT COUNT(*) AS total,
-                COUNT(CASE WHEN status='checked_in' THEN 1 END) AS attended
-           FROM bookings
-          WHERE status <> 'cancelled'
-            AND created_at >= ${monthStartExpr}`
+                COUNT(CASE WHEN b.status='checked_in' THEN 1 END) AS attended
+           FROM bookings b JOIN classes c ON c.id=b.class_id
+          WHERE b.status <> 'cancelled'
+            AND b.created_at >= ${monthStartExpr} AND ($1::uuid IS NULL OR c.branch_id=$1)`, [branchId]
       )),
       safe("classes",    pool.query(
         `SELECT COUNT(*) FROM classes
           WHERE status='scheduled'
-            AND date >= (${monthStartExpr})::date`
+            AND date >= (${monthStartExpr})::date AND ($1::uuid IS NULL OR branch_id=$1)`, [branchId]
       )),
       safe("newMembers", pool.query(
         `SELECT COUNT(*) FROM users
-          WHERE role='client' AND COALESCE(is_hidden,false)=false AND created_at >= ${monthStartExpr}`
+          WHERE role='client' AND COALESCE(is_hidden,false)=false AND created_at >= ${monthStartExpr}
+            AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id=users.id AND m.branch_id=$1))`, [branchId]
       )),
       safe("reviews",    pool.query(
         `SELECT COUNT(*) AS total,
                 COUNT(CASE WHEN is_approved = false THEN 1 END) AS pending,
                 COALESCE(AVG(rating),0) AS average
-           FROM reviews
-          WHERE created_at >= ${monthStartExpr}`
+           FROM reviews r LEFT JOIN bookings b ON b.id=r.booking_id LEFT JOIN classes c ON c.id=b.class_id
+          WHERE r.created_at >= ${monthStartExpr} AND ($1::uuid IS NULL OR c.branch_id=$1)`, [branchId]
       )),
     ]);
 
@@ -9766,6 +10091,10 @@ app.get("/api/reports/revenue", adminMiddleware, async (req, res) => {
   const { from, to } = req.query;
   const isValidIso = (s) => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const branchId = branch?.id || null;
     if (isValidIso(from) && isValidIso(to)) {
       const fromD = new Date(`${from}T00:00:00`);
       const toD   = new Date(`${to}T00:00:00`);
@@ -9786,6 +10115,7 @@ app.get("/api/reports/revenue", adminMiddleware, async (req, res) => {
                   COUNT(*) AS count
              FROM orders
             WHERE status = 'approved'
+              AND ($4::uuid IS NULL OR branch_id = $4)
               AND (created_at AT TIME ZONE 'America/Mexico_City') >= $1::date
               AND (created_at AT TIME ZONE 'America/Mexico_City') <  ($2::date + INTERVAL '1 day')
             GROUP BY 1
@@ -9796,7 +10126,7 @@ app.get("/api/reports/revenue", adminMiddleware, async (req, res) => {
            FROM buckets b
            LEFT JOIN orders_by_bucket o ON o.bucket_start = b.bucket_start
           ORDER BY b.bucket_start ASC`,
-        [from, to, trunc]
+        [from, to, trunc, branchId]
       );
       return res.json({ data: r.rows, granularity: trunc });
     }
@@ -9810,8 +10140,8 @@ app.get("/api/reports/revenue", adminMiddleware, async (req, res) => {
          SELECT DATE_TRUNC('month', created_at) AS month_start,
                 COALESCE(SUM(total_amount), 0) AS total,
                 COUNT(*) AS count
-           FROM orders
-          WHERE status = 'approved'
+         FROM orders
+          WHERE status = 'approved' AND ($1::uuid IS NULL OR branch_id = $1)
           GROUP BY 1
        )
        SELECT m.month_start AS month,
@@ -9820,7 +10150,7 @@ app.get("/api/reports/revenue", adminMiddleware, async (req, res) => {
          FROM months m
          LEFT JOIN orders_by_month o ON o.month_start = m.month_start
         ORDER BY m.month_start ASC`
-    );
+    , [branchId]);
     return res.json({ data: r.rows, granularity: "month" });
   } catch (err) {
     console.error("Reports/revenue error:", err);
@@ -9836,6 +10166,9 @@ app.get("/api/reports/revenue", adminMiddleware, async (req, res) => {
 
 app.get("/api/reports/classes", adminMiddleware, async (req, res) => {
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // Top class types by ACTIVE bookings (excludes cancelled, since those
     // never happened from a business standpoint).
     const r = await pool.query(
@@ -9844,13 +10177,15 @@ app.get("/api/reports/classes", adminMiddleware, async (req, res) => {
               COUNT(CASE WHEN b.status='checked_in' THEN 1 END)::INT AS attended
          FROM classes c
          JOIN class_types ct ON c.class_type_id = ct.id
-         LEFT JOIN bookings b
+        LEFT JOIN bookings b
            ON b.class_id = c.id
           AND b.status <> 'cancelled'
+        WHERE ($1::uuid IS NULL OR c.branch_id = $1)
         GROUP BY ct.name
        HAVING COUNT(b.id) > 0
         ORDER BY bookings DESC
-        LIMIT 10`
+        LIMIT 10`,
+      [branch?.id || null],
     );
     return res.json({ data: camelRows(r.rows) });
   } catch (err) {
@@ -9861,6 +10196,9 @@ app.get("/api/reports/classes", adminMiddleware, async (req, res) => {
 
 app.get("/api/reports/retention", adminMiddleware, async (req, res) => {
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // "newThisMonth" was using a rolling 30-day window which contradicted
     // the rest of the dashboard (calendar-month basis). Align it.
     const r = await pool.query(
@@ -9870,7 +10208,9 @@ app.get("/api/reports/retention", adminMiddleware, async (req, res) => {
                 THEN 1
               END) AS new_this_month
          FROM users
-        WHERE role='client' AND COALESCE(is_hidden,false)=false`
+        WHERE role='client' AND COALESCE(is_hidden,false)=false
+          AND ($1::uuid IS NULL OR EXISTS (SELECT 1 FROM memberships m WHERE m.user_id=users.id AND m.branch_id=$1))`,
+      [branch?.id || null],
     );
     return res.json({ data: camelRow(r.rows[0]) });
   } catch (err) {
@@ -9881,6 +10221,9 @@ app.get("/api/reports/retention", adminMiddleware, async (req, res) => {
 
 app.get("/api/reports/instructors", adminMiddleware, async (req, res) => {
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // Active bookings only; instructors with zero classes hidden by HAVING.
     const r = await pool.query(
       `SELECT i.id,
@@ -9890,9 +10233,11 @@ app.get("/api/reports/instructors", adminMiddleware, async (req, res) => {
          FROM instructors i
          LEFT JOIN classes  c ON c.instructor_id = i.id
          LEFT JOIN bookings b ON b.class_id = c.id
+        WHERE ($1::uuid IS NULL OR c.branch_id = $1)
         GROUP BY i.id, i.display_name
        HAVING COUNT(DISTINCT c.id) > 0
-        ORDER BY class_count DESC`
+        ORDER BY class_count DESC`,
+      [branch?.id || null],
     );
     return res.json({ data: camelRows(r.rows) });
   } catch (err) {
@@ -10202,8 +10547,7 @@ function calcMembershipEndDate(startStr, plan) {
   // las compras del día 26 en adelante vencen al fin del mes SIGUIENTE (gracia,
   // para que a quien compra a fin de mes no le queden 1-2 días). Los cargos
   // sueltos (1 clase) y la inscripción conservan su vigencia por días.
-  const classLimit = Number(plan.class_limit ?? plan.classLimit ?? 0);
-  if (classLimit >= 2) {
+  if (isPackagePlan(plan)) {
     const [y, m, d] = String(startStr).split("-").map(Number);
     if (d <= 25) return endOfPurchaseMonth(startStr);
     const ny = m === 12 ? y + 1 : y;       // del 26 en adelante → mes siguiente
@@ -10463,9 +10807,11 @@ async function notifyWaitlistPromotion(userId, classId) {
   try {
     const uRes = await pool.query("SELECT email, display_name, phone FROM users WHERE id = $1", [userId]);
     const cRes = await pool.query(
-      `SELECT c.date, c.start_time, ct.name AS class_type_name, i.display_name AS instructor_name
+      `SELECT c.date, c.start_time, ct.name AS class_type_name, i.display_name AS instructor_name,
+              br.name AS branch_name
          FROM classes c
          JOIN class_types ct ON c.class_type_id = ct.id
+         JOIN branches br ON c.branch_id = br.id
          LEFT JOIN instructors i ON c.instructor_id = i.id
         WHERE c.id = $1`,
       [classId]
@@ -10487,6 +10833,7 @@ async function notifyWaitlistPromotion(userId, classId) {
         instructor: cl.instructor_name,
         classesLeft: null,
         isWaitlist: false,
+        branchName: cl.branch_name,
       }).catch((e) => console.error("[Email] waitlist promoted:", e.message));
     }
     sendConfiguredWhatsAppTemplate({
@@ -11392,6 +11739,9 @@ app.delete("/api/homepage-video-cards/:id/video", adminMiddleware, async (req, r
 // GET /api/admin/stats
 app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // Fecha LOCAL de México (CST/CDT), no la UTC del servidor (Railway corre en UTC):
     // si no, un domingo por la noche en SLP ya es lunes UTC y "clases de hoy" contaría las del lunes.
     const mxParts = new Intl.DateTimeFormat("en-CA", {
@@ -11402,10 +11752,10 @@ app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
     const monthStart = `${mxPart("year")}-${mxPart("month")}-01`;
 
     const [classesToday, activeMembers, monthlyRevenue, pendingAlerts] = await Promise.all([
-      pool.query("SELECT COUNT(*) FROM classes WHERE date = $1", [today]),
-      pool.query("SELECT COUNT(*) FROM memberships WHERE status = 'active'"),
-      pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status = 'approved' AND created_at >= $1", [monthStart]),
-      pool.query("SELECT COUNT(*) FROM orders WHERE status = 'pending_verification'"),
+      pool.query("SELECT COUNT(*) FROM classes WHERE date = $1 AND ($2::uuid IS NULL OR branch_id = $2)", [today, branch?.id || null]),
+      pool.query("SELECT COUNT(*) FROM memberships WHERE status = 'active' AND ($1::uuid IS NULL OR branch_id = $1)", [branch?.id || null]),
+      pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status = 'approved' AND created_at >= $1 AND ($2::uuid IS NULL OR branch_id = $2)", [monthStart, branch?.id || null]),
+      pool.query("SELECT COUNT(*) FROM orders WHERE status = 'pending_verification' AND ($1::uuid IS NULL OR branch_id = $1)", [branch?.id || null]),
     ]);
 
     return res.json({
@@ -11413,6 +11763,7 @@ app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
       activeMembers: parseInt(activeMembers.rows[0].count),
       monthlyRevenue: parseFloat(monthlyRevenue.rows[0].total),
       pendingAlerts: parseInt(pendingAlerts.rows[0].count),
+      branch: branch ? camelRow(branch) : null,
     });
   } catch (err) {
     console.error("admin/stats error:", err);
@@ -11517,26 +11868,31 @@ app.post("/api/admin/users/:id/reset-password", adminMiddleware, async (req, res
 app.get("/api/memberships", adminMiddleware, async (req, res) => {
   try {
     const { status, userId, limit = 100 } = req.query;
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // start_date / end_date son DATE → pg los devuelve como Date UTC midnight,
     // que en CDMX (UTC-6) se ve como el día anterior. Casteamos a TEXT con
     // to_char para que el front reciba "YYYY-MM-DD" sin ambigüedad.
     let q = `SELECT m.id, m.user_id, m.plan_id, m.status, m.payment_method,
                     m.classes_remaining, m.bundle_parent_id, m.notes, m.created_at,
-                    m.order_id, m.discipline_credits,
+                    m.order_id, m.discipline_credits, m.branch_id,
+                    br.code AS branch_code, br.name AS branch_name,
                     to_char(m.start_date, 'YYYY-MM-DD') AS start_date,
                     to_char(m.end_date,   'YYYY-MM-DD') AS end_date,
                     u.display_name AS user_name,
                     p.name AS plan_name,
-                    p.class_limit, p.duration_days, p.class_category,
+                    p.class_limit, p.duration_days, p.class_category, p.program, p.plan_kind,
                     p.bundle_components,
                     (p.bundle_components IS NOT NULL
                        AND jsonb_typeof(p.bundle_components) = 'array'
                        AND jsonb_array_length(p.bundle_components) > 0) AS has_bundle_components
              FROM memberships m
+             JOIN branches br ON br.id = m.branch_id
              LEFT JOIN users u ON m.user_id = u.id
              LEFT JOIN plans p ON m.plan_id = p.id
-             WHERE 1=1`;
-    const params = [];
+             WHERE ($1::uuid IS NULL OR m.branch_id = $1)`;
+    const params = [branch?.id || null];
     if (userId) { params.push(userId); q += ` AND m.user_id = $${params.length}`; }
     if (status) { params.push(status); q += ` AND m.status = $${params.length}`; }
     params.push(parseInt(limit)); q += ` ORDER BY m.created_at DESC LIMIT $${params.length}`;
@@ -11548,6 +11904,11 @@ app.get("/api/memberships", adminMiddleware, async (req, res) => {
         userName: m.user_name ?? m.user_id,
         planId: m.plan_id,
         planName: m.plan_name ?? m.plan_id,
+        branchId: m.branch_id,
+        branchCode: m.branch_code,
+        branchName: m.branch_name,
+        program: normalizeProgram(m.program || m.class_category),
+        planKind: m.plan_kind,
         classCategory: m.class_category ?? "all",
         status: m.status,
         paymentMethod: m.payment_method,
@@ -11580,9 +11941,18 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
     const { userId, planId, paymentMethod: rawPM = "cash", startDate, complementType } = req.body;
     const paymentMethod = normalizePaymentMethod(rawPM);
     if (!userId || !planId) return res.status(400).json({ message: "userId y planId requeridos" });
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const planRes = await pool.query("SELECT * FROM plans WHERE id = $1 AND is_active = true", [planId]);
     if (!planRes.rows.length) return res.status(404).json({ message: "Plan no encontrado" });
     const plan = planRes.rows[0];
+    if (String(plan.branch_id) !== String(branch.id)) {
+      return res.status(400).json({ code: "PLAN_BRANCH_MISMATCH", message: "El plan no pertenece a la sucursal seleccionada." });
+    }
+    if (plan.plan_kind === "registration") {
+      await upsertEnrollment({ userId, branchId: branch.id, program: planProgram(plan), registrationPlanId: plan.id, paid: true });
+      return res.status(201).json({ data: { userId, branchId: branch.id, program: planProgram(plan), registrationPlanId: plan.id } });
+    }
 
     // Bundle plans (Combos) → create one child membership per component so
     // each discipline keeps its own classes_remaining. Reuses the same logic
@@ -11609,6 +11979,10 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
             return res.status(400).json({ message: `Plan componente del bundle no encontrado (${comp.planId})` });
           }
           const compPlan = compPlanRes.rows[0];
+          if (String(compPlan.branch_id) !== String(branch.id)) {
+            await dbClient.query("ROLLBACK");
+            return res.status(400).json({ message: "Todos los componentes del combo deben pertenecer a la misma sucursal." });
+          }
           const conflict = await findNonRepeatablePlanConflict({ userId, plan: compPlan, client: dbClient });
           if (conflict) {
             await dbClient.query("ROLLBACK");
@@ -11616,12 +11990,13 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
           }
           const ins = await dbClient.query(
             `INSERT INTO memberships
-               (user_id, plan_id, status, payment_method, start_date, end_date,
+               (user_id, plan_id, branch_id, status, payment_method, start_date, end_date,
                 classes_remaining, bundle_parent_id, notes)
-             VALUES ($1,$2,'active',$3,$4,$5,$6,$7,$8) RETURNING *`,
+             VALUES ($1,$2,$3,'active',$4,$5,$6,$7,$8,$9) RETURNING *`,
             [
               userId,
               compPlan.id,
+              branch.id,
               paymentMethod,
               startStr,
               endStr,
@@ -11660,9 +12035,9 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
     const compInfo = complementType ? COMPLEMENT_MAP[complementType] : null;
     const complementNote = compInfo ? `Complemento: ${compInfo.name} — ${compInfo.specialist}` : null;
     const r = await pool.query(
-      `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date, classes_remaining, notes)
-       VALUES ($1,$2,'active',$3,$4,$5,$6,$7) RETURNING *`,
-      [userId, planId, paymentMethod, startStr, endStr, plan.class_limit ?? null, complementNote]
+      `INSERT INTO memberships (user_id, plan_id, branch_id, status, payment_method, start_date, end_date, classes_remaining, notes)
+       VALUES ($1,$2,$3,'active',$4,$5,$6,$7,$8) RETURNING *`,
+      [userId, planId, branch.id, paymentMethod, startStr, endStr, plan.class_limit ?? null, complementNote]
     );
 
     // ── Create consultation if complement was selected ────────────────
@@ -11691,6 +12066,7 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
             startDate: new Date(startStr).toISOString(),
             endDate: new Date(endStr).toISOString(),
             classLimit: plan.class_limit ?? null,
+            branchName: branch.name,
           }).catch((e) => console.error("[Email] membership activated:", e.message));
         }
         sendConfiguredWhatsAppTemplate({
@@ -11758,7 +12134,7 @@ app.post("/api/memberships/bundle", adminMiddleware, async (req, res) => {
     await dbClient.query("BEGIN");
 
     const bundleRes = await dbClient.query(
-      "SELECT id, name, price, duration_days, starts_on, bundle_components FROM plans WHERE id = $1 AND is_active = true",
+      "SELECT id, branch_id, name, price, duration_days, starts_on, bundle_components FROM plans WHERE id = $1 AND is_active = true",
       [bundlePlanId]
     );
     if (!bundleRes.rows.length) {
@@ -11793,6 +12169,10 @@ app.post("/api/memberships/bundle", adminMiddleware, async (req, res) => {
         return res.status(400).json({ message: `Plan componente ${comp.planId} no encontrado` });
       }
       const compPlan = compPlanRes.rows[0];
+      if (String(compPlan.branch_id) !== String(bundle.branch_id)) {
+        await dbClient.query("ROLLBACK");
+        return res.status(400).json({ message: "Los componentes del bundle pertenecen a sucursales distintas." });
+      }
       const conflict = await findNonRepeatablePlanConflict({ userId, plan: compPlan, client: dbClient });
       if (conflict) {
         await dbClient.query("ROLLBACK");
@@ -11800,12 +12180,13 @@ app.post("/api/memberships/bundle", adminMiddleware, async (req, res) => {
       }
       const ins = await dbClient.query(
         `INSERT INTO memberships
-           (user_id, plan_id, status, payment_method, start_date, end_date,
+           (user_id, plan_id, branch_id, status, payment_method, start_date, end_date,
             classes_remaining, bundle_parent_id, notes)
-         VALUES ($1,$2,'active',$3,$4,$5,$6,$7,$8) RETURNING *`,
+         VALUES ($1,$2,$3,'active',$4,$5,$6,$7,$8,$9) RETURNING *`,
         [
           userId,
           compPlan.id,
+          bundle.branch_id,
           paymentMethod,
           startStr,
           endStr,
@@ -11844,7 +12225,8 @@ app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
     const r = await pool.query(
       `UPDATE memberships SET status = 'active', updated_at = NOW() WHERE id = $1
        RETURNING *, (SELECT name FROM plans WHERE id = memberships.plan_id) AS plan_name,
-                    (SELECT class_limit FROM plans WHERE id = memberships.plan_id) AS plan_class_limit`,
+                    (SELECT class_limit FROM plans WHERE id = memberships.plan_id) AS plan_class_limit,
+                    (SELECT name FROM branches WHERE id = memberships.branch_id) AS branch_name`,
       [req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
@@ -11863,6 +12245,7 @@ app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
             startDate: mem.start_date,
             endDate: mem.end_date,
             classLimit: mem.plan_class_limit ?? mem.class_limit_override ?? null,
+            branchName: mem.branch_name,
           }).catch((e) => console.error("[Email] membership activate:", e.message));
         }
         sendConfiguredWhatsAppTemplate({
@@ -12023,7 +12406,7 @@ app.post("/api/memberships/:id/split-bundle", adminMiddleware, async (req, res) 
   try {
     await dbClient.query("BEGIN");
     const memRes = await dbClient.query(
-      `SELECT m.id, m.user_id, m.status, m.start_date, m.end_date, m.payment_method,
+      `SELECT m.id, m.user_id, m.branch_id, m.status, m.start_date, m.end_date, m.payment_method,
               m.bundle_parent_id, p.id AS plan_id, p.name AS plan_name, p.bundle_components
          FROM memberships m
          JOIN plans p ON p.id = m.plan_id
@@ -12070,14 +12453,19 @@ app.post("/api/memberships/:id/split-bundle", adminMiddleware, async (req, res) 
         return res.status(400).json({ message: `Plan componente ${comp.planId} no encontrado` });
       }
       const compPlan = compPlanRes.rows[0];
+      if (String(compPlan.branch_id) !== String(m.branch_id)) {
+        await dbClient.query("ROLLBACK");
+        return res.status(400).json({ message: "Los componentes del bundle pertenecen a sucursales distintas." });
+      }
       const ins = await dbClient.query(
         `INSERT INTO memberships
-           (user_id, plan_id, status, payment_method, start_date, end_date,
+           (user_id, plan_id, branch_id, status, payment_method, start_date, end_date,
             classes_remaining, bundle_parent_id, notes)
-         VALUES ($1,$2,'active',$3,$4,$5,$6,$7,$8) RETURNING *`,
+         VALUES ($1,$2,$3,'active',$4,$5,$6,$7,$8,$9) RETURNING *`,
         [
           m.user_id,
           compPlan.id,
+          m.branch_id,
           m.payment_method || "transfer",
           startStr,
           endStr,
@@ -12231,7 +12619,7 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
     const {
       name, description, price, currency, durationDays, classLimit, classCategory,
       features, isActive, sortOrder, isNonTransferable, isNonRepeatable, repeatKey,
-      discountPrice, discount_price, time_restriction, timeRestriction,
+      discountPrice, discount_price, time_restriction, timeRestriction, code,
     } = req.body;
     const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "prenatal", "all"];
     const cat = validCats.includes(classCategory) ? classCategory : null;
@@ -12257,6 +12645,9 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
     const trProvided = Boolean(trKey);
     const trRaw = trKey ? req.body[trKey] : null;
     const tr = trProvided ? sanitizeTimeRestriction(trRaw) : null;
+    const programValue = req.body.program ? normalizeProgram(req.body.program) : null;
+    const kindRaw = req.body.planKind ?? req.body.plan_kind;
+    const planKindValue = kindRaw ? normalizePlanKind(kindRaw) : null;
     const r = await pool.query(
       `UPDATE plans SET name=$1, description=$2, price=$3, currency=$4, duration_days=$5,
        class_limit=$6, features=$7, is_active=$8, sort_order=$9,
@@ -12264,6 +12655,7 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
        is_non_transferable=$11, is_non_repeatable=$12, repeat_key=$13,
        discount_price=$15,
        time_restriction = CASE WHEN $17::boolean THEN $16::jsonb ELSE time_restriction END,
+       code=COALESCE($18,code), program=COALESCE($19,program), plan_kind=COALESCE($20,plan_kind),
        updated_at=NOW()
        WHERE id=$14 RETURNING *`,
       [
@@ -12284,6 +12676,9 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
         safeDiscount,
         tr ? JSON.stringify(tr) : null,
         trProvided,
+        code ? makePlanCode(code, name || "", programValue || "pilates") : null,
+        programValue,
+        planKindValue,
       ]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Plan no encontrado" });
@@ -12350,11 +12745,16 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
       name, description, price, currency = "MXN", durationDays = 30, classLimit,
       classCategory, features, isActive = true, sortOrder = 0,
       isNonTransferable, isNonRepeatable, repeatKey,
-      discountPrice, discount_price, time_restriction, timeRestriction,
+      discountPrice, discount_price, time_restriction, timeRestriction, code,
     } = req.body;
     if (!name) return res.status(400).json({ message: "Nombre requerido" });
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const validCats = ["reformer", "barre", "pilates", "bienestar", "funcional", "mixto", "prenatal", "all"];
     const cat = validCats.includes(classCategory) ? classCategory : "all";
+    const program = normalizeProgram(req.body.program || cat);
+    const planKind = normalizePlanKind(req.body.planKind ?? req.body.plan_kind, { name, classLimit });
+    const planCode = makePlanCode(code, name, program);
     const nonTransferable = parseBooleanFlag(isNonTransferable ?? req.body.is_non_transferable);
     const nonRepeatable = parseBooleanFlag(isNonRepeatable ?? req.body.is_non_repeatable);
     const safeRepeatKey = nonRepeatable
@@ -12370,11 +12770,11 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
     const tr = sanitizeTimeRestriction(time_restriction ?? timeRestriction);
     const r = await pool.query(
       `INSERT INTO plans
-        (name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, discount_price, time_restriction)
+        (branch_id, code, program, plan_kind, name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, discount_price, time_restriction)
        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
       [
-        name,
+        branch.id, planCode, program, planKind, name,
         description || null,
         price || 0,
         currency,
@@ -12404,14 +12804,21 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
 app.get("/api/bookings", adminMiddleware, async (req, res) => {
   try {
     const { status, classId, userId, limit = 100 } = req.query;
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     let q = `SELECT b.*, u.display_name AS user_name, (c.date || 'T' || c.start_time || '-06:00') AS start_time,
-                    to_char(c.date, 'YYYY-MM-DD') AS class_date, ct.name AS class_name
+                    to_char(c.date, 'YYYY-MM-DD') AS class_date, ct.name AS class_name,
+                    br.code AS branch_code, br.name AS branch_name,
+                    CASE WHEN LOWER(COALESCE(ct.category,'')) IN ('funcional','functional') THEN 'functional'
+                         WHEN LOWER(COALESCE(ct.category,'')) = 'prenatal' THEN 'prenatal' ELSE 'pilates' END AS program
              FROM bookings b
              LEFT JOIN users u ON b.user_id = u.id
              LEFT JOIN classes c ON b.class_id = c.id
+             LEFT JOIN branches br ON br.id = c.branch_id
              LEFT JOIN class_types ct ON c.class_type_id = ct.id
-             WHERE 1=1`;
-    const params = [];
+             WHERE ($1::uuid IS NULL OR c.branch_id = $1)`;
+    const params = [branch?.id || null];
     if (userId) { params.push(userId); q += ` AND b.user_id = $${params.length}`; }
     if (status) { params.push(status); q += ` AND b.status = $${params.length}`; }
     if (classId) { params.push(classId); q += ` AND b.class_id = $${params.length}`; }
@@ -12439,18 +12846,24 @@ app.get("/api/bookings", adminMiddleware, async (req, res) => {
 // GET /api/admin/clients/:id/reschedules — a client's reschedule history (newest first)
 app.get("/api/admin/clients/:id/reschedules", adminMiddleware, async (req, res) => {
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const r = await pool.query(
       `SELECT r.id, r.created_at,
               fc.date AS from_date, fc.start_time AS from_time, fct.name AS from_class,
-              tc.date AS to_date,   tc.start_time AS to_time,   tct.name AS to_class
+              tc.date AS to_date,   tc.start_time AS to_time,   tct.name AS to_class,
+              COALESCE(tc.branch_id, fc.branch_id) AS branch_id,
+              br.code AS branch_code, br.name AS branch_name
        FROM booking_reschedules r
        LEFT JOIN classes fc ON r.from_class_id = fc.id
        LEFT JOIN class_types fct ON fc.class_type_id = fct.id
        LEFT JOIN classes tc ON r.to_class_id = tc.id
        LEFT JOIN class_types tct ON tc.class_type_id = tct.id
-       WHERE r.user_id = $1
+       LEFT JOIN branches br ON br.id = COALESCE(tc.branch_id, fc.branch_id)
+       WHERE r.user_id = $1 AND ($2::uuid IS NULL OR COALESCE(tc.branch_id, fc.branch_id) = $2)
        ORDER BY r.created_at DESC`,
-      [req.params.id]
+      [req.params.id, branch?.id || null]
     );
     return res.json({ data: r.rows });
   } catch (err) {
@@ -12472,7 +12885,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     // time-windowed plans get blocked with their custom error message even when
     // the class is actually within the allowed window.
     const classRes = await client.query(
-      `SELECT c.id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
+      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
               ct.category AS class_category
        FROM classes c
        JOIN class_types ct ON c.class_type_id = ct.id
@@ -12493,6 +12906,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     const clsCategory = normalizeClassCategory(cls.class_category, "all");
     const membership = await selectMembershipForClass({
       userId,
+      branchId: cls.branch_id,
       classCategory: clsCategory,
       classDate: cls.date,
       classStartTime: cls.start_time,
@@ -12565,9 +12979,10 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
       const userRes = await pool.query("SELECT email, display_name, phone FROM users WHERE id = $1", [userId]);
       const classFullRes = await pool.query(
         `SELECT c.date, c.start_time, ct.name AS class_type_name,
-                i.display_name AS instructor_name
+                i.display_name AS instructor_name, br.name AS branch_name
          FROM classes c
          JOIN class_types ct ON c.class_type_id = ct.id
+         JOIN branches br ON c.branch_id = br.id
          LEFT JOIN instructors i ON c.instructor_id = i.id
          WHERE c.id = $1`,
         [classId]
@@ -12588,6 +13003,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
             instructor: cl.instructor_name,
             classesLeft,
             isWaitlist,
+            branchName: cl.branch_name,
           }).catch((e) => console.error("[Email] booking confirmed (admin):", e.message));
         }
         const waName = u.display_name || "Alumna";
@@ -12668,7 +13084,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
     await client.query("BEGIN");
 
     const slotRes = await client.query(
-      `SELECT ss.id, ss.time_slot, ss.day_of_week, ss.class_type_id, ss.class_type_name,
+      `SELECT ss.id, ss.branch_id, ss.time_slot, ss.day_of_week, ss.class_type_id, ss.class_type_name,
               ct.id AS resolved_ct_id, ct.category AS class_category
          FROM schedule_slots ss
          LEFT JOIN class_types ct
@@ -12704,13 +13120,14 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
       `SELECT c.id, c.date, c.start_time, c.current_bookings, c.max_capacity, c.status
          FROM classes c
         WHERE c.class_type_id = $1
+          AND c.branch_id = $5
           AND SUBSTRING(c.start_time::text, 1, 5) = $2
           AND EXTRACT(DOW FROM c.date) = $3
           AND c.date = ANY($4::date[])
           AND c.status = 'scheduled'
         ORDER BY c.date ASC
         FOR UPDATE`,
-      [classTypeId, startTime24, dayOfWeekSqlStyle, cleanDates]
+      [classTypeId, startTime24, dayOfWeekSqlStyle, cleanDates, slot.branch_id]
     );
 
     const allCandidates = candidatesRes.rows;
@@ -12771,6 +13188,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
          FROM memberships m
          LEFT JOIN plans p ON p.id = m.plan_id
         WHERE m.user_id = $1
+          AND m.branch_id = $5
           AND m.status = 'active'
           AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
           AND COALESCE(p.class_category, 'all') = ANY($4::text[])
@@ -12786,7 +13204,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
           m.created_at ASC
         LIMIT 1
         FOR UPDATE OF m`,
-      [userId, clsCategory, needed, compatibleCategories]
+      [userId, clsCategory, needed, compatibleCategories, slot.branch_id]
     );
     const membership = memRes.rows[0];
     // Filter bookable by membership time-restriction (e.g. Morning Pass).
@@ -13127,7 +13545,12 @@ app.post("/api/admin/classes/:id/walkin", adminMiddleware, async (req, res) => {
 
     await client.query("BEGIN");
 
-    const cls = await client.query("SELECT id, current_bookings, max_capacity, status FROM classes WHERE id = $1 FOR UPDATE", [classId]);
+    const cls = await client.query(
+      `SELECT c.id, c.branch_id, c.current_bookings, c.max_capacity, c.status, ct.category AS class_category
+         FROM classes c JOIN class_types ct ON ct.id = c.class_type_id
+        WHERE c.id = $1 FOR UPDATE OF c`,
+      [classId],
+    );
     if (!cls.rows.length) { await client.query("ROLLBACK"); return res.status(404).json({ message: "Clase no encontrada" }); }
     const c = cls.rows[0];
     if (c.status === "cancelled") { await client.query("ROLLBACK"); return res.status(400).json({ message: "Esta clase fue cancelada" }); }
@@ -13135,6 +13558,15 @@ app.post("/api/admin/classes/:id/walkin", adminMiddleware, async (req, res) => {
 
     const guestName = String(name).trim();
     const guestPhone = phone ? normalizePhoneForStorage(String(phone).trim()) : null;
+    const program = programForClassCategory(c.class_category);
+    if (planId) {
+      const selectedPlan = await client.query("SELECT branch_id, program FROM plans WHERE id = $1 AND is_active = true", [planId]);
+      if (!selectedPlan.rows.length || String(selectedPlan.rows[0].branch_id) !== String(c.branch_id)
+        || normalizeProgram(selectedPlan.rows[0].program) !== program) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ message: "El plan de walk-in no corresponde a la sucursal y programa de la clase." });
+      }
+    }
 
     // Create order if payment info provided
     let orderId = null;
@@ -13142,11 +13574,11 @@ app.post("/api/admin/classes/:id/walkin", adminMiddleware, async (req, res) => {
     if (Number.isFinite(amt) && amt > 0) {
       const paymentMethod = normalizePaymentMethod(rawPM || "cash");
       const orderRes = await client.query(
-        `INSERT INTO orders (user_id, plan_id, status, payment_method, subtotal, total_amount,
+        `INSERT INTO orders (user_id, plan_id, branch_id, program, status, payment_method, subtotal, total_amount,
                              guest_name, guest_phone, channel, paid_at, approved_at, approved_by, verified_at, verified_by)
-         VALUES (NULL, $1, 'approved', $2, $3, $3, $4, $5, 'walkin', NOW(), NOW(), $6, NOW(), $6)
+         VALUES (NULL, $1, $2, $3, 'approved', $4, $5, $5, $6, $7, 'walkin', NOW(), NOW(), $8, NOW(), $8)
          RETURNING id`,
-        [planId || null, paymentMethod, amt, guestName, guestPhone, req.userId || null]
+        [planId || null, c.branch_id, program, paymentMethod, amt, guestName, guestPhone, req.userId || null]
       );
       orderId = orderRes.rows[0].id;
     }
@@ -13175,15 +13607,21 @@ app.get("/api/admin/walkins/by-phone", adminMiddleware, async (req, res) => {
   if (!raw) return res.json({ data: [] });
   const normalized = normalizePhoneForStorage(raw);
   try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     const r = await pool.query(
       `SELECT o.id, o.total_amount, o.payment_method, o.paid_at, o.created_at,
-              o.guest_name, o.guest_phone,
+              o.guest_name, o.guest_phone, o.branch_id, o.program,
+              br.code AS branch_code, br.name AS branch_name,
               p.name AS plan_name
        FROM orders o
+       JOIN branches br ON br.id = o.branch_id
        LEFT JOIN plans p ON p.id = o.plan_id
        WHERE o.user_id IS NULL AND o.guest_phone = $1
+         AND ($2::uuid IS NULL OR o.branch_id = $2)
        ORDER BY o.created_at DESC`,
-      [normalized]
+      [normalized, branch?.id || null]
     );
     return res.json({ data: r.rows.map(camelRow) });
   } catch (err) {
@@ -13334,6 +13772,14 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
       const planRes = await client.query("SELECT * FROM plans WHERE id = $1 AND is_active = true", [planId]);
       if (!planRes.rows.length) { await client.query("ROLLBACK"); return res.status(404).json({ message: "Plan no encontrado" }); }
       const plan = planRes.rows[0];
+      const branch = await resolveRequestBranch(req, client);
+      if (!branch || String(plan.branch_id) !== String(branch.id)) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ code: "PLAN_BRANCH_MISMATCH", message: "El plan no pertenece a la sucursal seleccionada." });
+      }
+      if (plan.plan_kind === "registration") {
+        await upsertEnrollment({ userId: user.id, branchId: branch.id, program: planProgram(plan), registrationPlanId: plan.id, paid: true, client });
+      } else {
       const nonRepeatableConflict = await findNonRepeatablePlanConflict({ userId: user.id, plan, client });
       if (nonRepeatableConflict) {
         await client.query("ROLLBACK");
@@ -13345,11 +13791,11 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
       );
       const endStr = calcMembershipEndDate(startStr, plan);
       const memRes = await client.query(
-        `INSERT INTO memberships (user_id, plan_id, status, payment_method, start_date, end_date,
+        `INSERT INTO memberships (user_id, plan_id, branch_id, status, payment_method, start_date, end_date,
           classes_remaining, notes)
-         VALUES ($1,$2,'active',$3,$4,$5,$6,$7) RETURNING *`,
-        [user.id, plan.id, paymentMethod, startStr, endStr,
-        plan.class_limit === 0 ? null : plan.class_limit,
+         VALUES ($1,$2,$3,'active',$4,$5,$6,$7,$8) RETURNING *`,
+        [user.id, plan.id, branch.id, paymentMethod, startStr, endStr,
+        plan.class_limit,
         (complementType ? `${notes || "Alta manual por admin"} | Complemento: ${complementType}` : notes || `Alta manual por admin`)]
       );
       membership = camelRow(memRes.rows[0]);
@@ -13362,6 +13808,7 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
            VALUES ($1, $2, $3, $4, $5, 'pending')`,
           [memRes.rows[0].id, user.id, complementType, compInfo.name, compInfo.specialist]
         ).catch((e) => console.error("[consultations] insert error:", e.message));
+      }
       }
     }
 
@@ -13431,6 +13878,9 @@ app.post("/api/admin/clients/manual", adminMiddleware, async (req, res) => {
 app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
   try {
     const { status, limit = 100 } = req.query;
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // Check if complements table exists to avoid JOIN errors
     let hasComplements = false;
     try {
@@ -13438,23 +13888,26 @@ app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
       hasComplements = true;
     } catch (_) {}
     let q = `SELECT o.*, u.display_name AS user_name, p.name AS plan_name,
+                    br.code AS branch_code, br.name AS branch_name,
                     pp.file_url AS proof_url, pp.status AS proof_status, pp.uploaded_at AS proof_uploaded_at,
                     COALESCE((
                       SELECT json_agg(json_build_object(
                                'plan_id', i.plan_id, 'plan_name', ip.name,
-                               'quantity', i.quantity, 'unit_price', i.unit_price, 'line_total', i.line_total
+                               'quantity', i.quantity, 'unit_price', i.unit_price, 'line_total', i.line_total,
+                               'branch_id', i.branch_id, 'program', i.program
                              ) ORDER BY i.created_at)
                       FROM order_plan_items i JOIN plans ip ON ip.id = i.plan_id
                       WHERE i.order_id = o.id
                     ), '[]'::json) AS items
                     ${hasComplements ? ", comp.name AS complement_name, comp.specialist AS complement_specialist" : ""}
              FROM orders o
+             JOIN branches br ON br.id = o.branch_id
              LEFT JOIN users u ON o.user_id = u.id
              LEFT JOIN plans p ON o.plan_id = p.id
              LEFT JOIN payment_proofs pp ON pp.order_id = o.id
              ${hasComplements ? "LEFT JOIN complements comp ON o.complement_id = comp.id" : ""}
-             WHERE 1=1`;
-    const params = [];
+             WHERE ($1::uuid IS NULL OR o.branch_id = $1)`;
+    const params = [branch?.id || null];
     if (status) { params.push(status); q += ` AND o.status = $${params.length}`; }
     params.push(parseInt(limit)); q += ` ORDER BY o.created_at DESC LIMIT $${params.length}`;
     const r = await pool.query(q, params);
@@ -13464,6 +13917,10 @@ app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
         userName: o.user_name,
         userId: o.user_id,
         planName: o.plan_name,
+        branchId: o.branch_id,
+        branchCode: o.branch_code,
+        branchName: o.branch_name,
+        program: o.program,
         items: o.items,
         proofUrl: o.proof_url,
         proofStatus: o.proof_status,
@@ -13565,12 +14022,17 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
 
     let plan = null;
     if (order.plan_id) {
-      const planRes = await pool.query("SELECT * FROM plans WHERE id = $1", [order.plan_id]);
+      const planRes = await pool.query(
+        `SELECT p.*, br.name AS branch_name
+           FROM plans p JOIN branches br ON br.id = p.branch_id
+          WHERE p.id = $1`,
+        [order.plan_id],
+      );
       if (planRes.rows.length) plan = planRes.rows[0];
     }
 
     // Email: membership activated
-    if (justApproved && order.user_id && plan) {
+    if (justApproved && order.user_id && plan && plan.plan_kind !== "registration") {
       try {
         const membershipDate = mexicoCityDate();
         const emailEndStr = calcMembershipEndDate(membershipDate, plan);
@@ -13585,6 +14047,7 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
               startDate: membershipDate,
               endDate: emailEndStr,
               classLimit: plan.class_limit ?? null,
+              branchName: plan.branch_name,
             }).catch((e) => console.error("[Email] admin order verify:", e.message));
           }
           sendConfiguredWhatsAppTemplate({
@@ -13822,7 +14285,13 @@ app.put("/api/admin/orders/:id/reject", adminMiddleware, async (req, res) => {
           try {
             const { sendOrderRejected } = await import("./emailService.js").catch(() => ({}));
             if (typeof sendOrderRejected === "function") {
-              await sendOrderRejected({ to: u.email, name: userName, reason: rejectionReason });
+              const branchRes = await pool.query("SELECT name FROM branches WHERE id = $1", [order.branch_id]);
+              await sendOrderRejected({
+                to: u.email,
+                name: userName,
+                reason: rejectionReason,
+                branchName: branchRes.rows[0]?.name || "Villa Magna",
+              });
             }
           } catch (emailErr) {
             console.error("[Reject Email]", emailErr.message);
@@ -13863,7 +14332,11 @@ app.post("/api/admin/orders/:id/sync-mp", adminMiddleware, async (req, res) => {
 app.get("/api/payments", adminMiddleware, async (req, res) => {
   try {
     const { startDate, endDate, userId, limit = 200 } = req.query;
-    const params = [];
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const params = [branch?.id || null];
+    const branchIdx = 1;
     let startIdx = null;
     let endIdx = null;
     let userIdx = null;
@@ -13875,6 +14348,10 @@ app.get("/api/payments", adminMiddleware, async (req, res) => {
       SELECT
         o.id,
         o.user_id,
+        o.branch_id,
+        br.code AS branch_code,
+        br.name AS branch_name,
+        o.program,
         COALESCE(u.display_name, o.guest_name) AS user_name,
         COALESCE(p.name, 'Clase suelta') AS plan_name,
         o.total_amount,
@@ -13893,15 +14370,17 @@ app.get("/api/payments", adminMiddleware, async (req, res) => {
         COALESCE((
           SELECT json_agg(json_build_object(
                    'plan_id', i.plan_id, 'plan_name', ip.name,
-                   'quantity', i.quantity, 'unit_price', i.unit_price, 'line_total', i.line_total
+                   'quantity', i.quantity, 'unit_price', i.unit_price, 'line_total', i.line_total,
+                   'branch_id', i.branch_id, 'program', i.program
                  ) ORDER BY i.created_at)
           FROM order_plan_items i JOIN plans ip ON ip.id = i.plan_id
           WHERE i.order_id = o.id
         ), '[]'::json) AS items
       FROM orders o
+      JOIN branches br ON br.id = o.branch_id
       LEFT JOIN users u ON o.user_id = u.id
       LEFT JOIN plans p ON o.plan_id = p.id
-      WHERE o.status = 'approved'`;
+      WHERE o.status = 'approved' AND ($${branchIdx}::uuid IS NULL OR o.branch_id = $${branchIdx})`;
     if (startIdx) q += ` AND o.created_at >= $${startIdx}`;
     if (endIdx) q += ` AND o.created_at <= $${endIdx}`;
     if (userIdx) q += ` AND o.user_id = $${userIdx}`;
@@ -13911,6 +14390,10 @@ app.get("/api/payments", adminMiddleware, async (req, res) => {
       SELECT
         m.id,
         m.user_id,
+        m.branch_id,
+        br.code AS branch_code,
+        br.name AS branch_name,
+        COALESCE(p.program, 'pilates') AS program,
         u.display_name AS user_name,
         p.name AS plan_name,
         p.price AS total_amount,
@@ -13928,9 +14411,10 @@ app.get("/api/payments", adminMiddleware, async (req, res) => {
         m.payment_method,
         '[]'::json AS items
       FROM memberships m
+      JOIN branches br ON br.id = m.branch_id
       LEFT JOIN users u ON m.user_id = u.id
       LEFT JOIN plans p ON m.plan_id = p.id
-      WHERE m.order_id IS NULL`;
+      WHERE m.order_id IS NULL AND ($${branchIdx}::uuid IS NULL OR m.branch_id = $${branchIdx})`;
     if (startIdx) mq += ` AND m.created_at >= $${startIdx}`;
     if (endIdx) mq += ` AND m.created_at <= $${endIdx}`;
     if (userIdx) mq += ` AND m.user_id = $${userIdx}`;
@@ -14513,33 +14997,45 @@ app.get("/api/admin/reports", adminMiddleware, async (req, res) => {
     const mexicoToday = mexicoCityDate();
     const start = startDate || `${mexicoToday.slice(0, 7)}-01`;
     const end = endDate || mexicoToday;
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const reportParams = [start, end, branch?.id || null];
 
     const [revenue, newClients, bookings, topPlans] = await Promise.all([
       pool.query(
-        "SELECT COALESCE(SUM(total_amount),0) AS total, COUNT(*) AS count FROM orders WHERE status='approved' AND created_at BETWEEN $1 AND $2",
-        [start, end]
+        "SELECT COALESCE(SUM(total_amount),0) AS total, COUNT(*) AS count FROM orders WHERE status='approved' AND created_at BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR branch_id = $3)",
+        reportParams
       ),
       pool.query(
-        "SELECT COUNT(*) FROM users WHERE role='client' AND COALESCE(is_hidden,false)=false AND created_at BETWEEN $1 AND $2",
-        [start, end]
+        `SELECT COUNT(*) FROM users u
+          WHERE u.role='client' AND COALESCE(u.is_hidden,false)=false AND u.created_at BETWEEN $1 AND $2
+            AND ($3::uuid IS NULL OR EXISTS (
+              SELECT 1 FROM memberships m WHERE m.user_id = u.id AND m.branch_id = $3
+              UNION ALL SELECT 1 FROM orders o WHERE o.user_id = u.id AND o.branch_id = $3
+            ))`,
+        reportParams
       ),
       pool.query(
-        "SELECT COUNT(*) AS total, COUNT(CASE WHEN status='checked_in' THEN 1 END) AS attended FROM bookings WHERE created_at BETWEEN $1 AND $2",
-        [start, end]
+        `SELECT COUNT(*) AS total, COUNT(CASE WHEN b.status='checked_in' THEN 1 END) AS attended
+           FROM bookings b JOIN classes c ON c.id = b.class_id
+          WHERE b.created_at BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR c.branch_id = $3)`,
+        reportParams
       ),
       pool.query(
         `SELECT p.name, COUNT(m.id) AS sales, SUM(o.total_amount) AS revenue
          FROM memberships m
          JOIN plans p ON m.plan_id = p.id
          LEFT JOIN orders o ON o.plan_id = p.id AND o.status = 'approved'
-         WHERE m.created_at BETWEEN $1 AND $2
+         WHERE m.created_at BETWEEN $1 AND $2 AND ($3::uuid IS NULL OR m.branch_id = $3)
          GROUP BY p.name ORDER BY sales DESC LIMIT 5`,
-        [start, end]
+        reportParams
       ),
     ]);
 
     return res.json({
       period: { start, end },
+      branch: branch ? camelRow(branch) : null,
       revenue: { total: parseFloat(revenue.rows[0].total), count: parseInt(revenue.rows[0].count) },
       newClients: parseInt(newClients.rows[0].count),
       bookings: { total: parseInt(bookings.rows[0].total), attended: parseInt(bookings.rows[0].attended) },
@@ -14557,12 +15053,19 @@ app.get("/api/admin/reports", adminMiddleware, async (req, res) => {
 app.get("/api/admin/classes", adminMiddleware, async (req, res) => {
   try {
     const { startDate, endDate, instructorId } = req.query;
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // Same aggregate-once shape as /api/classes — avoids the per-row
     // correlated subquery that, combined with the missing index, was
     // tipping this endpoint into 503s under load.
-    let q = `SELECT c.*, ct.name AS class_type_name, i.display_name AS instructor_name,
+    let q = `SELECT c.*, ct.name AS class_type_name, ct.category AS class_category,
+             i.display_name AS instructor_name, br.code AS branch_code, br.name AS branch_name,
+             CASE WHEN LOWER(COALESCE(ct.category, '')) IN ('funcional','functional') THEN 'functional'
+                  WHEN LOWER(COALESCE(ct.category, '')) = 'prenatal' THEN 'prenatal' ELSE 'pilates' END AS program,
              COALESCE(b_agg.cnt, 0)::int AS current_bookings
              FROM classes c
+             JOIN branches br ON br.id = c.branch_id
              LEFT JOIN class_types ct ON c.class_type_id = ct.id
              LEFT JOIN instructors i ON c.instructor_id = i.id
              LEFT JOIN (
@@ -14571,8 +15074,8 @@ app.get("/api/admin/classes", adminMiddleware, async (req, res) => {
                WHERE status IN ('confirmed','checked_in')
                GROUP BY class_id
              ) b_agg ON b_agg.class_id = c.id
-             WHERE 1=1`;
-    const params = [];
+             WHERE ($1::uuid IS NULL OR c.branch_id = $1)`;
+    const params = [branch?.id || null];
     if (startDate) { params.push(startDate); q += ` AND c.date >= $${params.length}`; }
     if (endDate) { params.push(endDate); q += ` AND c.date <= $${params.length}`; }
     if (instructorId) { params.push(instructorId); q += ` AND c.instructor_id = $${params.length}`; }
@@ -14589,6 +15092,8 @@ app.post("/api/admin/classes", adminMiddleware, async (req, res) => {
   try {
     const { classTypeId, instructorId, startTime, endTime, capacity = 10, maxCapacity, notes } = req.body;
     if (!classTypeId || !startTime) return res.status(400).json({ message: "classTypeId y startTime requeridos" });
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // Parse start ISO into date + time parts (matches /api/classes endpoint)
     const startDate = new Date(startTime);
     const dateStr = startDate.toISOString().slice(0, 10);
@@ -14596,9 +15101,9 @@ app.post("/api/admin/classes", adminMiddleware, async (req, res) => {
     const endTimeStr = endTime ? new Date(endTime).toISOString().slice(11, 19) : null;
     const cap = Number(maxCapacity ?? capacity);
     const r = await pool.query(
-      `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'scheduled') RETURNING *`,
-      [classTypeId, instructorId || null, dateStr, startTimeStr, endTimeStr, cap, notes || null]
+      `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled') RETURNING *`,
+      [branch.id, classTypeId, instructorId || null, dateStr, startTimeStr, endTimeStr, cap, notes || null]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {
@@ -14643,6 +15148,8 @@ app.post("/api/admin/classes/generate", adminMiddleware, async (req, res) => {
     const { startDate, endDate, instructorId } = req.body;
     if (!startDate || !endDate) return res.status(400).json({ message: "startDate y endDate requeridos" });
     if (!instructorId) return res.status(400).json({ message: "instructorId requerido" });
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // Get schedule slots
     const slotsRes = await pool.query("SELECT * FROM schedule_templates WHERE is_active = true");
     const slots = slotsRes.rows;
@@ -14669,14 +15176,14 @@ app.post("/api/admin/classes/generate", adminMiddleware, async (req, res) => {
         if (!ct) continue;
         // Check no duplicate
         const exists = await pool.query(
-          "SELECT id FROM classes WHERE date = $1 AND start_time = $2 AND class_type_id = $3",
-          [classDate, startTimeValue, ct.id]
+          "SELECT id FROM classes WHERE branch_id = $4 AND date = $1 AND start_time = $2 AND class_type_id = $3",
+          [classDate, startTimeValue, ct.id, branch.id]
         );
         if (exists.rows.length) continue;
         const r = await pool.query(
-          `INSERT INTO classes (class_type_id, instructor_id, date, start_time, end_time, max_capacity, status)
-           VALUES ($1,$2,$3,$4,$5,10,'scheduled') RETURNING *`,
-          [ct.id, instructorId, classDate, startTimeValue, endTimeValue]
+          `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, status)
+           VALUES ($1,$2,$3,$4,$5,$6,10,'scheduled') RETURNING *`,
+          [branch.id, ct.id, instructorId, classDate, startTimeValue, endTimeValue]
         );
         created.push(r.rows[0]);
       }
@@ -15717,9 +16224,10 @@ async function runWeeklyReminderCron() {
   try {
     const res = await pool.query(`
       SELECT u.email, COALESCE(u.display_name, 'Alumna') AS name,
-             m.classes_remaining, m.end_date
+             m.classes_remaining, m.end_date, br.name AS branch_name
       FROM memberships m
       JOIN users u ON m.user_id = u.id
+      JOIN branches br ON m.branch_id = br.id
       WHERE m.status = 'active'
         AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
     `);
@@ -15730,6 +16238,7 @@ async function runWeeklyReminderCron() {
         name: row.name,
         classesLeft: row.classes_remaining,
         endDate: row.end_date,
+        branchName: row.branch_name,
       }).catch((e) => console.error("[Email] weekly cron:", e.message));
       // Small delay to avoid rate limits
       await new Promise((r) => setTimeout(r, 200));
@@ -15769,9 +16278,11 @@ async function runRenewalReminderCron() {
              m.classes_remaining, m.end_date,
              COALESCE(m.class_limit_override, p.class_limit) AS effective_class_limit,
              (m.end_date - CURRENT_DATE) AS days_remaining,
-             COALESCE(p.name, m.plan_name_override, 'Tu membresía') AS plan_name
+             COALESCE(p.name, m.plan_name_override, 'Tu membresía') AS plan_name,
+             br.name AS branch_name
       FROM memberships m
       JOIN users u ON m.user_id = u.id
+      JOIN branches br ON m.branch_id = br.id
       LEFT JOIN plans p ON m.plan_id = p.id
       WHERE m.status = 'active'
         AND u.receive_reminders IS NOT FALSE
@@ -15812,6 +16323,7 @@ async function runRenewalReminderCron() {
         classesLeft: row.classes_remaining,
         endDate: row.end_date,
         reason: row.reason,
+        branchName: row.branch_name,
       }).catch((e) => console.error("[Email] renewal cron:", e.message));
       // WhatsApp renewal reminder
       sendConfiguredWhatsAppTemplate({

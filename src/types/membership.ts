@@ -8,6 +8,10 @@ export interface ClientMembership {
   classesRemaining: number | null;
   classLimit: number | null;
   paymentMethod?: string;
+  branchId?: string;
+  branchCode?: string;
+  branchName?: string;
+  program?: string;
   // snake_case aliases kept for backwards compat
   plan_id?: string;
   plan_name?: string;
@@ -15,4 +19,7 @@ export interface ClientMembership {
   end_date?: string;
   classes_remaining?: number | null;
   class_limit?: number | null;
+  branch_id?: string;
+  branch_code?: string;
+  branch_name?: string;
 }

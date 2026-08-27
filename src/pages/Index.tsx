@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuthStore } from "@/stores/authStore";
 import Schedule from "@/components/Schedule";
+import { BranchSelector } from "@/components/BranchSelector";
+import { getEntityBranchCode, getEntityProgram, useBranch } from "@/hooks/useBranch";
 import {
   Sparkles, Clock, MapPin, Phone, Instagram,
   ArrowUpRight, Menu, X, Heart, Users, Star,
@@ -31,6 +33,7 @@ type PackageRow = {
   id: string; name: string; num_classes: string; price: number;
   discount_price?: number; category: string; validity_days: number;
   is_active: boolean; sort_order: number;
+  branch_id?: string; branch_code?: string; branch_name?: string; program?: string;
 };
 
 /* ───── Datos reales Tu Espacio Pilates VM ───── */
@@ -70,6 +73,12 @@ const PAQUETES = [
   { id: "p1", name: "7 clases", plan: "Paquete 7 Clases", classes: 7, price: 880, hint: "1 a 2 por semana" },
   { id: "p2", name: "9 clases", plan: "Paquete 9 Clases", classes: 9, price: 1050, hint: "2 por semana", popular: true },
   { id: "p3", name: "14 clases", plan: "Paquete 14 Clases", classes: 14, price: 1400, hint: "3+ por semana", best: true },
+] as const;
+
+const PAQUETES_FUNCIONAL = [
+  { id: "f1", name: "7 clases", classes: 7, price: 780, hint: "Paquete mensual" },
+  { id: "f2", name: "9 clases", classes: 9, price: 890, hint: "Paquete mensual", popular: true },
+  { id: "f3", name: "Ilimitado", classes: null, price: 1050, hint: "Acceso mensual", best: true },
 ] as const;
 
 /* Cargos puntuales */
@@ -119,16 +128,23 @@ const Index = () => {
   const [navScrolled, setNavScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [classTypes, setClassTypes] = useState<ClassTypeRow[]>(FALLBACK_CLASS_TYPES);
-  const [livePlans, setLivePlans] = useState<{ name: string; price: number }[]>([]);
+  const [livePlans, setLivePlans] = useState<any[]>([]);
+  const { branch, branchCode } = useBranch();
+  const branchId = branch.id;
   const priceByName = useMemo(
     () => Object.fromEntries(livePlans.map((p) => [p.name, Number(p.price)])),
     [livePlans],
   );
+  const prenatalPlan = livePlans.find((plan) => getEntityProgram(plan) === "prenatal");
 
   const navigate = useNavigate();
   const { isAuthenticated, user, logout } = useAuthStore();
   const isAdmin = ["admin", "super_admin", "instructor", "reception"].includes(user?.role ?? "");
-  const ctaPath = isAuthenticated ? (isAdmin ? "/admin/dashboard" : "/app/checkout") : "/auth/register";
+  const ctaPath = isAuthenticated ? (isAdmin ? "/admin/dashboard" : `/app/checkout?branch=${branchCode}&program=pilates`) : "/auth/register";
+  const purchasePath = (program: "pilates" | "functional" | "prenatal") =>
+    isAuthenticated
+      ? isAdmin ? "/admin/dashboard" : `/app/checkout?branch=${branchCode}&program=${program}`
+      : "/auth/register";
 
   useEffect(() => {
     const onScroll = () => setNavScrolled(window.scrollY > 32);
@@ -137,14 +153,22 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
-    api.get<{ data: ClassTypeRow[] }>("/admin/class-types").then(({ data }) => {
+    api.get<{ data: ClassTypeRow[] }>("/admin/class-types", { params: { branch: branchCode } }).then(({ data }) => {
       const rows = Array.isArray(data?.data) ? data.data.filter((c: any) => c.is_active) : [];
       if (rows.length > 0) setClassTypes(rows);
     }).catch(() => {});
-    api.get("/plans").then(({ data }) => {
-      setLivePlans(Array.isArray(data?.data) ? data.data : []);
+    api.get("/plans", { params: { branch: branchCode } }).then(({ data }) => {
+      const rows = Array.isArray(data?.data) ? data.data : [];
+      setLivePlans(rows.filter((plan: any) => {
+        const planBranchId = plan?.branchId ?? plan?.branch_id ?? plan?.branch?.id;
+        const planBranchCode = getEntityBranchCode(plan);
+        if (planBranchCode) return planBranchCode === branchCode;
+        if (planBranchId) return String(planBranchId) === String(branchId);
+        const hasBranch = plan?.branchId || plan?.branch_id || plan?.branchCode || plan?.branch_code || plan?.branch_name;
+        return !hasBranch && branchCode === "pozos" && getEntityProgram(plan) === "pilates";
+      }));
     }).catch(() => {});
-  }, []);
+  }, [branchCode, branchId]);
 
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
@@ -368,7 +392,7 @@ const Index = () => {
         <div className="absolute inset-0">
           <img
             src={heroCoachMirror}
-            alt="Clase de reformer en Tu Espacio Pilates Villa Magna"
+            alt={`Clase en Tu Espacio, sucursal ${branch.name}`}
             className="w-full h-full object-cover"
             style={{ objectPosition: "center 42%", filter: "saturate(0.82) contrast(1.02)" }}
             loading="eager"
@@ -391,7 +415,7 @@ const Index = () => {
 
             <p className="flex items-center text-[0.7rem] tracking-[0.28em] uppercase text-valiance-nude/80 font-body mb-7 reveal opacity-0 translate-y-6 transition-all duration-700 delay-100">
               <span className="inline-block w-7 h-px bg-valiance-gold mr-3" />
-              Pilates boutique · Villa Magna, SLP
+              {branchCode === "pozos" ? "Pilates y Funcional · Pozos, SLP" : "Pilates boutique · Villa Magna, SLP"}
             </p>
 
             <h1
@@ -646,10 +670,14 @@ const Index = () => {
             </p>
           </div>
 
+          <div className="mb-10 max-w-md rounded-2xl border border-valiance-charcoal/8 bg-valiance-nude p-4 shadow-valiance-soft">
+            <BranchSelector label="Consulta precios por sucursal" />
+          </div>
+
           {/* PAQUETES MENSUALES */}
           <div className="reveal opacity-0 translate-y-6 transition-all duration-700 mb-14">
             <div className="flex items-baseline justify-between mb-6 flex-wrap gap-3">
-              <h3 className="font-display text-[1.9rem] text-valiance-charcoal">Paquetes mensuales</h3>
+              <h3 className="font-display text-[1.9rem] text-valiance-charcoal">Paquetes Pilates en {branch.name}</h3>
               <span className="text-[0.8rem] text-valiance-mauve font-body">grupos de 8 · 55 minutos</span>
             </div>
 
@@ -701,7 +729,7 @@ const Index = () => {
                       ${(price / p.classes).toFixed(0)} por clase
                     </div>
                     <button
-                      onClick={() => navigate(ctaPath)}
+                      onClick={() => navigate(purchasePath("pilates"))}
                       className={`relative mt-auto pt-6 w-full block text-[0.76rem] font-medium tracking-[0.06em] uppercase active:scale-[0.98] transition-transform`}
                     >
                       <span
@@ -722,6 +750,67 @@ const Index = () => {
             </div>
           </div>
 
+          {branchCode === "pozos" && (
+            <div className="reveal opacity-0 translate-y-6 transition-all duration-700 mb-14">
+              <div className="mb-6 flex flex-wrap items-baseline justify-between gap-3">
+                <div>
+                  <h3 className="font-display text-[1.9rem] text-valiance-charcoal">Funcional en Pozos</h3>
+                  <p className="mt-1 text-[0.8rem] text-valiance-mauve font-body">Programa exclusivo de esta sucursal</p>
+                </div>
+                <span className="text-[0.8rem] text-valiance-mauve font-body">inscripción $300 MXN</span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-5">
+                {PAQUETES_FUNCIONAL.map((fallback) => {
+                  const live = livePlans.find((plan) => {
+                    if (getEntityProgram(plan) !== "functional") return false;
+                    const limit = plan.classLimit ?? plan.class_limit;
+                    return fallback.classes === null
+                      ? limit === null || /ilimitad/i.test(String(plan.name ?? ""))
+                      : Number(limit) === fallback.classes;
+                  });
+                  const price = Number(live?.price ?? fallback.price);
+                  return (
+                    <div
+                      key={fallback.id}
+                      className={`relative flex flex-col overflow-hidden rounded-[1.75rem] p-9 transition-transform duration-300 hover:-translate-y-1 ${
+                        fallback.best
+                          ? "bg-valiance-plum text-valiance-nude shadow-[0_30px_60px_-25px_rgba(90,74,87,0.55)]"
+                          : "bg-valiance-nude ring-1 ring-valiance-charcoal/8"
+                      }`}
+                    >
+                      {(fallback.popular || fallback.best) && (
+                        <span className={`absolute right-6 top-6 rounded-full px-3 py-1 text-[0.6rem] font-medium uppercase tracking-[0.18em] ${fallback.best ? "bg-valiance-gold text-valiance-charcoal" : "bg-valiance-gold/15 text-valiance-gold"}`}>
+                          {fallback.best ? "Más completo" : "Más popular"}
+                        </span>
+                      )}
+                      <p className={`text-[0.66rem] font-medium uppercase tracking-[0.18em] ${fallback.best ? "text-valiance-blush/70" : "text-valiance-mauve"}`}>
+                        {fallback.name}
+                      </p>
+                      <div className="mt-3 flex items-baseline gap-1">
+                        <span className={`font-display text-[2.7rem] leading-none tabular-nums ${fallback.best ? "text-valiance-nude" : "text-valiance-charcoal"}`}>
+                          ${price.toLocaleString("es-MX")}
+                        </span>
+                        <span className={`text-[0.72rem] ${fallback.best ? "text-valiance-nude/50" : "text-valiance-charcoal/50"}`}>MXN</span>
+                      </div>
+                      <p className={`mt-2 text-[0.78rem] font-body ${fallback.best ? "text-valiance-nude/60" : "text-valiance-charcoal/60"}`}>
+                        {fallback.hint}
+                      </p>
+                      <button
+                        onClick={() => navigate(purchasePath("functional"))}
+                        className="relative mt-auto block w-full pt-6 text-[0.76rem] font-medium uppercase tracking-[0.06em] transition-transform active:scale-[0.98]"
+                      >
+                        <span className={`block w-full rounded-full py-3 transition-colors ${fallback.best ? "bg-valiance-nude text-valiance-charcoal hover:bg-valiance-blush" : "bg-valiance-charcoal text-valiance-nude hover:bg-valiance-plum"}`}>
+                          Elegir
+                        </span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* CARGOS PUNTUALES — lista editorial con hairlines lila. Sin animación "reveal" para que siempre se muestre (evita que quede oculta por opacity-0). */}
           <div className="mb-14">
             <div className="flex items-baseline justify-between mb-6 flex-wrap gap-3">
@@ -735,7 +824,9 @@ const Index = () => {
                 return (
                 <div key={c.id} className="py-6 flex items-center justify-between gap-4">
                   <div>
-                    <div className="font-display text-[1.3rem] text-valiance-charcoal leading-tight">{c.name}</div>
+                    <div className="font-display text-[1.3rem] text-valiance-charcoal leading-tight">
+                      {c.name === "Inscripción" && branchCode === "pozos" ? "Inscripción Pilates" : c.name}
+                    </div>
                     <div className="text-[0.74rem] text-valiance-mauve font-body mt-1">{c.hint}</div>
                   </div>
                   <div className="font-display text-[1.9rem] text-valiance-charcoal leading-none flex items-baseline gap-1 tabular-nums">
@@ -749,7 +840,7 @@ const Index = () => {
           </div>
 
           {/* PROGRAMA PRENATAL — banda destacada; se muestra solo si el plan "Prenatal" está activo en admin (viene de /api/plans, que solo devuelve activos). El precio se jala en vivo por nombre. */}
-          {livePlans.some((p) => p.name === "Prenatal") && (
+          {prenatalPlan && (
             <div className="mb-14">
               <div className="relative overflow-hidden rounded-[1.75rem] bg-valiance-blush/25 ring-1 ring-valiance-blush/50 px-8 sm:px-12 py-10 sm:py-12">
                 <Heart
@@ -787,7 +878,7 @@ const Index = () => {
                   <div className="lg:text-right lg:border-l lg:border-valiance-mauve/15 lg:pl-12">
                     <div className="flex items-baseline gap-1 lg:justify-end">
                       <span className="font-display text-[2.7rem] leading-none tabular-nums text-valiance-charcoal">
-                        ${(priceByName["Prenatal"] ?? 1180).toLocaleString()}
+                        ${Number(prenatalPlan.price ?? 1180).toLocaleString()}
                       </span>
                       <span className="text-[0.72rem] text-valiance-charcoal/50">MXN</span>
                     </div>
@@ -796,7 +887,7 @@ const Index = () => {
                       Máximo 4 mamás
                     </div>
                     <button
-                      onClick={() => navigate(ctaPath)}
+                      onClick={() => navigate(purchasePath("prenatal"))}
                       className="mt-6 w-full lg:w-auto text-[0.76rem] font-medium tracking-[0.06em] uppercase active:scale-[0.98] transition-transform"
                     >
                       <span className="block w-full lg:inline-block lg:px-9 py-3 rounded-full bg-valiance-charcoal text-valiance-nude hover:bg-valiance-plum transition-colors">
@@ -810,7 +901,7 @@ const Index = () => {
           )}
 
           <p className="text-[0.78rem] text-valiance-charcoal/55 mt-10 text-center font-body max-w-[640px] mx-auto leading-[1.7]">
-            Paquetes mensuales no acumulables: vencen al fin del mes de compra. La inscripción es un pago único. La adquisición implica aceptación del reglamento interno.
+            Paquetes mensuales no acumulables: vencen al fin del mes de compra. La inscripción es un pago único por programa y sucursal. La adquisición implica aceptación del reglamento interno.
           </p>
         </div>
       </section>
@@ -1060,17 +1151,19 @@ const Index = () => {
                 {[
                   {
                     icon: <MapPin size={18} />, label: "Ubicación",
-                    value: (
+                    value: branch.address ? (
                       <a
-                        href="https://g.co/kgs/AyHBK5d"
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(branch.address)}`}
                         target="_blank" rel="noopener noreferrer"
                         className="text-valiance-charcoal hover:text-valiance-mauve transition-colors no-underline"
                       >
-                        Av. Villa Magna Nte. 600 A<br />
-                        Villa Magna, 78183<br />
-                        San Luis Potosí, S.L.P.<br />
-                        <span className="text-valiance-charcoal/60">(justo arriba de las pizzas)</span>
+                        {branch.address}
                       </a>
+                    ) : (
+                      <span>
+                        Sucursal {branch.name}<br />
+                        <span className="text-valiance-charcoal/60">Dirección por confirmar</span>
+                      </span>
                     ),
                   },
                   {
@@ -1097,7 +1190,13 @@ const Index = () => {
                       </a>
                     ),
                   },
-                  { icon: <Clock size={18} />, label: "Horarios", value: "Lun · Mié · Vie 7 a 9 am y 5:30 a 8:30 pm · Mar · Jue 5:30 a 7:30 pm · Sáb 9 am" },
+                  {
+                    icon: <Clock size={18} />,
+                    label: "Horarios",
+                    value: branchCode === "pozos"
+                      ? "Consulta la agenda disponible arriba."
+                      : "Lun · Mié · Vie 7 a 9 am y 5:30 a 8:30 pm · Mar · Jue 5:30 a 7:30 pm · Sáb 9 am",
+                  },
                 ].map((item, i) => (
                   <div key={item.label} className={`flex items-start gap-4 py-5 ${i === 0 ? "pt-0" : ""}`}>
                     <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 bg-valiance-blush/40 text-valiance-mauve">
@@ -1119,28 +1218,42 @@ const Index = () => {
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect width="20" height="20" x="2" y="2" rx="5" ry="5" /><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" /><line x1="17.5" x2="17.51" y1="6.5" y2="6.5" /></svg>
                 </a>
-                <a
-                  href="https://g.co/kgs/AyHBK5d"
-                  target="_blank" rel="noopener noreferrer" aria-label="Cómo llegar"
-                  className="ml-auto inline-flex items-center gap-2 px-4 h-10 rounded-full bg-valiance-charcoal text-valiance-nude text-[0.74rem] font-medium tracking-[0.06em] uppercase hover:bg-valiance-plum transition-colors no-underline"
-                >
-                  <MapPin size={13} />
-                  Cómo llegar
-                </a>
+                {branch.address && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(branch.address)}`}
+                    target="_blank" rel="noopener noreferrer" aria-label="Cómo llegar"
+                    className="ml-auto inline-flex items-center gap-2 px-4 h-10 rounded-full bg-valiance-charcoal text-valiance-nude text-[0.74rem] font-medium tracking-[0.06em] uppercase hover:bg-valiance-plum transition-colors no-underline"
+                  >
+                    <MapPin size={13} />
+                    Cómo llegar
+                  </a>
+                )}
               </div>
             </div>
 
             <div className="lg:col-span-7 rounded-[1.75rem] overflow-hidden ring-1 ring-valiance-charcoal/8 bg-valiance-nude min-h-[440px]">
-              <iframe
-                src="https://www.google.com/maps?q=Av.%20Villa%20Magna%20Nte.%20600%20A%2C%20Villa%20Magna%2C%2078183%20San%20Luis%20Potos%C3%AD%2C%20S.L.P.&output=embed"
-                width="100%"
-                height="100%"
-                style={{ border: 0, display: "block", minHeight: "440px" }}
-                allowFullScreen
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-                title="Ubicación de Tu Espacio Pilates en Google Maps"
-              />
+              {branch.address ? (
+                <iframe
+                  src={`https://www.google.com/maps?q=${encodeURIComponent(branch.address)}&output=embed`}
+                  width="100%"
+                  height="100%"
+                  style={{ border: 0, display: "block", minHeight: "440px" }}
+                  allowFullScreen
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                  title="Ubicación de Tu Espacio Pilates en Google Maps"
+                />
+              ) : (
+                <div className="flex min-h-[440px] items-center justify-center bg-valiance-blush/15 p-10 text-center">
+                  <div className="max-w-sm">
+                    <MapPin size={30} className="mx-auto text-valiance-mauve" />
+                    <h3 className="mt-4 font-display text-[2rem] text-valiance-charcoal">Sucursal {branch.name}</h3>
+                    <p className="mt-2 text-sm leading-6 text-valiance-charcoal/65">
+                      La dirección se publicará aquí cuando esté disponible.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1153,7 +1266,7 @@ const Index = () => {
             <div className="lg:col-span-2 max-w-[360px]">
               <img src={markCream} alt="Tu Espacio Pilates" className="h-16 w-auto object-contain mb-5" />
               <p className="font-body text-[0.92rem] text-valiance-nude/55 leading-[1.8]">
-                Tu Espacio Pilates · Villa Magna, San Luis Potosí. Una disciplina, cuatro aparatos. Disciplina, respeto y comunidad. Un espacio hecho para ti.
+                Tu Espacio · {branch.name}, San Luis Potosí. Disciplina, respeto y comunidad. Un espacio hecho para ti.
               </p>
             </div>
 
@@ -1198,7 +1311,7 @@ const Index = () => {
             <div className="flex items-center gap-3">
               <span className="inline-block w-8 h-px bg-valiance-gold/60" />
               <p className="font-body text-[0.72rem] text-valiance-nude/30 tabular-nums">
-                &copy; {new Date().getFullYear()} Tu Espacio Pilates · Villa Magna. Todos los derechos reservados.
+                &copy; {new Date().getFullYear()} Tu Espacio · {branch.name}. Todos los derechos reservados.
               </p>
             </div>
             <p className="font-body text-[0.72rem] text-valiance-nude/30 italic">

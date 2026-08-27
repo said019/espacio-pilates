@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import { branchNameFromRow, branchQueryParams, useAdminBranchScope } from "@/components/admin/BranchScope";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,25 +26,30 @@ interface Stats {
   activeMembers: number;
   monthlyRevenue: number;
   pendingAlerts: number;
-  recentMemberships: { id: string; userName: string; planName: string; status: string; createdAt: string }[];
-  pendingOrders: { id: string; userName: string; totalAmount?: number; total_amount?: number; amount?: number; status: string }[];
+  recentMemberships: { id: string; userName: string; planName: string; status: string; createdAt: string; branchId?: string; branch_id?: string; branchName?: string }[];
+  pendingOrders: { id: string; userName: string; totalAmount?: number; total_amount?: number; amount?: number; status: string; branchId?: string; branch_id?: string; branchName?: string }[];
 }
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const branchScope = useAdminBranchScope();
   const { data: stats, isLoading } = useQuery<Stats>({
-    queryKey: ["admin-stats"],
-    queryFn: async () => (await api.get("/admin/stats")).data,
+    queryKey: ["admin-stats", branchScope.branchScope],
+    queryFn: async () => (await api.get("/admin/stats", { params: branchQueryParams(branchScope.branchScope) })).data,
   });
 
   const { data: memberships } = useQuery<{ data: Stats["recentMemberships"] }>({
-    queryKey: ["memberships-recent"],
-    queryFn: async () => (await api.get("/memberships?limit=5")).data,
+    queryKey: ["memberships-recent", branchScope.branchScope],
+    queryFn: async () => (await api.get("/memberships", {
+      params: { limit: 5, ...branchQueryParams(branchScope.branchScope) },
+    })).data,
   });
 
   const { data: pendingOrders } = useQuery<{ data: Stats["pendingOrders"] }>({
-    queryKey: ["orders-pending"],
-    queryFn: async () => (await api.get("/admin/orders?status=pending_verification")).data,
+    queryKey: ["orders-pending", branchScope.branchScope],
+    queryFn: async () => (await api.get("/admin/orders", {
+      params: { status: "pending_verification", ...branchQueryParams(branchScope.branchScope) },
+    })).data,
   });
 
   const metric = (label: string, value: number | undefined, icon: React.ReactNode, prefix = "", accent = "#D1B9B4") => (
@@ -87,6 +93,9 @@ const Dashboard = () => {
               <p className="mt-4 max-w-[34rem] text-sm leading-6 text-valiance-nude/70">
                 Revisa clases, membresías, ingresos y pendientes del día sin perder el ritmo de recepción.
               </p>
+              <p className="mt-3 text-xs font-semibold text-valiance-blush">
+                {branchScope.selectedBranch?.name ?? "Todas las sucursales"}
+              </p>
             </div>
           </section>
 
@@ -110,6 +119,7 @@ const Dashboard = () => {
                         <div>
                           <p className="font-medium text-valiance-charcoal">{m.userName}</p>
                           <p className="text-muted-foreground text-xs">{m.planName}</p>
+                          <p className="text-[10px] text-valiance-mauve">{branchNameFromRow(m, branchScope.branches)}</p>
                         </div>
                         <Badge
                           variant={m.status === "active" ? "default" : "secondary"}
@@ -145,6 +155,7 @@ const Dashboard = () => {
                         <div>
                           <p className="font-medium text-valiance-charcoal">{o.userName}</p>
                           <p className="text-muted-foreground text-xs">${Number(o.totalAmount ?? o.total_amount ?? o.amount ?? 0).toFixed(2)} MXN</p>
+                          <p className="text-[10px] text-valiance-mauve">{branchNameFromRow(o, branchScope.branches)}</p>
                         </div>
                         <Badge variant="outline" className="rounded-full text-xs">
                           {STATUS_LABEL[o.status] ?? o.status}

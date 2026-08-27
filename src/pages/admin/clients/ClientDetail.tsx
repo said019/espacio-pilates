@@ -23,6 +23,12 @@ import type { LucideIcon } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BulkMonthBookingDialog } from "@/components/admin/BulkMonthBookingDialog";
+import {
+  BranchRequiredNotice,
+  branchNameFromRow,
+  branchQueryParams,
+  useAdminBranchScope,
+} from "@/components/admin/BranchScope";
 import { cn } from "@/lib/utils";
 
 /* ──────────────────────────────────────────────────────────────
@@ -163,18 +169,21 @@ const methodLabel: Record<string, string> = {
 const MembershipsTab = ({ userId }: { userId: string }) => {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const branchScope = useAdminBranchScope();
   const [editingMem, setEditingMem] = useState<any>(null);
   const [credits, setCredits] = useState(0);
 
   const { data: memberships } = useQuery({
-    queryKey: ["client-memberships", userId],
-    queryFn: async () => (await api.get(`/memberships?userId=${userId}`)).data,
+    queryKey: ["client-memberships", userId, branchScope.branchScope],
+    queryFn: async () => (await api.get("/memberships", {
+      params: { userId, ...branchQueryParams(branchScope.branchScope) },
+    })).data,
     enabled: !!userId,
   });
 
   const updateMem = useMutation({
-    mutationFn: ({ memId, classesRemaining }: { memId: string; classesRemaining: number }) =>
-      api.put(`/memberships/${memId}`, { classesRemaining }),
+    mutationFn: ({ memId, classesRemaining, branchId }: { memId: string; classesRemaining: number; branchId: string }) =>
+      api.put(`/memberships/${memId}`, { classesRemaining, branchId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client-memberships", userId] });
       toast({ title: "Créditos actualizados" });
@@ -184,7 +193,9 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
   });
 
   const cancelMem = useMutation({
-    mutationFn: (memId: string) => api.put(`/memberships/${memId}/cancel`),
+    mutationFn: (membership: any) => api.put(`/memberships/${membership.id}/cancel`, {
+      branchId: membership.branchId ?? membership.branch_id,
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client-memberships", userId] });
       toast({ title: "Membresía cancelada" });
@@ -192,7 +203,9 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
   });
 
   const reactivateMem = useMutation({
-    mutationFn: (memId: string) => api.put(`/memberships/${memId}/activate`),
+    mutationFn: (membership: any) => api.put(`/memberships/${membership.id}/activate`, {
+      branchId: membership.branchId ?? membership.branch_id,
+    }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client-memberships", userId] });
       toast({ title: "Membresía reactivada" });
@@ -217,6 +230,7 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
           <TableHeader>
             <TableRow className="bg-tep-nude/60 hover:bg-tep-nude/60">
               <TableHead className="text-valiance-mauve">Plan</TableHead>
+              <TableHead className="text-valiance-mauve">Sucursal</TableHead>
               <TableHead className="text-valiance-mauve">Estado</TableHead>
               <TableHead className="text-valiance-mauve">Origen / compra</TableHead>
               <TableHead className="text-valiance-mauve">Vence</TableHead>
@@ -234,6 +248,9 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
               return (
                 <TableRow key={m.id} className="align-top">
                   <TableCell className="font-medium text-valiance-charcoal">{m.planName ?? m.planId}</TableCell>
+                  <TableCell>
+                    <Badge variant="outline">{branchNameFromRow(m, branchScope.branches)}</Badge>
+                  </TableCell>
                   <TableCell>
                     <Badge variant={isActive ? "default" : m.status === "cancelled" ? "destructive" : "secondary"}>
                       {isActive ? "Activa" : m.status === "expired" ? "Expirada" : m.status === "cancelled" ? "Cancelada" : m.status}
@@ -267,7 +284,8 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
                         {m.status === "cancelled" && (
                           <DropdownMenuItem
                             className="text-[#6E7F4F]"
-                            onClick={() => { if (window.confirm("¿Reactivar esta membresía?")) reactivateMem.mutate(m.id); }}
+                            onClick={() => { if (window.confirm("¿Reactivar esta membresía?")) reactivateMem.mutate(m); }}
+                            disabled={!(m.branchId ?? m.branch_id)}
                           >
                             Reactivar membresía
                           </DropdownMenuItem>
@@ -275,7 +293,8 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
                         {m.status === "active" && (
                           <DropdownMenuItem
                             className="text-destructive"
-                            onClick={() => { if (window.confirm("¿Cancelar esta membresía? Esta acción es difícil de revertir.")) cancelMem.mutate(m.id); }}
+                            onClick={() => { if (window.confirm("¿Cancelar esta membresía? Esta acción es difícil de revertir.")) cancelMem.mutate(m); }}
+                            disabled={!(m.branchId ?? m.branch_id)}
                           >
                             Cancelar membresía
                           </DropdownMenuItem>
@@ -324,8 +343,12 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingMem(null)}>Cancelar</Button>
             <Button
-              onClick={() => editingMem && updateMem.mutate({ memId: editingMem.id, classesRemaining: credits })}
-              disabled={updateMem.isPending}
+              onClick={() => editingMem && updateMem.mutate({
+                memId: editingMem.id,
+                classesRemaining: credits,
+                branchId: editingMem.branchId ?? editingMem.branch_id,
+              })}
+              disabled={updateMem.isPending || !(editingMem?.branchId ?? editingMem?.branch_id)}
             >
               {updateMem.isPending ? <Loader2 className="animate-spin mr-1" size={14} /> : null}
               Guardar
@@ -345,6 +368,7 @@ const ClientDetail = () => {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const branchScope = useAdminBranchScope();
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({});
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -357,20 +381,26 @@ const ClientDetail = () => {
   });
 
   const { data: bookings } = useQuery({
-    queryKey: ["client-bookings", id],
-    queryFn: async () => (await api.get(`/bookings?userId=${id}`)).data,
+    queryKey: ["client-bookings", id, branchScope.branchScope],
+    queryFn: async () => (await api.get("/bookings", {
+      params: { userId: id, ...branchQueryParams(branchScope.branchScope) },
+    })).data,
     enabled: !!id,
   });
 
   const { data: payments } = useQuery({
-    queryKey: ["client-payments", id],
-    queryFn: async () => (await api.get(`/payments?userId=${id}`)).data,
+    queryKey: ["client-payments", id, branchScope.branchScope],
+    queryFn: async () => (await api.get("/payments", {
+      params: { userId: id, ...branchQueryParams(branchScope.branchScope) },
+    })).data,
     enabled: !!id,
   });
 
   const { data: reschedules } = useQuery({
-    queryKey: ["client-reschedules", id],
-    queryFn: async () => (await api.get(`/admin/clients/${id}/reschedules`)).data,
+    queryKey: ["client-reschedules", id, branchScope.branchScope],
+    queryFn: async () => (await api.get(`/admin/clients/${id}/reschedules`, {
+      params: branchQueryParams(branchScope.branchScope),
+    })).data,
     enabled: !!id,
   });
 
@@ -387,14 +417,16 @@ const ClientDetail = () => {
   const u = user?.data ?? user;
 
   const { data: walkinMatches } = useQuery({
-    queryKey: ["walkin-matches", u?.phone],
-    queryFn: async () => (await api.get(`/admin/walkins/by-phone?phone=${encodeURIComponent(u?.phone ?? "")}`)).data,
+    queryKey: ["walkin-matches", u?.phone, branchScope.branchScope],
+    queryFn: async () => (await api.get("/admin/walkins/by-phone", {
+      params: { phone: u?.phone ?? "", ...branchQueryParams(branchScope.branchScope) },
+    })).data,
     enabled: !!u?.phone,
   });
   const walkinList: any[] = asArray(walkinMatches);
 
   const linkWalkinsMutation = useMutation({
-    mutationFn: () => api.post("/admin/walkins/link", { userId: id, phone: u?.phone }),
+    mutationFn: () => api.post("/admin/walkins/link", { userId: id, phone: u?.phone, branchId: branchScope.branchId }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["walkin-matches", u?.phone] });
       qc.invalidateQueries({ queryKey: ["client-payments", id] });
@@ -506,6 +538,9 @@ const ClientDetail = () => {
                       <span className="inline-flex items-center gap-1.5"><Phone size={14} className="text-valiance-blush" />{u.phone}</span>
                     )}
                   </div>
+                  <p className="mt-2 text-xs font-semibold text-valiance-mauve">
+                    Vista: {branchScope.selectedBranch?.name ?? "todas las sucursales"}
+                  </p>
                 </div>
               </div>
             </div>
@@ -521,12 +556,14 @@ const ClientDetail = () => {
                   Total: ${walkinList.reduce((s, w) => s + parseFloat(w.totalAmount ?? w.total_amount ?? 0), 0).toFixed(2)}
                 </p>
               </div>
-              <Button size="sm" onClick={() => linkWalkinsMutation.mutate()} disabled={linkWalkinsMutation.isPending}>
+              <Button size="sm" onClick={() => linkWalkinsMutation.mutate()} disabled={linkWalkinsMutation.isPending || !branchScope.branchId}>
                 {linkWalkinsMutation.isPending ? <Loader2 size={14} className="animate-spin mr-1" /> : null}
                 Vincular a esta cuenta
               </Button>
             </div>
           )}
+
+          {!branchScope.branchId && <BranchRequiredNotice action="vincular compras o agendar un mes" />}
 
           <Tabs defaultValue="profile">
             <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-tep-nude p-1">
@@ -671,7 +708,7 @@ const ClientDetail = () => {
                         </button>
                       ))}
                     </div>
-                    <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)} disabled={!id}>
+                    <Button size="sm" variant="outline" onClick={() => setBulkOpen(true)} disabled={!id || !branchScope.branchId}>
                       <CalendarDays size={14} className="mr-1" />
                       Agendar mes
                     </Button>
@@ -722,6 +759,8 @@ const ClientDetail = () => {
                   onOpenChange={setBulkOpen}
                   userId={id}
                   userName={u?.displayName}
+                  branchId={branchScope.branchId!}
+                  branchName={branchScope.selectedBranch?.name}
                 />
               )}
             </TabsContent>

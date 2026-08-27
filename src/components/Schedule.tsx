@@ -8,6 +8,14 @@ import { es } from "date-fns/locale";
 import { Loader2, ChevronLeft, ChevronRight, ArrowUpRight } from "lucide-react";
 import api from "@/lib/api";
 import { BookingDialog, type ClassItem } from "@/components/BookingDialog";
+import { BranchSelector } from "@/components/BranchSelector";
+import {
+  getEntityProgram,
+  matchesBranch,
+  programLabel,
+  useBranch,
+  type StudioProgram,
+} from "@/hooks/useBranch";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -24,6 +32,11 @@ interface ApiClass {
   current_bookings: number;
   apparatus?: string;
   status: string;
+  branch_id?: string;
+  branch_code?: string;
+  branch_name?: string;
+  program?: string;
+  class_category?: string;
 }
 
 interface ScheduleClass {
@@ -36,6 +49,9 @@ interface ScheduleClass {
   spots: number;       // solo para detectar "lleno" — no se muestra
   maxSpots: number;
   color: string;
+  branchId: string;
+  branchName: string;
+  program: StudioProgram;
 }
 
 // Enfoque del día — index = getDay() (0=Dom … 6=Sáb)
@@ -77,6 +93,7 @@ export default function Schedule() {
   const [now, setNow] = useState(new Date());
   const [selectedClass, setSelectedClass] = useState<ClassItem | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const { branch, branchCode } = useBranch();
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
@@ -88,9 +105,11 @@ export default function Schedule() {
   const endDate   = format(addDays(weekStart, 13), "yyyy-MM-dd");
 
   const { data: rawClasses, isLoading } = useQuery<ApiClass[]>({
-    queryKey: ["public-classes", startDate, endDate],
+    queryKey: ["public-classes", branchCode, startDate, endDate],
     queryFn: async () => {
-      const { data } = await api.get(`/classes?start=${startDate}&end=${endDate}`);
+      const { data } = await api.get("/classes", {
+        params: { start: startDate, end: endDate, branch: branchCode },
+      });
       return Array.isArray(data) ? data : (data?.data ?? []);
     },
     staleTime: 1000 * 60 * 2,
@@ -100,6 +119,7 @@ export default function Schedule() {
   const allClasses: ScheduleClass[] = useMemo(() => {
     if (!rawClasses) return [];
     return rawClasses
+      .filter((c) => matchesBranch(c, branch))
       .filter((c) => c.status !== "cancelled")
       .map((c) => {
         const dateStr = (c.date || c.class_date || (c.start_time?.split("T")[0]) || "").split("T")[0];
@@ -130,9 +150,12 @@ export default function Schedule() {
           spots:      Math.max(0, available),
           maxSpots:   c.capacity ?? (c as any).max_capacity ?? 8,
           color:      c.class_type_color || DEFAULT_COLOR,
+          branchId:   String(c.branch_id ?? branch.id),
+          branchName: String(c.branch_name ?? branch.name),
+          program:    getEntityProgram(c),
         };
       });
-  }, [rawClasses]);
+  }, [rawClasses, branch]);
 
   const weekDays = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
@@ -155,7 +178,8 @@ export default function Schedule() {
     return map;
   }, [allClasses]);
 
-  const selectedTheme = DAY_THEMES[selectedDate.getDay()];
+  const selectedHasPilates = dayClasses.some((item) => item.program === "pilates");
+  const selectedTheme = selectedHasPilates ? DAY_THEMES[selectedDate.getDay()] : "";
 
   // Estado temporal (solo para clases de hoy) — detalle cálido, no obligatorio
   const getTimeStatus = (cls: ScheduleClass) => {
@@ -198,6 +222,11 @@ export default function Schedule() {
       duration:   `${cls.duration} min`,
       date:       parseISO(cls.time),
       color:      cls.color,
+      branchId:   cls.branchId,
+      branchName: cls.branchName,
+      branchCode,
+      branchAddress: branch.address,
+      program:    cls.program,
     });
     setDialogOpen(true);
   };
@@ -230,9 +259,17 @@ export default function Schedule() {
           </h2>
           <span className="block h-px w-16 bg-valiance-gold/50 mt-6 mb-6" />
           <p className="font-body text-[1.02rem] text-valiance-charcoal/70 leading-[1.8] max-w-[60ch]">
-            Trabajamos el cuerpo completo a lo largo de la semana. Tú eliges cuándo,
-            nosotras marcamos el tema. Elige un día y reserva tu lugar — cupo de 8 por clase.
+            {branchCode === "pozos"
+              ? "Consulta las clases de Pilates y Funcional disponibles en Pozos. Elige un día y reserva tu lugar."
+              : "Trabajamos el cuerpo completo a lo largo de la semana. Tú eliges cuándo, nosotras marcamos el tema."}
           </p>
+        </div>
+
+        <div className="mb-8 max-w-md rounded-2xl border border-valiance-charcoal/8 bg-valiance-nude p-4 shadow-valiance-soft">
+          <BranchSelector label="Consulta el horario por sucursal" />
+          {branch.address && (
+            <p className="mt-2 text-xs leading-5 text-valiance-mauve">{branch.address}</p>
+          )}
         </div>
 
         {/* ── Semana nav ───────────────────────────────────────────────────── */}
@@ -265,7 +302,8 @@ export default function Schedule() {
             const todayDay = isToday(day);
             const dayKey   = format(day, "yyyy-MM-dd");
             const count    = classCountByDay[dayKey] ?? 0;
-            const theme    = DAY_THEMES[day.getDay()];
+            const hasPilates = allClasses.some((item) => item.time.startsWith(dayKey) && item.program === "pilates");
+            const theme    = hasPilates ? DAY_THEMES[day.getDay()] : "";
 
             return (
               <button
@@ -353,7 +391,7 @@ export default function Schedule() {
               const upcoming = ts?.status === "upcoming";
               const full     = cls.spots === 0;
               const isTower  = cls.apparatus === "tower";
-              const bookable = !isPast && !full;
+              const bookable = !isPast;
 
               const statusBadge = (() => {
                 if (isPast) return { label: "Finalizada", cls: "bg-valiance-charcoal/[0.06] text-valiance-mauve", dot: false };
@@ -413,9 +451,13 @@ export default function Schedule() {
                       ].join(" ")}
                     >
                       <span className={["w-1 h-1 rounded-full", isTower ? "bg-valiance-gold" : "bg-valiance-mauve/60"].join(" ")} />
-                      {isTower ? "Tower" : (selectedTheme || "Pilates")}
+                      {cls.program === "functional" ? "Funcional" : isTower ? "Tower" : (selectedTheme || "Pilates")}
                     </span>
                   </div>
+
+                  <p className="flex items-center gap-1.5 text-[0.72rem] font-medium text-valiance-mauve">
+                    Sucursal {cls.branchName} · {programLabel(cls.program)}
+                  </p>
 
                   {/* CTA */}
                   <div className="mt-1">
@@ -423,16 +465,17 @@ export default function Schedule() {
                       <span className="block text-center w-full py-2.5 rounded-full text-[0.78rem] font-medium tracking-wide text-valiance-mauve/50 bg-valiance-charcoal/[0.04]">
                         Finalizada
                       </span>
-                    ) : full ? (
-                      <span className="block text-center w-full py-2.5 rounded-full text-[0.78rem] font-medium tracking-wide text-valiance-mauve/60 bg-valiance-lavender/30">
-                        Clase llena
-                      </span>
                     ) : (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleBook(cls); }}
-                        className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-full bg-valiance-mauve text-valiance-cream text-[0.78rem] font-medium tracking-[0.06em] uppercase hover:bg-valiance-charcoal transition-all cursor-pointer"
+                        className={[
+                          "w-full inline-flex items-center justify-center gap-1.5 py-2.5 rounded-full text-[0.78rem] font-medium tracking-[0.06em] uppercase transition-all cursor-pointer",
+                          full
+                            ? "bg-valiance-lavender/40 text-valiance-plum ring-1 ring-valiance-mauve/20 hover:bg-valiance-lavender/60"
+                            : "bg-valiance-mauve text-valiance-cream hover:bg-valiance-charcoal",
+                        ].join(" ")}
                       >
-                        Reservar
+                        {full ? "Unirme a lista de espera" : "Reservar"}
                         <ArrowUpRight size={14} strokeWidth={2} className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                       </button>
                     )}
@@ -443,9 +486,8 @@ export default function Schedule() {
           </div>
         )}
 
-        {/* Nota aparato */}
         <p className="text-[0.84rem] text-valiance-mauve mt-7 font-body">
-          Todas las clases en Reformer · Viernes 8:30 pm en Tower.
+          Horario mostrado para sucursal {branch.name}. Cada paquete es válido únicamente en la sucursal donde se compra.
         </p>
 
       </div>

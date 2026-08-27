@@ -5,6 +5,11 @@ import { es } from "date-fns/locale";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import {
+  branchNameFromRow,
+  branchQueryParams,
+  useAdminBranchScope,
+} from "@/components/admin/BranchScope";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -21,21 +26,29 @@ interface WaitlistEntry {
 }
 
 const Waitlist = () => {
+  const branchScope = useAdminBranchScope();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [selectedClass, setSelectedClass] = useState<{ id: string; branchId: string } | null>(null);
 
   const { data: classesData, isLoading: classesLoading } = useQuery({
-    queryKey: ["waitlist-classes", format(weekStart, "yyyy-MM-dd")],
-    queryFn: async () =>
-      (await api.get(`/classes?start=${format(weekStart, "yyyy-MM-dd")}&end=${format(weekEnd, "yyyy-MM-dd")}`)).data,
+    queryKey: ["waitlist-classes", format(weekStart, "yyyy-MM-dd"), branchScope.branchScope],
+    queryFn: async () => (await api.get("/classes", {
+      params: {
+        start: format(weekStart, "yyyy-MM-dd"),
+        end: format(weekEnd, "yyyy-MM-dd"),
+        ...branchQueryParams(branchScope.branchScope),
+      },
+    })).data,
   });
   const classes: any[] = Array.isArray(classesData?.data) ? classesData.data : [];
 
   const { data: rosterData, isLoading: rosterLoading, refetch } = useQuery({
-    queryKey: ["waitlist-roster", selectedClassId],
-    queryFn: async () => (await api.get(`/classes/${selectedClassId}/roster`)).data,
-    enabled: !!selectedClassId,
+    queryKey: ["waitlist-roster", selectedClass?.id, selectedClass?.branchId],
+    queryFn: async () => (await api.get(`/classes/${selectedClass?.id}/roster`, {
+      params: { branch_id: selectedClass?.branchId },
+    })).data,
+    enabled: !!selectedClass,
     refetchInterval: 15000,
   });
   const roster: WaitlistEntry[] = (rosterData?.data?.roster ?? []).filter(
@@ -57,16 +70,16 @@ const Waitlist = () => {
           <div className="mb-7">
             <h1 className="text-3xl font-bold text-[#1A1A1A] mb-1">Lista de Espera</h1>
             <p className="text-sm text-[#1A1A1A]/35">
-              {selectedClassId
+              {selectedClass
                 ? "Alumnas en lista de espera para esta clase"
                 : "Selecciona una clase para ver su lista de espera"}
             </p>
           </div>
 
-          {selectedClassId ? (
+          {selectedClass ? (
             <div className="space-y-5">
               <button
-                onClick={() => setSelectedClassId(null)}
+                onClick={() => setSelectedClass(null)}
                 className="flex items-center gap-2 text-sm text-[#1A1A1A]/40 hover:text-[#1A1A1A]/70 transition-colors"
               >
                 <ChevronLeft size={14} /> Volver al calendario
@@ -86,6 +99,9 @@ const Waitlist = () => {
                         {classInfo.startsAt
                           ? format(new Date(classInfo.startsAt), "EEEE d 'de' MMMM · HH:mm", { locale: es })
                           : classInfo.date ?? "—"}
+                      </p>
+                      <p className="mt-1 text-xs font-medium text-[#8C6B6F]">
+                        {branchNameFromRow({ ...classInfo, branchId: selectedClass.branchId }, branchScope.branches)}
                       </p>
                     </div>
                     <button
@@ -154,7 +170,7 @@ const Waitlist = () => {
                   <ChevronLeft size={14} />
                 </button>
                 <span className="text-sm font-semibold text-[#1A1A1A]/70 min-w-[200px] text-center">
-                  {format(weekStart, "d MMM", { locale: es })} – {format(weekEnd, "d MMM yyyy", { locale: es })}
+                  {format(weekStart, "d MMM", { locale: es })} - {format(weekEnd, "d MMM yyyy", { locale: es })}
                 </span>
                 <button
                   onClick={() => setWeekStart((w) => addWeeks(w, 1))}
@@ -200,14 +216,16 @@ const Waitlist = () => {
                       ) : (
                         <div className="space-y-2">
                           {dayClasses.map((cls: any) => {
+                            const classBranchId = String(cls.branchId ?? cls.branch_id ?? "");
                             const time = cls.start_time
                               ? format(new Date(cls.start_time), "HH:mm")
                               : cls.startTime ?? "—";
                             return (
                               <button
                                 key={cls.id}
-                                onClick={() => setSelectedClassId(cls.id)}
-                                className="w-full flex items-center gap-4 p-4 rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] hover:border-[#D9B5BA]/30 hover:bg-[#D9B5BA]/5 transition-all group text-left"
+                                onClick={() => setSelectedClass({ id: cls.id, branchId: classBranchId })}
+                                disabled={!classBranchId}
+                                className="w-full flex items-center gap-4 p-4 rounded-xl border border-[#8C6B6F]/15 bg-[#8C6B6F]/[0.04] hover:border-[#D9B5BA]/30 hover:bg-[#D9B5BA]/5 transition-all group text-left disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 <span
                                   className="w-2.5 h-2.5 rounded-full shrink-0"
@@ -218,6 +236,7 @@ const Waitlist = () => {
                                     {cls.class_type_name ?? cls.className ?? "Clase"}
                                   </p>
                                   <p className="text-xs text-[#1A1A1A]/35">{time} · {cls.instructor_name ?? "—"}</p>
+                                  <p className="text-[10px] font-medium text-[#8C6B6F]">{branchNameFromRow(cls, branchScope.branches)}</p>
                                 </div>
                                 <ChevronRight size={14} className="text-[#1A1A1A]/20 group-hover:text-[#D9B5BA]/60 transition-colors" />
                               </button>

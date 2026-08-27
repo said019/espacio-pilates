@@ -6,6 +6,12 @@ import { z } from "zod";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import {
+  BranchRequiredNotice,
+  branchNameFromRow,
+  branchQueryParams,
+  useAdminBranchScope,
+} from "@/components/admin/BranchScope";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,6 +69,9 @@ interface Membership {
   bundleComponents?: BundleComponent[] | null;
   disciplineCredits?: Record<string, number> | null;
   notes?: string | null;
+  branchId?: string;
+  branch_id?: string;
+  branchName?: string;
 }
 
 // Parses a bundle label like "8 Reformer" → { count: 8, discipline: "reformer" }.
@@ -101,6 +110,7 @@ interface ClientOption {
 }
 
 const membershipSchema = z.object({
+  branchId: z.string().min(1, "Sucursal requerida"),
   userId: z.string().min(1),
   planId: z.string().min(1),
   paymentMethod: z.enum(["efectivo", "tarjeta", "transferencia"]).optional(),
@@ -112,21 +122,27 @@ type MembershipFormData = z.infer<typeof membershipSchema>;
 const MembershipTable = ({ status, title }: { status?: string; title: string }) => {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const branchScope = useAdminBranchScope();
 
-  const url = status ? `/memberships?status=${status}` : "/memberships";
   const { data, isLoading } = useQuery<{ data: Membership[] }>({
-    queryKey: ["memberships", status],
-    queryFn: async () => (await api.get(url)).data,
+    queryKey: ["memberships", status, branchScope.branchScope],
+    queryFn: async () => (await api.get("/memberships", {
+      params: { ...(status ? { status } : {}), ...branchQueryParams(branchScope.branchScope) },
+    })).data,
   });
   const memberships = Array.isArray(data?.data) ? data.data : [];
 
   const activateMutation = useMutation({
-    mutationFn: (id: string) => api.put(`/memberships/${id}/activate`),
+    mutationFn: (membership: Membership) => api.put(`/memberships/${membership.id}/activate`, {
+      branchId: membership.branchId ?? membership.branch_id,
+    }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["memberships"] }); toast({ title: "Membresía activada" }); },
   });
 
   const cancelMutation = useMutation({
-    mutationFn: (id: string) => api.put(`/memberships/${id}/cancel`),
+    mutationFn: (membership: Membership) => api.put(`/memberships/${membership.id}/cancel`, {
+      branchId: membership.branchId ?? membership.branch_id,
+    }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["memberships"] }); toast({ title: "Membresía cancelada" }); },
   });
 
@@ -140,7 +156,10 @@ const MembershipTable = ({ status, title }: { status?: string; title: string }) 
 
   const adjustCreditsMutation = useMutation({
     mutationFn: (body: any) =>
-      api.put(`/memberships/${creditsTarget?.id ?? ""}/credits`, body),
+      api.put(`/memberships/${creditsTarget?.id ?? ""}/credits`, {
+        ...body,
+        branchId: creditsTarget?.branchId ?? creditsTarget?.branch_id,
+      }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["memberships"] });
       const data = res?.data?.data ?? res?.data;
@@ -203,7 +222,10 @@ const MembershipTable = ({ status, title }: { status?: string; title: string }) 
 
   const extendMutation = useMutation({
     mutationFn: ({ id, body }: { id: string; body: any }) =>
-      api.put(`/memberships/${id}/extend`, body),
+      api.put(`/memberships/${id}/extend`, {
+        ...body,
+        branchId: vigTarget?.branchId ?? vigTarget?.branch_id,
+      }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["memberships"] });
       const data = res?.data ?? {};
@@ -299,6 +321,7 @@ const MembershipTable = ({ status, title }: { status?: string; title: string }) 
             <TableRow>
               <TableHead>Cliente</TableHead>
               <TableHead>Plan</TableHead>
+              <TableHead>Sucursal</TableHead>
               <TableHead>Estado</TableHead>
               <TableHead>Vigencia</TableHead>
               <TableHead>Clases</TableHead>
@@ -308,7 +331,7 @@ const MembershipTable = ({ status, title }: { status?: string; title: string }) 
           <TableBody>
             {isLoading
               ? Array(4).fill(0).map((_, i) => (
-                <TableRow key={i}>{Array(6).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>)}</TableRow>
+                <TableRow key={i}>{Array(7).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>)}</TableRow>
               ))
               : memberships.map((m) => {
                 const catColors: Record<string, string> = {
@@ -337,6 +360,9 @@ const MembershipTable = ({ status, title }: { status?: string; title: string }) 
                       </div>
                     </TableCell>
                     <TableCell>
+                      <Badge variant="outline">{branchNameFromRow(m, branchScope.branches)}</Badge>
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={STATUS_VARIANTS[m.status]}>{STATUS_LABELS[m.status]}</Badge>
                     </TableCell>
                     <TableCell className="text-sm">{fmtMembershipDate(m.endDate)}</TableCell>
@@ -355,22 +381,23 @@ const MembershipTable = ({ status, title }: { status?: string; title: string }) 
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
                           {m.status !== "active" && (
-                            <DropdownMenuItem onClick={() => activateMutation.mutate(m.id)}>Activar</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => activateMutation.mutate(m)} disabled={!(m.branchId ?? m.branch_id)}>Activar</DropdownMenuItem>
                           )}
-                          <DropdownMenuItem onClick={() => openCredits(m)}>
+                          <DropdownMenuItem onClick={() => openCredits(m)} disabled={!(m.branchId ?? m.branch_id)}>
                             <Coins size={14} className="mr-2" />
                             Ajustar créditos
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openVigencia(m)}>
+                          <DropdownMenuItem onClick={() => openVigencia(m)} disabled={!(m.branchId ?? m.branch_id)}>
                             <CalendarClock size={14} className="mr-2" />
                             Ajustar vigencia
                           </DropdownMenuItem>
                           {m.status !== "cancelled" && (
                             <DropdownMenuItem
                               className="text-destructive"
+                              disabled={!(m.branchId ?? m.branch_id)}
                               onClick={() => {
                                 if (window.confirm(`¿Cancelar la membresía de ${m.userName ?? "esta alumna"}? Esta acción no se puede deshacer fácilmente.`)) {
-                                  cancelMutation.mutate(m.id);
+                                  cancelMutation.mutate(m);
                                 }
                               }}
                             >
@@ -580,6 +607,7 @@ const MembershipTable = ({ status, title }: { status?: string; title: string }) 
 const MembershipsList = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const branchScope = useAdminBranchScope();
   const [open, setOpen] = useState(false);
   const [userSearch, setUserSearch] = useState("");
   const [selectedUser, setSelectedUser] = useState<ClientOption | null>(null);
@@ -587,7 +615,7 @@ const MembershipsList = () => {
 
   const form = useForm<MembershipFormData>({
     resolver: zodResolver(membershipSchema),
-    defaultValues: { userId: "", startDate: new Date().toISOString().split("T")[0] },
+    defaultValues: { branchId: "", userId: "", startDate: new Date().toISOString().split("T")[0] },
   });
 
   const createMutation = useMutation({
@@ -598,7 +626,7 @@ const MembershipsList = () => {
       setOpen(false);
       setSelectedUser(null);
       setUserSearch("");
-      form.reset({ userId: "", startDate: new Date().toISOString().split("T")[0] });
+      form.reset({ branchId: branchScope.branchId ?? "", userId: "", startDate: new Date().toISOString().split("T")[0] });
     },
     onError: (err: any) => {
       const data = err?.response?.data;
@@ -619,9 +647,14 @@ const MembershipsList = () => {
   });
   const userOptions = Array.isArray(usersData?.data) ? usersData.data : [];
 
-  const { data: plansData } = useQuery<{ data: { id: string; name: string }[] }>({
-    queryKey: ["plans"],
-    queryFn: async () => (await api.get("/plans")).data,
+  const { data: plansData } = useQuery<{ data: any[] }>({
+    queryKey: ["plans", branchScope.branchScope],
+    queryFn: async () => (await api.get("/plans", { params: branchQueryParams(branchScope.branchScope) })).data,
+    enabled: Boolean(branchScope.branchId),
+  });
+  const availablePlans = (Array.isArray(plansData?.data) ? plansData.data : []).filter((plan: any) => {
+    const kind = plan.planKind ?? plan.plan_kind;
+    return (plan.isActive ?? plan.is_active ?? true) && kind !== "registration" && kind !== "internal";
   });
 
   return (
@@ -630,8 +663,19 @@ const MembershipsList = () => {
         <div className="admin-page max-w-6xl">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
             <h1 className="text-2xl font-bold">Membresías</h1>
-            <Button size="sm" onClick={() => setOpen(true)}><Plus size={14} className="mr-1" />Asignar</Button>
+            <Button
+              size="sm"
+              disabled={!branchScope.branchId}
+              onClick={() => {
+                form.reset({ branchId: branchScope.branchId ?? "", userId: "", startDate: new Date().toISOString().split("T")[0] });
+                setOpen(true);
+              }}
+            >
+              <Plus size={14} className="mr-1" />Asignar
+            </Button>
           </div>
+
+          {!branchScope.branchId && <BranchRequiredNotice action="asignar una membresía" />}
 
           <Tabs defaultValue="all">
             <TabsList className="mb-6">
@@ -654,7 +698,7 @@ const MembershipsList = () => {
             if (!next) {
               setSelectedUser(null);
               setUserSearch("");
-              form.reset({ userId: "", startDate: new Date().toISOString().split("T")[0] });
+              form.reset({ branchId: branchScope.branchId ?? "", userId: "", startDate: new Date().toISOString().split("T")[0] });
             }
           }}
         >
@@ -679,6 +723,9 @@ const MembershipsList = () => {
               )}
               className="space-y-4"
             >
+              <div className="rounded-xl border border-border bg-muted/40 px-3 py-2 text-sm">
+                Sucursal: <span className="font-semibold">{branchScope.selectedBranch?.name ?? "Sin seleccionar"}</span>
+              </div>
               <div className="space-y-1">
                 <Label>Cliente</Label>
                 <div className="relative">
@@ -745,7 +792,7 @@ const MembershipsList = () => {
                     <SelectValue placeholder="Seleccionar plan" />
                   </SelectTrigger>
                   <SelectContent>
-                    {(Array.isArray(plansData?.data) ? plansData.data : []).map((p) => (
+                    {availablePlans.map((p) => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -776,8 +823,7 @@ const MembershipsList = () => {
               {(() => {
                 const selPlanId = form.watch("planId");
                 const selPM = form.watch("paymentMethod");
-                const allPlans = Array.isArray(plansData?.data) ? plansData.data : [];
-                const selPlan = allPlans.find((p: any) => p.id === selPlanId) as any;
+                const selPlan = availablePlans.find((p: any) => p.id === selPlanId) as any;
                 if (!selPlan) return null;
                 const basePrice = parseFloat(selPlan?.price ?? 0);
                 const isDiscount = selPM === "efectivo" || selPM === "transferencia";
@@ -815,7 +861,7 @@ const MembershipsList = () => {
               })()}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-                <Button type="submit" disabled={createMutation.isPending}>Asignar</Button>
+                <Button type="submit" disabled={createMutation.isPending || !branchScope.branchId}>Asignar</Button>
               </DialogFooter>
             </form>
           </DialogContent>

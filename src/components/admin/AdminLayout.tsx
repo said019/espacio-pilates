@@ -11,6 +11,7 @@ import {
   Bell, BellOff,
 } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { BranchSelector } from "@/components/admin/BranchScope";
 
 const NAV_GROUPS = [
   {
@@ -268,6 +269,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
           </div>
 
           <div className="flex items-center gap-3">
+            <BranchSelector compact />
             <span className="hidden sm:flex items-center gap-2 font-body text-[0.74rem] text-valiance-charcoal/60">
               <span className="w-1.5 h-1.5 rounded-full bg-[#6E7F4F] animate-pulse-dot" />
               En línea

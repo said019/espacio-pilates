@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import valianceLogo from "@/assets/tep-mark-ink.png";
+import { BranchSelector } from "@/components/BranchSelector";
 
 /* ── Navigation groups ── */
 const NAV_GROUPS = [
@@ -148,6 +149,8 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
           )} />
         </Link>
 
+        <BranchSelector className="mx-4 mb-3" />
+
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto px-3 pb-2 space-y-5 mt-3" aria-label="Navegación principal">
           {NAV_GROUPS.map((group) => (
@@ -204,9 +207,7 @@ const ClientLayout = ({ children }: { children: React.ReactNode }) => {
             <Menu size={20} />
           </button>
 
-          <Link to="/" aria-label="Tu Espacio Pilates — Inicio" className="flex items-center">
-            <img src={valianceLogo} alt="" aria-hidden className="h-12 w-auto object-contain" />
-          </Link>
+          <BranchSelector compact />
 
           <Link
             to="/app/notifications"

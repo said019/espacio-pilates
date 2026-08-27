@@ -10,4 +10,7 @@ export interface BookingClient {
   booked_at: string;
   has_review?: boolean;
   waitlist_position?: number | null;
+  branch_id?: string;
+  branch_code?: string;
+  branch_name?: string;
 }

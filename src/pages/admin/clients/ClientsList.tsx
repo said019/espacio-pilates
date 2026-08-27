@@ -8,6 +8,11 @@ import { format } from "date-fns";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import {
+  BranchRequiredNotice,
+  branchQueryParams,
+  useAdminBranchScope,
+} from "@/components/admin/BranchScope";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,6 +41,7 @@ const editSchema = z.object({
 });
 
 const manualSchema = z.object({
+  branchId: z.string().min(1, "Sucursal requerida"),
   displayName: z.string().min(1, "Nombre requerido"),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
   phone: z.string().optional(),
@@ -57,7 +63,7 @@ interface Client extends EditFormData {
   role: string;
 }
 
-interface Plan { id: string; name: string; price: number; category: string; classLimit?: number; class_limit?: number; }
+interface Plan { id: string; name: string; price: number; category: string; classLimit?: number; class_limit?: number; planKind?: string; plan_kind?: string; }
 
 // ── Payment method selector ────────────────────────────────────────────────────
 const PAYMENT_METHODS = [
@@ -71,6 +77,7 @@ const ClientsList = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const branchScope = useAdminBranchScope();
 
   // Edit dialog
   const [editOpen, setEditOpen] = useState(false);
@@ -83,18 +90,26 @@ const ClientsList = () => {
 
   // Clients list
   const { data, isLoading } = useQuery<{ data: Client[] }>({
-    queryKey: ["clients", debouncedSearch],
-    queryFn: async () => (await api.get(`/users?role=client&search=${debouncedSearch}`)).data,
+    queryKey: ["clients", debouncedSearch, branchScope.branchScope],
+    queryFn: async () => (await api.get("/users", {
+      params: { role: "client", search: debouncedSearch, ...branchQueryParams(branchScope.branchScope) },
+    })).data,
   });
   const clients = Array.isArray(data?.data) ? data.data : [];
 
   // Plans for the manual dialog
   const { data: plansData } = useQuery<{ data: Plan[] }>({
-    queryKey: ["plans-active"],
-    queryFn: async () => (await api.get("/plans?active=true")).data,
+    queryKey: ["plans-active", branchScope.branchScope],
+    queryFn: async () => (await api.get("/plans", {
+      params: { active: true, ...branchQueryParams(branchScope.branchScope) },
+    })).data,
+    enabled: Boolean(branchScope.branchId),
     staleTime: 60_000,
   });
-  const plans: Plan[] = Array.isArray(plansData?.data) ? plansData.data : [];
+  const plans: Plan[] = (Array.isArray(plansData?.data) ? plansData.data : []).filter((plan) => {
+    const kind = plan.planKind ?? plan.plan_kind;
+    return kind !== "registration" && kind !== "internal";
+  });
 
   // ── Edit form ──────────────────────────────────────────────────────────────
   const editForm = useForm<EditFormData>({ resolver: zodResolver(editSchema) });
@@ -124,7 +139,7 @@ const ClientsList = () => {
   // ── Manual registration form ───────────────────────────────────────────────
   const manualForm = useForm<ManualFormData>({
     resolver: zodResolver(manualSchema),
-    defaultValues: { startDate: format(new Date(), "yyyy-MM-dd") },
+    defaultValues: { branchId: "", startDate: format(new Date(), "yyyy-MM-dd") },
   });
   const selectedPlanId = manualForm.watch("planId");
   const selectedPlan   = plans.find((p) => p.id === selectedPlanId);
@@ -160,7 +175,7 @@ const ClientsList = () => {
         });
       }
       setManualOpen(false);
-      manualForm.reset({ startDate: format(new Date(), "yyyy-MM-dd") });
+      manualForm.reset({ branchId: branchScope.branchId ?? "", startDate: format(new Date(), "yyyy-MM-dd") });
     },
     onError: (err: any) => {
       toast({
@@ -185,12 +200,18 @@ const ClientsList = () => {
               <p className="text-sm text-[#1A1A1A]/35">{clients.length} clientas registradas</p>
             </div>
             <button
-              onClick={() => setManualOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 transition-opacity"
+              onClick={() => {
+                manualForm.reset({ branchId: branchScope.branchId ?? "", startDate: format(new Date(), "yyyy-MM-dd") });
+                setManualOpen(true);
+              }}
+              disabled={!branchScope.branchId}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] hover:opacity-90 transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
             >
               <UserPlus size={15} /> Nueva clienta
             </button>
           </div>
+
+          {!branchScope.branchId && <BranchRequiredNotice action="registrar una clienta manualmente" />}
 
           {/* Search */}
           <div className="relative mb-5 max-w-sm">
@@ -321,7 +342,7 @@ const ClientsList = () => {
         </Dialog>
 
         {/* ── Manual registration dialog ───────────────────────────────────── */}
-        <Dialog open={manualOpen} onOpenChange={(v) => { setManualOpen(v); if (!v) manualForm.reset({ startDate: format(new Date(), "yyyy-MM-dd") }); }}>
+        <Dialog open={manualOpen} onOpenChange={(v) => { setManualOpen(v); if (!v) manualForm.reset({ branchId: branchScope.branchId ?? "", startDate: format(new Date(), "yyyy-MM-dd") }); }}>
           <DialogContent className="max-w-xl bg-white border-[#8C6B6F]/20 text-[#1A1A1A] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-[#1A1A1A] flex items-center gap-2">
@@ -332,6 +353,9 @@ const ClientsList = () => {
             </DialogHeader>
 
             <form onSubmit={manualForm.handleSubmit(onManualSubmit)} className="space-y-5 pt-1">
+              <div className="rounded-xl border border-[#8C6B6F]/20 bg-[#8C6B6F]/[0.04] px-3 py-2 text-sm">
+                Sucursal: <span className="font-semibold">{branchScope.selectedBranch?.name ?? "Sin seleccionar"}</span>
+              </div>
               {/* Personal info */}
               <div>
                 <p className="text-[11px] text-[#8C6B6F]/70 font-semibold uppercase tracking-wider mb-3">Datos personales</p>
@@ -500,7 +524,7 @@ const ClientsList = () => {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={manualMutation.isPending}
+                  disabled={manualMutation.isPending || !branchScope.branchId}
                   className="bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] text-white border-0 min-w-[140px]"
                 >
                   {manualMutation.isPending ? "Registrando…" : selectedPlanId && selectedPlanId !== "none" ? "Registrar + activar plan" : "Registrar clienta"}

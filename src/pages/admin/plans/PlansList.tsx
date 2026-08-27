@@ -6,6 +6,11 @@ import { z } from "zod";
 import api from "@/lib/api";
 import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
+import {
+  branchNameFromRow,
+  branchQueryParams,
+  useAdminBranchScope,
+} from "@/components/admin/BranchScope";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,20 +38,44 @@ const CATEGORIES = [
   { value: "mixto",     label: "Combo (Reformer + Barre)", color: "bg-[#8C6B6F]/10 text-[#1A1A1A]/70 border-[#8C6B6F]/20" },
   { value: "bienestar", label: "Bienestar",             color: "bg-[#8C6B6F]/20 text-[#8C6B6F] border-[#8C6B6F]/30" },
   { value: "prenatal",  label: "Prenatal",              color: "bg-[#F4EAD6] text-[#8C6B6F] border-[#E5CF9F]" },
+  { value: "funcional", label: "Funcional",             color: "bg-[#E4E8D6] text-[#56613F] border-[#CFD4B6]" },
   { value: "pilates",   label: "Pilates (legacy)",      color: "bg-[#D9B5BA]/20 text-[#8C6B6F] border-[#D9B5BA]/30" },
   { value: "all",       label: "Todas (sin filtro)",    color: "bg-[#8C6B6F]/10 text-[#1A1A1A]/60 border-[#8C6B6F]/20" },
 ] as const;
 
 type CategoryValue = (typeof CATEGORIES)[number]["value"];
 
+const PROGRAMS = [
+  { value: "pilates", label: "Pilates" },
+  { value: "functional", label: "Funcional" },
+  { value: "prenatal", label: "Prenatal" },
+] as const;
+
+const PLAN_KINDS = [
+  { value: "package", label: "Paquete" },
+  { value: "single", label: "Clase individual" },
+  { value: "registration", label: "Inscripción" },
+  { value: "internal", label: "Uso interno" },
+] as const;
+
+type ProgramValue = (typeof PROGRAMS)[number]["value"];
+type PlanKindValue = (typeof PLAN_KINDS)[number]["value"];
+
 const planSchema = z.object({
+  branchId: z.string().min(1, "Sucursal requerida"),
+  code: z.string().trim().min(1, "Código requerido"),
+  program: z.enum(["pilates", "functional", "prenatal"]).default("pilates"),
+  planKind: z.enum(["package", "single", "registration", "internal"]).default("package"),
   name: z.string().min(1, "Nombre requerido"),
   description: z.string().optional(),
   price: z.coerce.number().min(0),
   currency: z.string().default("MXN"),
   durationDays: z.coerce.number().min(1),
-  classLimit: z.preprocess((v) => (v === "" || v === null || v === undefined ? null : Number(v)), z.number().nullable()),
-  classCategory: z.enum(["reformer", "barre", "mixto", "pilates", "bienestar", "prenatal", "all"]).default("all"),
+  classLimit: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? null : Number(v)),
+    z.number().int().min(0).nullable(),
+  ),
+  classCategory: z.enum(["reformer", "barre", "mixto", "pilates", "bienestar", "prenatal", "funcional", "all"]).default("all"),
   features: z.string().optional(),
   isActive: z.boolean().default(true),
   isNonTransferable: z.boolean().default(false),
@@ -58,6 +87,14 @@ const planSchema = z.object({
   scheduleStart: z.string().default(""),
   scheduleEnd: z.string().default(""),
   scheduleMessage: z.string().default(""),
+}).superRefine((plan, ctx) => {
+  if (plan.planKind === "package" && plan.classLimit !== null && plan.classLimit < 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["classLimit"],
+      message: "Usa al menos 1 clase o deja vacío para un paquete ilimitado",
+    });
+  }
 });
 
 type PlanFormData = z.infer<typeof planSchema>;
@@ -67,8 +104,19 @@ interface Plan extends PlanFormData {
 }
 
 function normalizePlanRow(row: any): Plan {
+  const rawCategory = row?.classCategory ?? row?.class_category ?? "all";
+  const rawLimit = row?.classLimit ?? row?.class_limit ?? row?.class_limit_override;
+  const inferredKind = /inscripci[oó]n/i.test(String(row?.name ?? ""))
+    ? "registration"
+    : Number(rawLimit) === 1
+      ? "single"
+      : "package";
   return {
     id: String(row?.id ?? ""),
+    branchId: String(row?.branchId ?? row?.branch_id ?? ""),
+    code: String(row?.code ?? ""),
+    program: ((row?.program ?? (rawCategory === "funcional" ? "functional" : rawCategory === "prenatal" ? "prenatal" : "pilates")) as ProgramValue),
+    planKind: ((row?.planKind ?? row?.plan_kind ?? inferredKind) as PlanKindValue),
     name: String(row?.name ?? ""),
     description: String(row?.description ?? ""),
     price: Number(row?.price ?? 0),
@@ -80,7 +128,7 @@ function normalizePlanRow(row: any): Plan {
       const n = Number(raw);
       return Number.isFinite(n) ? n : null;
     })(),
-    classCategory: ((row?.classCategory ?? row?.class_category ?? "all") as CategoryValue),
+    classCategory: (rawCategory as CategoryValue),
     features: Array.isArray(row?.features)
       ? row.features.join(", ")
       : String(row?.features ?? ""),
@@ -118,6 +166,7 @@ function normalizePlanRow(row: any): Plan {
 }
 
 const EMPTY: PlanFormData = {
+  branchId: "", code: "", program: "pilates", planKind: "package",
   name: "", description: "", price: 0, currency: "MXN",
   durationDays: 30, classLimit: null, classCategory: "all",
   features: "", isActive: true, isNonTransferable: false, isNonRepeatable: false, repeatKey: "", sortOrder: 0,
@@ -146,6 +195,7 @@ function serializePlan(d: PlanFormData) {
     : null;
   return {
     ...d,
+    code: d.code.trim().toLowerCase().replace(/\s+/g, "-"),
     repeatKey: d.isNonRepeatable ? (d.repeatKey?.trim() || null) : null,
     discount_price: d.discountPrice,
     features: d.features
@@ -158,6 +208,10 @@ function serializePlan(d: PlanFormData) {
 function normalizePlan(p: Plan): PlanFormData {
   return {
     ...p,
+    branchId: String((p as any).branchId ?? (p as any).branch_id ?? ""),
+    code: String((p as any).code ?? ""),
+    program: ((p as any).program ?? "pilates") as ProgramValue,
+    planKind: ((p as any).planKind ?? (p as any).plan_kind ?? "package") as PlanKindValue,
     classCategory: ((p as any).classCategory ?? (p as any).class_category ?? "all") as CategoryValue,
     features: Array.isArray(p.features)
       ? (p.features as unknown as string[]).join(", ")
@@ -176,12 +230,13 @@ function normalizePlan(p: Plan): PlanFormData {
 const PlansList = () => {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const branchScope = useAdminBranchScope();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Plan | null>(null);
 
   const { data, isLoading } = useQuery<{ data: Plan[] }>({
-    queryKey: ["plans"],
-    queryFn: async () => (await api.get("/plans")).data,
+    queryKey: ["plans", branchScope.branchScope],
+    queryFn: async () => (await api.get("/plans", { params: branchQueryParams(branchScope.branchScope) })).data,
   });
   const plans = Array.isArray(data?.data) ? data.data.map(normalizePlanRow) : [];
 
@@ -200,8 +255,9 @@ const PlansList = () => {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: ({ id, cascade, hard }: { id: string; cascade?: boolean; hard?: boolean }) => {
+    mutationFn: ({ id, branchId, cascade, hard }: { id: string; branchId: string; cascade?: boolean; hard?: boolean }) => {
       const params = new URLSearchParams();
+      params.set("branch_id", branchId);
       if (cascade) params.set("cascade", "true");
       if (hard) params.set("hard", "true");
       const qs = params.toString() ? `?${params.toString()}` : "";
@@ -220,7 +276,11 @@ const PlansList = () => {
     },
   });
 
-  const openCreate = () => { form.reset(EMPTY); setEditing(null); setOpen(true); };
+  const openCreate = () => {
+    form.reset({ ...EMPTY, branchId: branchScope.branchId ?? "" });
+    setEditing(null);
+    setOpen(true);
+  };
   const openEdit = (p: Plan) => { form.reset(normalizePlan(p)); setEditing(p); setOpen(true); };
   const closeDialog = () => { setOpen(false); setEditing(null); };
 
@@ -238,14 +298,16 @@ const PlansList = () => {
             <Button onClick={openCreate} size="sm"><Plus size={14} className="mr-1" />Nuevo plan</Button>
           </div>
 
-          <div className="rounded-xl border border-border overflow-hidden">
+          <div className="overflow-x-auto rounded-xl border border-border">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Nombre</TableHead>
+                  <TableHead>Sucursal</TableHead>
                   <TableHead>Precio</TableHead>
                   <TableHead>Duración</TableHead>
                   <TableHead>Límite clases</TableHead>
+                  <TableHead>Programa / tipo</TableHead>
                   <TableHead>Categoría</TableHead>
                   <TableHead className="min-w-[260px]">Condiciones</TableHead>
                   <TableHead>Reglas</TableHead>
@@ -256,11 +318,17 @@ const PlansList = () => {
               <TableBody className={isLoading ? undefined : "stagger-in"}>
                 {isLoading
                   ? Array(4).fill(0).map((_, i) => (
-                    <TableRow key={i}>{Array(9).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>)}</TableRow>
+                    <TableRow key={i}>{Array(11).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-5 w-full" /></TableCell>)}</TableRow>
                   ))
                   : plans.map((p) => (
                     <TableRow key={p.id}>
-                      <TableCell className="font-medium">{p.name}</TableCell>
+                      <TableCell className="font-medium">
+                        {p.name}
+                        <p className="mt-0.5 font-mono text-[10px] font-normal text-muted-foreground">{p.code || "Sin código"}</p>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{branchNameFromRow(p, branchScope.branches)}</Badge>
+                      </TableCell>
                       <TableCell>
                         <span>${p.price} {p.currency}</span>
                         {p.discountPrice != null && p.discountPrice > 0 && (
@@ -269,6 +337,10 @@ const PlansList = () => {
                       </TableCell>
                       <TableCell>{p.durationDays} días</TableCell>
                       <TableCell>{p.classLimit == null ? "Ilimitado" : p.classLimit === 0 ? "0" : p.classLimit}</TableCell>
+                      <TableCell>
+                        <p className="text-xs font-medium">{PROGRAMS.find((item) => item.value === p.program)?.label ?? p.program}</p>
+                        <p className="text-[10px] text-muted-foreground">{PLAN_KINDS.find((item) => item.value === p.planKind)?.label ?? p.planKind}</p>
+                      </TableCell>
                       <TableCell>
                         {(() => {
                           const cat = CATEGORIES.find((c) => c.value === (p.classCategory ?? "all")) ?? CATEGORIES[2];
@@ -332,7 +404,7 @@ const PlansList = () => {
                                   ? "¿Eliminar esta sesión y todos sus datos relacionados?"
                                   : "¿Desactivar este plan? (se oculta pero conserva historial)";
                                 if (window.confirm(msg)) {
-                                  deleteMutation.mutate({ id: p.id, cascade: isLegacySession });
+                                  deleteMutation.mutate({ id: p.id, branchId: p.branchId, cascade: isLegacySession });
                                 }
                               }}
                             >
@@ -346,7 +418,7 @@ const PlansList = () => {
                                     "¿Eliminar PERMANENTEMENTE este plan?\n\nSolo funciona si no tiene ninguna clienta asociada (incluidas canceladas). Si hay suscripciones, usa 'Desactivar'."
                                   )
                                 ) {
-                                  deleteMutation.mutate({ id: p.id, hard: true });
+                                  deleteMutation.mutate({ id: p.id, branchId: p.branchId, hard: true });
                                 }
                               }}
                             >
@@ -370,9 +442,71 @@ const PlansList = () => {
             </DialogHeader>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <div className="space-y-1">
+                <Label>Sucursal</Label>
+                <Select
+                  value={form.watch("branchId") || undefined}
+                  onValueChange={(value) => form.setValue("branchId", value, { shouldValidate: true })}
+                  disabled={Boolean(editing)}
+                >
+                  <SelectTrigger className={form.formState.errors.branchId ? "border-destructive" : ""}>
+                    <SelectValue placeholder="Seleccionar sucursal" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branchScope.branches.map((branch) => (
+                      <SelectItem key={branch.id} value={branch.id}>{branch.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {editing && <p className="text-[11px] text-muted-foreground">La sucursal no cambia para proteger compras existentes.</p>}
+                {form.formState.errors.branchId && <p className="text-xs text-destructive">{form.formState.errors.branchId.message}</p>}
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>Programa</Label>
+                  <Select
+                    value={form.watch("program")}
+                    onValueChange={(value) => {
+                      form.setValue("program", value as ProgramValue, { shouldValidate: true });
+                      if (value === "functional") form.setValue("classCategory", "funcional");
+                      if (value === "prenatal") form.setValue("classCategory", "prenatal");
+                    }}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PROGRAMS.map((program) => (
+                        <SelectItem key={program.value} value={program.value}>{program.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Tipo de plan</Label>
+                  <Select
+                    value={form.watch("planKind")}
+                    onValueChange={(value) => {
+                      form.setValue("planKind", value as PlanKindValue, { shouldValidate: true });
+                      if (value === "registration") form.setValue("classLimit", 0);
+                    }}
+                  >
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PLAN_KINDS.map((kind) => (
+                        <SelectItem key={kind.value} value={kind.value}>{kind.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1">
                 <Label>Nombre</Label>
                 <Input {...form.register("name")} />
                 {form.formState.errors.name && <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label>Código estable (SKU)</Label>
+                <Input placeholder="ej. pozos-functional-7" {...form.register("code")} />
+                <p className="text-[11px] text-muted-foreground">Se guarda en minúsculas y no debe reutilizarse dentro de la sucursal.</p>
+                {form.formState.errors.code && <p className="text-xs text-destructive">{form.formState.errors.code.message}</p>}
               </div>
               <div className="space-y-1">
                 <Label>Categoría de clases</Label>
@@ -410,7 +544,8 @@ const PlansList = () => {
               </div>
               <div className="space-y-1">
                 <Label>Límite de clases (vacío = ilimitado)</Label>
-                <Input type="number" placeholder="null = ilimitado" {...form.register("classLimit")} />
+                <Input type="number" min={0} step={1} placeholder="Vacío = ilimitado" {...form.register("classLimit")} />
+                {form.formState.errors.classLimit && <p className="text-xs text-destructive">{form.formState.errors.classLimit.message}</p>}
               </div>
               <div className="space-y-1">
                 <Label>Beneficios (separados por coma)</Label>

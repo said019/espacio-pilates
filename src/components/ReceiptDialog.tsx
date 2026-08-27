@@ -10,6 +10,7 @@ import { es } from "date-fns/locale";
 import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { getEntityBranchName, getEntityProgram, programLabel } from "@/hooks/useBranch";
 
 export const ReceiptDialog = ({ order, onClose }: { order: any | null; onClose: () => void }) => (
   <Dialog open={!!order} onOpenChange={(v) => !v && onClose()}>
@@ -32,7 +33,12 @@ export const ReceiptDialog = ({ order, onClose }: { order: any | null; onClose: 
             <DialogTitle>Comprobante de pago</DialogTitle>
           </DialogHeader>
           <div className="text-center space-y-0.5">
-            <p className="font-semibold text-[#1A1A1A]">Tu Espacio Pilates · Villa Magna</p>
+            <p className="font-semibold text-[#1A1A1A]">
+              Tu Espacio Pilates · {order.branch_snapshot_name || getEntityBranchName(order)}
+            </p>
+            <p className="text-xs text-[#3D3A3A]">
+              {programLabel(getEntityProgram(order))}
+            </p>
             {(order.user_name || order.userName || order.guest_name) && (
               <p className="text-sm text-[#1A1A1A]">A nombre de: <span className="font-medium">{order.user_name || order.userName || order.guest_name}</span></p>
             )}

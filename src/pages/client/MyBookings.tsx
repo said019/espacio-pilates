@@ -21,8 +21,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useCancellationConfig } from "@/hooks/useCancellationConfig";
-import { Star, CalendarClock } from "lucide-react";
+import { Star, CalendarClock, MapPin } from "lucide-react";
 import type { BookingClient } from "@/types/booking";
+import {
+  getEntityBranchCode,
+  getEntityBranchName,
+  getEntityProgram,
+  matchesBranch,
+  programLabel,
+  useBranch,
+} from "@/hooks/useBranch";
 
 // Narrowed shape of an axios error from the reschedule endpoint.
 interface ApiError {
@@ -39,6 +47,10 @@ interface ClassOption {
   current_bookings?: number;
   max_capacity?: number;
   capacity?: number;
+  branch_id?: string;
+  branch_code?: string;
+  branch_name?: string;
+  program?: string;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -85,6 +97,9 @@ const BookingCard = ({
           {booking.start_time ? format(safeParse(booking.start_time), "EEEE d MMM · HH:mm", { locale: es }) : "—"}
         </p>
         <p className="text-xs text-muted-foreground">{booking.instructor_name}</p>
+        <p className="flex items-center gap-1 text-[0.72rem] font-medium text-valiance-mauve">
+          <MapPin size={12} /> {getEntityBranchName(booking)}
+        </p>
       </div>
       <div className="flex flex-col items-end gap-2">
         <Badge variant={STATUS_VARIANTS[booking.status] ?? "secondary"}>
@@ -140,6 +155,7 @@ const MyBookings = () => {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [rescheduleBooking, setRescheduleBooking] = useState<BookingClient | null>(null);
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const { branch, branchCode, branches } = useBranch();
 
   const closeReschedule = () => {
     setRescheduleBooking(null);
@@ -147,8 +163,8 @@ const MyBookings = () => {
   };
 
   const { data: bookingsData, isLoading } = useQuery({
-    queryKey: ["my-bookings"],
-    queryFn: async () => (await api.get("/bookings/my-bookings")).data,
+    queryKey: ["my-bookings", branchCode],
+    queryFn: async () => (await api.get("/bookings/my-bookings", { params: { branch: branchCode } })).data,
   });
 
   // Fetch review tags for the review dialog
@@ -170,11 +186,19 @@ const MyBookings = () => {
       end: format(endDate, "yyyy-MM-dd"),
     };
   })();
+  const rescheduleBranchCode = getEntityBranchCode(rescheduleBooking) ?? branchCode;
+  const rescheduleBranch = branches.find((item) => item.code === rescheduleBranchCode) ?? branch;
 
   const { data: availableClassesData, isLoading: loadingAvailable } = useQuery({
-    queryKey: ["reschedule-classes", rescheduleRange.start, rescheduleRange.end],
+    queryKey: ["reschedule-classes", rescheduleBranchCode, rescheduleRange.start, rescheduleRange.end],
     queryFn: async () =>
-      (await api.get(`/classes?start=${rescheduleRange.start}&end=${rescheduleRange.end}`)).data,
+      (await api.get("/classes", {
+        params: {
+          start: rescheduleRange.start,
+          end: rescheduleRange.end,
+          branch: rescheduleBranchCode,
+        },
+      })).data,
     enabled: !!rescheduleBooking,
     staleTime: 60 * 1000,
   });
@@ -192,11 +216,8 @@ const MyBookings = () => {
       if (!c.start_time) return false;
       if (rescheduleBooking && c.id === rescheduleBooking.class_id) return false;
       if (rescheduleBooking) {
-        const sourcePrenatal = rescheduleBooking.class_category === "prenatal"
-          || rescheduleBooking.class_type_name?.toLowerCase() === "prenatal";
-        const targetPrenatal = c.class_category === "prenatal"
-          || c.class_type_name?.toLowerCase() === "prenatal";
-        if (sourcePrenatal !== targetPrenatal) return false;
+        if (!matchesBranch(c, rescheduleBranch)) return false;
+        if (getEntityProgram(rescheduleBooking) !== getEntityProgram(c)) return false;
       }
       if (new Date(c.start_time).getTime() <= nowTs) return false;
       const cap = c.max_capacity ?? c.capacity;
@@ -206,7 +227,8 @@ const MyBookings = () => {
     })
     .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
 
-  const bookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
+  const rawBookings: BookingClient[] = Array.isArray(bookingsData?.data) ? bookingsData.data : Array.isArray(bookingsData) ? bookingsData : [];
+  const bookings = rawBookings.filter((item) => matchesBranch(item, branch));
   const now = new Date();
 
   // Orden "más cercanas a hoy primero": próximas ascendente (la de hoy arriba),
@@ -273,7 +295,12 @@ const MyBookings = () => {
 
   const rescheduleMutation = useMutation({
     mutationFn: ({ id, newClassId }: { id: string; newClassId: string }) =>
-      api.put(`/bookings/${id}/reschedule`, { new_class_id: newClassId }),
+      api.put(`/bookings/${id}/reschedule`, {
+        new_class_id: newClassId,
+        branchId: rescheduleBranch.id,
+        branch_id: rescheduleBranch.id,
+        program: rescheduleBooking ? getEntityProgram(rescheduleBooking) : undefined,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["my-bookings"] });
       qc.invalidateQueries({ queryKey: ["my-membership"] });
@@ -309,7 +336,12 @@ const MyBookings = () => {
     <ClientAuthGuard requiredRoles={["client"]}>
       <ClientLayout>
         <div className="space-y-4">
-          <h1 className="text-xl font-bold">Mis reservas</h1>
+          <div>
+            <h1 className="text-xl font-bold">Mis reservas</h1>
+            <p className="mt-1 flex items-center gap-1 text-xs text-valiance-mauve">
+              <MapPin size={12} /> Sucursal {branch.name}
+            </p>
+          </div>
           {isLoading ? (
             <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}</div>
           ) : (
@@ -460,7 +492,7 @@ const MyBookings = () => {
             </DialogHeader>
             <div className="space-y-3 py-1">
               <p className="text-xs text-muted-foreground">
-                Elige una nueva clase para mover tu reserva. Tu crédito no cambia.
+                Elige otra clase de {programLabel(rescheduleBooking ? getEntityProgram(rescheduleBooking) : "pilates")} en {rescheduleBranch.name}. Tu crédito no cambia.
               </p>
               {loadingAvailable ? (
                 <div className="space-y-2">
@@ -500,6 +532,9 @@ const MyBookings = () => {
                             {c.instructor_name && (
                               <p className="text-[11px] text-muted-foreground">{c.instructor_name}</p>
                             )}
+                            <p className="mt-0.5 text-[11px] font-medium text-valiance-mauve">
+                              {getEntityBranchName(c, rescheduleBranch)}
+                            </p>
                           </div>
                           {spotsLeft !== null && (
                             <span className="shrink-0 text-[11px] text-muted-foreground whitespace-nowrap">
