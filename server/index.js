@@ -17,7 +17,8 @@ import { execSync } from "child_process";
 import { canCancel, canReschedule, endOfPurchaseMonth, membershipStartDate, mexicoCityDate } from "./lib/bookingPolicy.js";
 import {
   compatibleMembershipCategoriesForClass,
-  isMembershipCategoryCompatible,
+  membershipCanBookClass,
+  membershipIsEligibleForClass,
   normalizeClassCategory,
 } from "./lib/classAccess.js";
 import {
@@ -2564,6 +2565,7 @@ async function selectMembershipForClass({ userId, branchId = DEFAULT_BRANCH_ID, 
   if (!userId) return null;
   const q = client ?? pool;
   const clsCat = normalizeClassCategory(classCategory, "all");
+  const clsProgram = programForClassCategory(clsCat);
   // Fetch ALL qualifying candidates (category + credits + active), then filter
   // by time_restriction in JS so a Morning Pass doesn't block a user who also
   // has a regular Reformer plan applicable to an evening class.
@@ -2572,11 +2574,13 @@ async function selectMembershipForClass({ userId, branchId = DEFAULT_BRANCH_ID, 
     `SELECT m.id,
             m.user_id,
             m.classes_remaining,
+            m.start_date,
             m.end_date,
             m.created_at,
             m.branch_id,
             COALESCE(p.class_category, 'all') AS class_category,
             COALESCE(p.program, 'pilates') AS program,
+            COALESCE(p.plan_kind, 'single') AS plan_kind,
             p.repeat_key,
             p.name AS plan_name,
             p.time_restriction
@@ -2584,7 +2588,10 @@ async function selectMembershipForClass({ userId, branchId = DEFAULT_BRANCH_ID, 
        LEFT JOIN plans p ON p.id = m.plan_id
       WHERE m.user_id = $1
         AND m.branch_id = $5
+        AND LOWER(COALESCE(p.program, 'pilates')) = $6
+        AND COALESCE(p.plan_kind, 'single') <> 'registration'
         AND m.status = 'active'
+        AND (m.start_date IS NULL OR m.start_date <= COALESCE($3::date, CURRENT_DATE))
         AND (m.end_date IS NULL OR m.end_date >= COALESCE($3::date, CURRENT_DATE))
         AND COALESCE(p.class_category, 'all') = ANY($4::text[])
         AND (
@@ -2603,7 +2610,7 @@ async function selectMembershipForClass({ userId, branchId = DEFAULT_BRANCH_ID, 
         m.end_date ASC,
         CASE WHEN m.classes_remaining IS NULL OR m.classes_remaining >= 9999 THEN 1 ELSE 0 END ASC,
         m.created_at ASC`,
-    [userId, clsCat, classDate, compatibleCategories, branchId]
+    [userId, clsCat, classDate, compatibleCategories, branchId, clsProgram]
   );
   const candidates = r.rows;
   if (!candidates.length) return null;
@@ -4063,10 +4070,11 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
       return res.status(403).json({ message: "No se encontró una membresía válida para esta reserva." });
     }
 
-    if (!isMembershipCategoryCompatible(membership.class_category, clsCategory)) {
+    if (!membershipCanBookClass(membership, cls)) {
       await client.query("ROLLBACK");
       return res.status(403).json({
-        message: `Tu membresía no incluye este tipo de clase. Necesitas una membresía compatible.`,
+        code: "MEMBERSHIP_CLASS_MISMATCH",
+        message: "Tu membresía no corresponde a la sucursal o programa de esta clase.",
       });
     }
 
@@ -4552,6 +4560,8 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
       if (booking.membership_id) {
         const accessRes = await client.query(
           `SELECT m.id, m.branch_id, COALESCE(p.class_category, 'all') AS class_category,
+                  COALESCE(p.program, 'pilates') AS program,
+                  COALESCE(p.plan_kind, 'single') AS plan_kind,
                   p.repeat_key, p.name AS plan_name, p.time_restriction
              FROM memberships m
              LEFT JOIN plans p ON p.id = m.plan_id
@@ -4561,8 +4571,10 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
         );
         const accessMembership = accessRes.rows[0];
         const targetCategory = normalizeClassCategory(newCls.class_category, "all");
-        if (!accessMembership || String(accessMembership.branch_id) !== String(newCls.branch_id)
-          || !isMembershipCategoryCompatible(accessMembership.class_category, targetCategory)) {
+        if (!accessMembership || !membershipCanBookClass(accessMembership, {
+          ...newCls,
+          class_category: targetCategory,
+        })) {
           await client.query("ROLLBACK");
           return res.status(403).json({
             code: "MEMBERSHIP_CLASS_MISMATCH",
@@ -10870,7 +10882,8 @@ async function promoteWaitlist(classId) {
     await client.query("BEGIN");
     // (1) Lock the class row; read capacity, status, category and start time.
     const clsRes = await client.query(
-      `SELECT c.id, c.current_bookings, c.max_capacity, c.status,
+      `SELECT c.id, c.branch_id, c.date, c.start_time,
+              c.current_bookings, c.max_capacity, c.status,
               ct.category AS class_category,
               (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
          FROM classes c JOIN class_types ct ON c.class_type_id = ct.id
@@ -10897,17 +10910,25 @@ async function promoteWaitlist(classId) {
     );
     let promoted = null;
     for (const wl of wlRes.rows) {
-      // Re-leer y bloquear el crédito de su membresía justo antes de promover.
-      let remaining = null;
-      if (wl.membership_id) {
-        const mRes = await client.query(
-          "SELECT classes_remaining FROM memberships WHERE id = $1 FOR UPDATE",
-          [wl.membership_id]
-        );
-        remaining = mRes.rows[0]?.classes_remaining ?? null;
-      }
-      const hasCredit = remaining === null || Number(remaining) >= 9999 || Number(remaining) > 0;
-      if (!hasCredit) continue;            // saltar a la siguiente con crédito
+      // Revalidar toda la membresía justo antes de promover. Pudo vencer,
+      // cancelarse o cambiar de plan/sucursal mientras esperaba.
+      if (!wl.membership_id) continue;
+      const mRes = await client.query(
+        `SELECT m.id, m.user_id, m.branch_id, m.status, m.classes_remaining,
+                m.start_date, m.end_date,
+                COALESCE(p.class_category, 'all') AS class_category,
+                COALESCE(p.program, 'pilates') AS program,
+                COALESCE(p.plan_kind, 'single') AS plan_kind,
+                p.repeat_key, p.name AS plan_name, p.time_restriction
+           FROM memberships m
+           LEFT JOIN plans p ON p.id = m.plan_id
+          WHERE m.id = $1
+          FOR UPDATE OF m`,
+        [wl.membership_id],
+      );
+      const membership = mRes.rows[0];
+      if (!membershipIsEligibleForClass(membership, cls, wl.user_id)) continue;
+      if (!checkPlanTimeRestriction(membership, cls.date, cls.start_time).allowed) continue;
       await client.query("UPDATE bookings SET status = 'confirmed' WHERE id = $1", [wl.id]);
       await client.query("UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1", [classId]);
       if (wl.membership_id) {
@@ -12927,10 +12948,11 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
       return res.status(403).json({ message: "No se encontró una membresía válida para esta clase" });
     }
 
-    if (!isMembershipCategoryCompatible(membership.class_category, clsCategory)) {
+    if (!membershipCanBookClass(membership, cls)) {
       await client.query("ROLLBACK");
       return res.status(403).json({
-        message: `La membresía de la clienta no incluye este tipo de clase.`,
+        code: "MEMBERSHIP_CLASS_MISMATCH",
+        message: "La membresía de la clienta no corresponde a la sucursal o programa de esta clase.",
       });
     }
 
@@ -13113,6 +13135,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
 
     const dayOfWeekSqlStyle = slot.day_of_week === 7 ? 0 : slot.day_of_week; // schedule_slots: Mon=1..Sun=7; EXTRACT DOW: Sun=0..Sat=6
     const clsCategory = normalizeClassCategory(slot.class_category, "all");
+    const clsProgram = programForClassCategory(clsCategory);
 
     // Candidatos: match por class_type + hora + día de semana, restringido a las fechas seleccionadas.
     // Incluye FOR UPDATE para bloquear current_bookings mientras insertamos.
@@ -13181,16 +13204,25 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
     // Si classes_remaining es NULL/ilimitada, toma esa. Si no, debe tener >= bookable.length.
     const needed = bookable.length;
     const compatibleCategories = compatibleMembershipCategoriesForClass(clsCategory);
+    const scopedDates = bookable.map((item) => toDbDateString(new Date(item.date))).sort();
+    const firstScopedDate = scopedDates[0];
+    const lastScopedDate = scopedDates[scopedDates.length - 1];
     const memRes = await client.query(
-      `SELECT m.id, m.classes_remaining, m.end_date,
+      `SELECT m.id, m.user_id, m.branch_id, m.status, m.classes_remaining,
+              m.start_date, m.end_date,
               COALESCE(p.class_category, 'all') AS class_category,
+              COALESCE(p.program, 'pilates') AS program,
+              COALESCE(p.plan_kind, 'single') AS plan_kind,
               p.time_restriction
          FROM memberships m
          LEFT JOIN plans p ON p.id = m.plan_id
         WHERE m.user_id = $1
           AND m.branch_id = $5
+          AND LOWER(COALESCE(p.program, 'pilates')) = $6
+          AND COALESCE(p.plan_kind, 'single') <> 'registration'
           AND m.status = 'active'
-          AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
+          AND (m.start_date IS NULL OR m.start_date <= $7::date)
+          AND (m.end_date IS NULL OR m.end_date >= $8::date)
           AND COALESCE(p.class_category, 'all') = ANY($4::text[])
           AND (
             m.classes_remaining IS NULL
@@ -13204,9 +13236,23 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
           m.created_at ASC
         LIMIT 1
         FOR UPDATE OF m`,
-      [userId, clsCategory, needed, compatibleCategories, slot.branch_id]
+      [
+        userId, clsCategory, needed, compatibleCategories, slot.branch_id,
+        clsProgram, firstScopedDate, lastScopedDate,
+      ]
     );
     const membership = memRes.rows[0];
+    if (membership && !membershipCanBookClass(membership, {
+      branch_id: slot.branch_id,
+      program: clsProgram,
+      class_category: clsCategory,
+    })) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        code: "MEMBERSHIP_CLASS_MISMATCH",
+        message: "La membresía de la clienta no corresponde a la sucursal o programa de estas clases.",
+      });
+    }
     // Filter bookable by membership time-restriction (e.g. Morning Pass).
     // Classes outside the allowed window are removed from this batch and
     // returned in skipped.outOfWindow.
