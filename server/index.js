@@ -772,6 +772,14 @@ async function ensureSchema() {
       await pool.query(pozosFunctionalScheduleSql);
       console.log("✅ Horario de Pozos configurado únicamente con Funcional");
     }
+    {
+      const pozosSeptemberPilatesCleanupSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202608280001_remove_pozos_september_pilates_classes.sql"),
+        "utf8",
+      );
+      await pool.query(pozosSeptemberPilatesCleanupSql);
+      console.log("✅ Clases de Pilates de septiembre retiradas de Pozos");
+    }
     // ── Ensure all users columns the app needs ────────────────────────────
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`).catch(() => { });
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS accepts_terms BOOLEAN DEFAULT false`).catch(() => { });
