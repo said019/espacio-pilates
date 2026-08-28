@@ -44,6 +44,7 @@ import {
 } from "./lib/push.js";
 import { isEmailIdentifier } from "./lib/authIdentity.js";
 import { resolveStampLayout, shouldRenderStampStrip, renderStampStripPng } from "./lib/walletStamps.js";
+import { isVillaMagnaSeptemberPilatesBlackout } from "./lib/scheduleBlackouts.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -550,7 +551,8 @@ const VM_SCHEDULE_SLOTS = [
 ];
 
 // Pozos publishes only the Functional timetable: lunes, miércoles y viernes
-// a las 8:00 am. Villa Magna retains its complete Pilates/Prenatal timetable.
+// a las 8:00 am. Villa Magna retains its canonical Pilates/Prenatal slots; the
+// fixed September 2026 Pilates blackout is applied while generating classes.
 const SCHEDULE_SLOTS = [
   ...VM_SCHEDULE_SLOTS.map((slot) => ({ ...slot, branch_code: "villa-magna" })),
   ...[1, 3, 5].map((day) => ({
@@ -639,11 +641,13 @@ async function generateClassesFromSchedule({ weeks = 4 } = {}) {
     "SELECT id, display_name FROM instructors WHERE is_active = true ORDER BY created_at ASC"
   );
   const slotsRes = await pool.query(
-    `SELECT ss.branch_id, ss.time_slot, ss.day_of_week, ss.apparatus, ss.starts_on,
+    `SELECT ss.branch_id, br.code AS branch_code, ss.time_slot, ss.day_of_week, ss.apparatus, ss.starts_on,
             ss.instructor_name, COALESCE(ss.class_type_name, ct.name) AS class_type_name,
             COALESCE(ss.class_type_id, ct.id) AS class_type_id,
+            ct.category AS class_type_category,
             COALESCE(ct.capacity, 8) AS capacity
        FROM schedule_slots ss
+       JOIN branches br ON br.id = ss.branch_id
        LEFT JOIN class_types ct
          ON ct.id = ss.class_type_id
          OR (ss.class_type_id IS NULL AND LOWER(ct.name) = LOWER(ss.class_type_name))
@@ -680,6 +684,13 @@ async function generateClassesFromSchedule({ weeks = 4 } = {}) {
         ? slot.starts_on.toISOString().slice(0, 10)
         : String(slot.starts_on || "").slice(0, 10);
       if (startsOn && dateStr < startsOn) continue;
+      if (isVillaMagnaSeptemberPilatesBlackout({
+        branchCode: slot.branch_code,
+        date: dateStr,
+        classTypeName: slot.class_type_name,
+        classTypeCategory: slot.class_type_category,
+        apparatus: slot.apparatus,
+      })) continue;
       planned.push({
         branchId: slot.branch_id,
         date: dateStr,
@@ -779,6 +790,14 @@ async function ensureSchema() {
       );
       await pool.query(pozosSeptemberPilatesCleanupSql);
       console.log("✅ Clases de Pilates de septiembre retiradas de Pozos");
+    }
+    {
+      const villaMagnaSeptemberPilatesCleanupSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202608280002_remove_villa_magna_september_pilates_classes.sql"),
+        "utf8",
+      );
+      await pool.query(villaMagnaSeptemberPilatesCleanupSql);
+      console.log("✅ Clases de Pilates de septiembre retiradas de Villa Magna");
     }
     // ── Ensure all users columns the app needs ────────────────────────────
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`).catch(() => { });
