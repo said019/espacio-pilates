@@ -791,14 +791,9 @@ async function ensureSchema() {
       await pool.query(pozosSeptemberPilatesCleanupSql);
       console.log("✅ Clases de Pilates de septiembre retiradas de Pozos");
     }
-    {
-      const villaMagnaSeptemberPilatesCleanupSql = fs.readFileSync(
-        path.join(__dirname, "../supabase/migrations/202608280002_remove_villa_magna_september_pilates_classes.sql"),
-        "utf8",
-      );
-      await pool.query(villaMagnaSeptemberPilatesCleanupSql);
-      console.log("✅ Clases de Pilates de septiembre retiradas de Villa Magna");
-    }
+    // The Villa Magna September cleanup was a one-time data correction. Do not
+    // execute 202608280002 here: ensureSchema runs on every server boot and
+    // replaying that migration would delete classes created manually by admin.
     {
       const manualVillaMagnaSeptemberClassesSql = fs.readFileSync(
         path.join(__dirname, "../supabase/migrations/202608290001_allow_manual_villa_magna_september_classes.sql"),
