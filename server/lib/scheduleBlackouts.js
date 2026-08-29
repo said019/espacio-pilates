@@ -11,7 +11,7 @@ function dateOnly(value) {
   return String(value ?? "").slice(0, 10);
 }
 
-export function isVillaMagnaSeptemberPilatesBlackout({
+export function shouldSkipAutomaticVillaMagnaSeptemberPilates({
   branchCode,
   date,
   classTypeName,

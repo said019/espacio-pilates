@@ -150,4 +150,32 @@ $sql$);
 -- A second application is a no-op and recreates the guard idempotently.
 \ir ../migrations/202608280002_remove_villa_magna_september_pilates_classes.sql
 
+-- The final runtime migration removes the broad trigger: automatic generation
+-- is skipped in server code, while an admin can intentionally add a class.
+\ir ../migrations/202608290001_allow_manual_villa_magna_september_classes.sql
+
+INSERT INTO classes
+  (id, branch_id, class_type_id, instructor_id, date, start_time, end_time,
+   max_capacity, status, apparatus)
+VALUES
+  ('96000000-0000-4000-8000-000000000002',
+   '11111111-1111-4111-8111-111111111111',
+   '93000000-0000-4000-8000-000000000001',
+   '92000000-0000-4000-8000-000000000001',
+   DATE '2026-09-15', TIME '10:00', TIME '10:55', 8, 'scheduled', 'reformer');
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM classes
+     WHERE id = '96000000-0000-4000-8000-000000000002'
+       AND status = 'scheduled'
+  ) THEN
+    RAISE EXCEPTION 'Manual Villa Magna September class generation should be allowed';
+  END IF;
+END $$;
+
+-- The permission migration is also safe to reapply.
+\ir ../migrations/202608290001_allow_manual_villa_magna_september_classes.sql
+
 SELECT 'Villa Magna September Pilates cleanup regression passed' AS result;

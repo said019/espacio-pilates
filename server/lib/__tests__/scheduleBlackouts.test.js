@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { isVillaMagnaSeptemberPilatesBlackout } from "../scheduleBlackouts.js";
+import { shouldSkipAutomaticVillaMagnaSeptemberPilates } from "../scheduleBlackouts.js";
 
-describe("Villa Magna September 2026 Pilates blackout", () => {
-  it("blocks Pilates throughout September in Villa Magna", () => {
-    expect(isVillaMagnaSeptemberPilatesBlackout({
+describe("automatic Villa Magna schedule generation", () => {
+  it("skips Pilates throughout September in Villa Magna", () => {
+    expect(shouldSkipAutomaticVillaMagnaSeptemberPilates({
       branchCode: "villa-magna",
       date: "2026-09-01",
       classTypeName: "Pilates Mat",
       classTypeCategory: "pilates",
       apparatus: "reformer",
     })).toBe(true);
-    expect(isVillaMagnaSeptemberPilatesBlackout({
+    expect(shouldSkipAutomaticVillaMagnaSeptemberPilates({
       branchCode: "villa-magna",
       date: "2026-09-30",
       classTypeName: "Barre Studio",
@@ -19,14 +19,14 @@ describe("Villa Magna September 2026 Pilates blackout", () => {
   });
 
   it("keeps Prenatal and Functional available", () => {
-    expect(isVillaMagnaSeptemberPilatesBlackout({
+    expect(shouldSkipAutomaticVillaMagnaSeptemberPilates({
       branchCode: "villa-magna",
       date: "2026-09-08",
       classTypeName: "Pilates Prenatal",
       classTypeCategory: "prenatal",
       apparatus: "reformer",
     })).toBe(false);
-    expect(isVillaMagnaSeptemberPilatesBlackout({
+    expect(shouldSkipAutomaticVillaMagnaSeptemberPilates({
       branchCode: "villa-magna",
       date: "2026-09-08",
       classTypeName: "Entrenamiento Funcional",
@@ -40,17 +40,17 @@ describe("Villa Magna September 2026 Pilates blackout", () => {
       classTypeCategory: "pilates",
       apparatus: "reformer",
     };
-    expect(isVillaMagnaSeptemberPilatesBlackout({
+    expect(shouldSkipAutomaticVillaMagnaSeptemberPilates({
       ...pilates,
       branchCode: "pozos",
       date: "2026-09-08",
     })).toBe(false);
-    expect(isVillaMagnaSeptemberPilatesBlackout({
+    expect(shouldSkipAutomaticVillaMagnaSeptemberPilates({
       ...pilates,
       branchCode: "villa-magna",
       date: "2026-08-31",
     })).toBe(false);
-    expect(isVillaMagnaSeptemberPilatesBlackout({
+    expect(shouldSkipAutomaticVillaMagnaSeptemberPilates({
       ...pilates,
       branchCode: "villa-magna",
       date: "2026-10-01",

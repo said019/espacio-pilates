@@ -44,7 +44,7 @@ import {
 } from "./lib/push.js";
 import { isEmailIdentifier } from "./lib/authIdentity.js";
 import { resolveStampLayout, shouldRenderStampStrip, renderStampStripPng } from "./lib/walletStamps.js";
-import { isVillaMagnaSeptemberPilatesBlackout } from "./lib/scheduleBlackouts.js";
+import { shouldSkipAutomaticVillaMagnaSeptemberPilates } from "./lib/scheduleBlackouts.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -684,7 +684,7 @@ async function generateClassesFromSchedule({ weeks = 4 } = {}) {
         ? slot.starts_on.toISOString().slice(0, 10)
         : String(slot.starts_on || "").slice(0, 10);
       if (startsOn && dateStr < startsOn) continue;
-      if (isVillaMagnaSeptemberPilatesBlackout({
+      if (shouldSkipAutomaticVillaMagnaSeptemberPilates({
         branchCode: slot.branch_code,
         date: dateStr,
         classTypeName: slot.class_type_name,
@@ -798,6 +798,14 @@ async function ensureSchema() {
       );
       await pool.query(villaMagnaSeptemberPilatesCleanupSql);
       console.log("✅ Clases de Pilates de septiembre retiradas de Villa Magna");
+    }
+    {
+      const manualVillaMagnaSeptemberClassesSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202608290001_allow_manual_villa_magna_september_classes.sql"),
+        "utf8",
+      );
+      await pool.query(manualVillaMagnaSeptemberClassesSql);
+      console.log("✅ Generación manual de clases habilitada en Villa Magna");
     }
     // ── Ensure all users columns the app needs ────────────────────────────
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255)`).catch(() => { });
@@ -9747,7 +9755,11 @@ app.post("/api/classes", adminMiddleware, async (req, res) => {
       [branch.id, classTypeId, instructorId, dateStr, startTimeStr, endTimeStr, cap, notes || null]
     );
     return res.status(201).json({ data: r.rows[0] });
-  } catch (err) { console.error("POST /classes error:", err); return res.status(500).json({ message: "Error interno" }); }
+  } catch (err) {
+    console.error("POST /classes error:", err);
+    if (err?.code === "23514") return res.status(409).json({ message: err.message });
+    return res.status(500).json({ message: "Error interno" });
+  }
 });
 
 // PUT /api/classes/:id/cancel
@@ -9917,7 +9929,11 @@ app.post("/api/classes/generate", adminMiddleware, async (req, res) => {
       }
     }
     return res.json({ created: created.length, data: created });
-  } catch (err) { console.error("generate classes error:", err); return res.status(500).json({ message: "Error interno" }); }
+  } catch (err) {
+    console.error("generate classes error:", err);
+    if (err?.code === "23514") return res.status(409).json({ message: err.message });
+    return res.status(500).json({ message: "Error interno" });
+  }
 });
 
 // ─── Schedules (schedule_slots) CRUD ────────────────────────────────────────
