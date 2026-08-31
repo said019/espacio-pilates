@@ -15,6 +15,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Sparkles } from "lucide-react";
+import { manualClassTypesForBranch } from "./classTypeOptions";
 
 const generateSchema = z.object({
   branchId: z.string().min(1, "Sucursal requerida"),
@@ -60,10 +61,7 @@ const GenerateClasses = () => {
   });
   const availableTypes = useMemo(() => {
     const types = Array.isArray(typesData?.data) ? typesData.data : [];
-    return types.filter((type) => {
-      const functional = type.category === "funcional" || /funcional|functional/i.test(type.name);
-      return branchScope.selectedBranch?.code === "pozos" ? functional : !functional;
-    });
+    return manualClassTypesForBranch(types, branchScope.selectedBranch?.code);
   }, [typesData?.data, branchScope.selectedBranch?.code]);
 
   useEffect(() => {

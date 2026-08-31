@@ -29,6 +29,7 @@ import { useToast } from "@/hooks/use-toast";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { manualClassTypesForBranch } from "./classTypeOptions";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Palette, Zap, MoreHorizontal, Loader2, UserCheck, Sparkles, Calendar, Users, X, CheckCircle2, UserX, Ban, Search } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -75,16 +76,6 @@ interface ClassType {
   maxCapacity?: number;
   capacity?: number;
   isActive?: boolean;
-}
-
-function isFunctionalClassType(type: ClassType) {
-  return type.category === "funcional" || /funcional|functional/i.test(type.name);
-}
-
-function classTypesForBranch(types: ClassType[], branchCode?: string) {
-  return types.filter((type) => branchCode === "pozos"
-    ? isFunctionalClassType(type)
-    : !isFunctionalClassType(type));
 }
 
 const DAYS_ES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
@@ -656,7 +647,7 @@ function CalendarTab({
   const isMobile = useIsMobile();
   const branchScope = useAdminBranchScope();
   const availableTypes = useMemo(
-    () => classTypesForBranch(types, branchScope.selectedBranch?.code),
+    () => manualClassTypesForBranch(types, branchScope.selectedBranch?.code),
     [types, branchScope.selectedBranch?.code],
   );
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -1366,7 +1357,7 @@ function GenerateTab({
 }) {
   const branchScope = useAdminBranchScope();
   const availableTypes = useMemo(
-    () => classTypesForBranch(types, branchScope.selectedBranch?.code),
+    () => manualClassTypesForBranch(types, branchScope.selectedBranch?.code),
     [types, branchScope.selectedBranch?.code],
   );
   const qc = useQueryClient();
