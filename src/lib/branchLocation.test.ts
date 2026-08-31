@@ -2,15 +2,15 @@ import { describe, expect, it } from "vitest";
 import { getBranchMapEmbedUrl, getBranchMapsUrl } from "./branchLocation";
 
 describe("branch map links", () => {
-  it("uses the exact Pozos coordinates for directions and the embedded map", () => {
+  it("uses the confirmed Pozos listing for directions and the embedded map", () => {
     const branch = {
-      address: "Pozos, San Luis Potosí, S.L.P.",
-      mapsUrl: "https://maps.google.com/?q=22.096529,-100.869797",
+      address: "Camino a los Pozos, Boulevard de Pozos 302-E, 78420 Laguna de Santa Rita, S.L.P.",
+      mapsUrl: "https://www.google.com/maps?q=Tu+Espacio+Pilates+Pozos,+Camino+a+los+Pozos,+Boulevard+de+Pozos+302-E,+78420+Laguna+de+Santa+Rita,+S.L.P.&ftid=confirmed-place",
     };
 
-    expect(getBranchMapsUrl(branch)).toBe("https://maps.google.com/?q=22.096529,-100.869797");
+    expect(getBranchMapsUrl(branch)).toContain("ftid=confirmed-place");
     expect(getBranchMapEmbedUrl(branch)).toBe(
-      "https://www.google.com/maps?q=22.096529%2C-100.869797&output=embed",
+      "https://www.google.com/maps?q=Tu%20Espacio%20Pilates%20Pozos%2C%20Camino%20a%20los%20Pozos%2C%20Boulevard%20de%20Pozos%20302-E%2C%2078420%20Laguna%20de%20Santa%20Rita%2C%20S.L.P.&output=embed",
     );
   });
 

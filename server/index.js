@@ -764,6 +764,14 @@ async function ensureSchema() {
       await pool.query(pozosLocationSql);
       console.log("✅ Ubicación de Pozos publicada");
     }
+    {
+      const correctedPozosLocationSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202608300002_correct_pozos_location.sql"),
+        "utf8",
+      );
+      await pool.query(correctedPozosLocationSql);
+      console.log("✅ Ubicación confirmada de Pozos actualizada");
+    }
     // Keep the booking guard in a separate migration so databases that already
     // applied the original multi-branch rollout still receive the stricter
     // membership/branch validation on their next deploy.

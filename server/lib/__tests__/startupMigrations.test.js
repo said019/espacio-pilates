@@ -17,5 +17,8 @@ describe("startup migrations", () => {
     expect(serverSource).toContain(
       'path.join(__dirname, "../supabase/migrations/202608300001_pozos_location.sql")',
     );
+    expect(serverSource).toContain(
+      'path.join(__dirname, "../supabase/migrations/202608300002_correct_pozos_location.sql")',
+    );
   });
 });
