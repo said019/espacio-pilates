@@ -30,6 +30,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { manualClassTypesForBranch } from "./classTypeOptions";
+import { summarizeRoster } from "./rosterSummary";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Palette, Zap, MoreHorizontal, Loader2, UserCheck, Sparkles, Calendar, Users, X, CheckCircle2, UserX, Ban, Search } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -347,13 +348,15 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
   });
 
   const roster: any[] = data?.data?.roster ?? data?.roster ?? [];
+  const rosterSummary = summarizeRoster(roster);
 
   return (
     <div className="space-y-2 pt-2 border-t border-border">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm font-medium">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium">
           <Users size={14} />
-          Asistentes ({roster.length})
+          <span>Confirmadas ({rosterSummary.confirmed})</span>
+          <span className="text-[#B5832F]">Lista de espera ({rosterSummary.waitlist})</span>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setShowAssign(true)} disabled={!branchId}>
