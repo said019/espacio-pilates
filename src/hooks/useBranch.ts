@@ -11,6 +11,7 @@ export interface BranchOption {
   code: BranchCode;
   name: string;
   address: string | null;
+  mapsUrl?: string | null;
   phone?: string | null;
   timezone?: string;
   isActive: boolean;
@@ -30,7 +31,8 @@ const FALLBACK_BRANCHES: BranchOption[] = [
     id: "22222222-2222-4222-8222-222222222222",
     code: "pozos",
     name: "Pozos",
-    address: null,
+    address: "Pozos, San Luis Potosí, S.L.P.",
+    mapsUrl: "https://maps.google.com/?q=22.096529,-100.869797",
     phone: null,
     timezone: "America/Mexico_City",
     isActive: true,
@@ -71,6 +73,7 @@ function normalizeBranch(row: any): BranchOption | null {
     code,
     name: String(row?.name ?? (code === "pozos" ? "Pozos" : "Villa Magna")),
     address: row?.address ? String(row.address) : null,
+    mapsUrl: row?.mapsUrl || row?.maps_url ? String(row.mapsUrl ?? row.maps_url) : null,
     phone: row?.phone ? String(row.phone) : null,
     timezone: String(row?.timezone ?? "America/Mexico_City"),
     isActive: (row?.isActive ?? row?.is_active) !== false,

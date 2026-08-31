@@ -5,6 +5,7 @@ import { useAuthStore } from "@/stores/authStore";
 import Schedule from "@/components/Schedule";
 import { BranchSelector } from "@/components/BranchSelector";
 import { getEntityBranchCode, getEntityProgram, useBranch } from "@/hooks/useBranch";
+import { getBranchMapEmbedUrl, getBranchMapsUrl } from "@/lib/branchLocation";
 import {
   Sparkles, Clock, MapPin, Phone, Instagram,
   ArrowUpRight, Menu, X, Heart, Users, Star,
@@ -130,6 +131,8 @@ const Index = () => {
   const [classTypes, setClassTypes] = useState<ClassTypeRow[]>(FALLBACK_CLASS_TYPES);
   const [livePlans, setLivePlans] = useState<any[]>([]);
   const { branch, branchCode } = useBranch();
+  const branchMapsUrl = getBranchMapsUrl(branch);
+  const branchMapEmbedUrl = getBranchMapEmbedUrl(branch);
   const branchId = branch.id;
   const priceByName = useMemo(
     () => Object.fromEntries(livePlans.map((p) => [p.name, Number(p.price)])),
@@ -1151,13 +1154,13 @@ const Index = () => {
                 {[
                   {
                     icon: <MapPin size={18} />, label: "Ubicación",
-                    value: branch.address ? (
+                    value: branchMapsUrl ? (
                       <a
-                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(branch.address)}`}
+                        href={branchMapsUrl}
                         target="_blank" rel="noopener noreferrer"
                         className="text-valiance-charcoal hover:text-valiance-mauve transition-colors no-underline"
                       >
-                        {branch.address}
+                        {branch.address ?? `Sucursal ${branch.name}`}
                       </a>
                     ) : (
                       <span>
@@ -1218,9 +1221,9 @@ const Index = () => {
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden><rect width="20" height="20" x="2" y="2" rx="5" ry="5" /><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" /><line x1="17.5" x2="17.51" y1="6.5" y2="6.5" /></svg>
                 </a>
-                {branch.address && (
+                {branchMapsUrl && (
                   <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(branch.address)}`}
+                    href={branchMapsUrl}
                     target="_blank" rel="noopener noreferrer" aria-label="Cómo llegar"
                     className="ml-auto inline-flex items-center gap-2 px-4 h-10 rounded-full bg-valiance-charcoal text-valiance-nude text-[0.74rem] font-medium tracking-[0.06em] uppercase hover:bg-valiance-plum transition-colors no-underline"
                   >
@@ -1232,9 +1235,9 @@ const Index = () => {
             </div>
 
             <div className="lg:col-span-7 rounded-[1.75rem] overflow-hidden ring-1 ring-valiance-charcoal/8 bg-valiance-nude min-h-[440px]">
-              {branch.address ? (
+              {branchMapEmbedUrl ? (
                 <iframe
-                  src={`https://www.google.com/maps?q=${encodeURIComponent(branch.address)}&output=embed`}
+                  src={branchMapEmbedUrl}
                   width="100%"
                   height="100%"
                   style={{ border: 0, display: "block", minHeight: "440px" }}

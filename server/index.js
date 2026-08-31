@@ -756,6 +756,14 @@ async function ensureSchema() {
       await pool.query(multiBranchSql);
       console.log("✅ Multi-sucursal Villa Magna/Pozos lista");
     }
+    {
+      const pozosLocationSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202608300001_pozos_location.sql"),
+        "utf8",
+      );
+      await pool.query(pozosLocationSql);
+      console.log("✅ Ubicación de Pozos publicada");
+    }
     // Keep the booking guard in a separate migration so databases that already
     // applied the original multi-branch rollout still receive the stricter
     // membership/branch validation on their next deploy.
@@ -2369,7 +2377,7 @@ async function resolveBranch(reference = null, dbClient = pool, { includeInactiv
   const raw = String(reference || DEFAULT_BRANCH_CODE).trim().toLowerCase();
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw);
   const r = await dbClient.query(
-    `SELECT id, code, name, address, phone, timezone, is_active, sort_order
+    `SELECT id, code, name, address, maps_url, phone, timezone, is_active, sort_order
        FROM branches
       WHERE ${isUuid ? "id = $1::uuid" : "LOWER(code) = $1"}
         ${includeInactive ? "" : "AND is_active = true"}
@@ -2409,7 +2417,7 @@ function makePlanCode(value, name, program) {
 app.get("/api/branches", async (_req, res) => {
   try {
     const r = await pool.query(
-      `SELECT id, code, name, address, phone, timezone, is_active, sort_order
+      `SELECT id, code, name, address, maps_url, phone, timezone, is_active, sort_order
          FROM branches
         WHERE is_active = true
         ORDER BY sort_order, name`,

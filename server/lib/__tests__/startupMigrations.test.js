@@ -12,4 +12,10 @@ describe("startup migrations", () => {
       'path.join(__dirname, "../supabase/migrations/202608280002_remove_villa_magna_september_pilates_classes.sql")',
     );
   });
+
+  it("publishes the Pozos location during startup", () => {
+    expect(serverSource).toContain(
+      'path.join(__dirname, "../supabase/migrations/202608300001_pozos_location.sql")',
+    );
+  });
 });

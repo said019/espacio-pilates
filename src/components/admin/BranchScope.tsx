@@ -54,6 +54,7 @@ function normalizeBranch(row: any): Branch {
     code: row?.code === "pozos" ? "pozos" : "villa-magna",
     name: String(row?.name ?? (row?.code === "pozos" ? "Pozos" : "Villa Magna")),
     address: row?.address == null ? null : String(row.address),
+    mapsUrl: row?.mapsUrl || row?.maps_url ? String(row.mapsUrl ?? row.maps_url) : null,
     is_active: Boolean(row?.is_active ?? row?.isActive ?? true),
     is_public: Boolean(row?.is_public ?? row?.isPublic ?? true),
     sort_order: Number(row?.sort_order ?? row?.sortOrder ?? 0),

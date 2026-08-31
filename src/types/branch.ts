@@ -6,6 +6,7 @@ export interface Branch {
   code: BranchCode;
   name: string;
   address: string | null;
+  mapsUrl?: string | null;
   phone?: string | null;
   timezone?: string;
   // Admin normalizes branches to snake_case; public endpoints also expose
