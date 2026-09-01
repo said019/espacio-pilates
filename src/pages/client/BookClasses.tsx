@@ -124,11 +124,11 @@ const BookClasses = () => {
   const rawClasses: Record<string, unknown>[] = Array.isArray(classesData?.data)
     ? classesData.data
     : Array.isArray(classesData) ? classesData : [];
+  // Cada sucursal muestra las clases que tenga agendadas (Funcional y/o Pilates).
+  // Antes había un filtro por programa (Pozos = solo Funcional) que escondía las
+  // clases de Pilates creadas manualmente en Pozos; se retiró.
   const classes = rawClasses
-    .filter((item) => matchesBranch(item, branch))
-    .filter((item) => branchCode === "pozos"
-      ? getEntityProgram(item) === "functional"
-      : getEntityProgram(item) !== "functional");
+    .filter((item) => matchesBranch(item, branch));
   const rawBookings: BookingClient[] = Array.isArray(bookingsData?.data)
     ? bookingsData.data
     : Array.isArray(bookingsData) ? bookingsData : [];
