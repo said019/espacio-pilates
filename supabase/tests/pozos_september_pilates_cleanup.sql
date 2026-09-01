@@ -129,4 +129,58 @@ END $$;
 -- A second application must be a no-op.
 \ir ../migrations/202608280001_remove_pozos_september_pilates_classes.sql
 
+-- Runtime policy keeps the recurring template Functional-only, but permits an
+-- admin to intentionally create Pilates classes in Pozos.
+\ir ../migrations/202608310001_allow_manual_pozos_classes.sql
+
+INSERT INTO classes
+  (id, branch_id, class_type_id, instructor_id, date, start_time, end_time,
+   max_capacity, current_bookings, status, apparatus)
+VALUES (
+  '86000000-0000-4000-8000-000000000001',
+  '22222222-2222-4222-8222-222222222222',
+  '83000000-0000-4000-8000-000000000001',
+  '82000000-0000-4000-8000-000000000001',
+  DATE '2026-09-15', TIME '09:00', TIME '09:55', 6, 0, 'scheduled', 'reformer'
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM classes
+     WHERE id = '86000000-0000-4000-8000-000000000001'
+       AND status = 'scheduled'
+  ) THEN
+    RAISE EXCEPTION 'Manual Pozos Pilates generation should be allowed';
+  END IF;
+
+  BEGIN
+    INSERT INTO schedule_slots
+      (branch_id, time_slot, day_of_week, class_type_id, class_type_name,
+       instructor_name, apparatus, is_active)
+    VALUES (
+      '22222222-2222-4222-8222-222222222222', '9:00 am', 2,
+      '83000000-0000-4000-8000-000000000001', 'Pilates Cleanup Fixture',
+      'Cleanup Coach', 'reformer', true
+    );
+    RAISE EXCEPTION 'Expected recurring Pozos Pilates slot rejection';
+  EXCEPTION
+    WHEN check_violation THEN NULL;
+  END;
+END $$;
+
+-- The runtime policy is safe to replay and must preserve the manual class.
+\ir ../migrations/202608310001_allow_manual_pozos_classes.sql
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM classes
+     WHERE id = '86000000-0000-4000-8000-000000000001'
+       AND status = 'scheduled'
+  ) THEN
+    RAISE EXCEPTION 'Runtime policy removed a manual Pozos Pilates class';
+  END IF;
+END $$;
+
 SELECT 'Pozos September Pilates cleanup regression passed' AS result;

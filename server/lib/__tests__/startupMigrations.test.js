@@ -7,6 +7,18 @@ const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const serverSource = fs.readFileSync(path.resolve(testDirectory, "../../index.js"), "utf8");
 
 describe("startup migrations", () => {
+  it("does not replay the one-time Pozos schedule cleanups on every boot", () => {
+    expect(serverSource).not.toContain(
+      'path.join(__dirname, "../supabase/migrations/202608270004_pozos_functional_schedule_only.sql")',
+    );
+    expect(serverSource).not.toContain(
+      'path.join(__dirname, "../supabase/migrations/202608280001_remove_pozos_september_pilates_classes.sql")',
+    );
+    expect(serverSource).toContain(
+      'path.join(__dirname, "../supabase/migrations/202608310001_allow_manual_pozos_classes.sql")',
+    );
+  });
+
   it("does not replay the one-time Villa Magna September cleanup on every boot", () => {
     expect(serverSource).not.toContain(
       'path.join(__dirname, "../supabase/migrations/202608280002_remove_villa_magna_september_pilates_classes.sql")',

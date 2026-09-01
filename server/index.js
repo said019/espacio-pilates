@@ -791,21 +791,16 @@ async function ensureSchema() {
       await pool.query(adminPaymentRegistrationSql);
       console.log("✅ Registro administrativo de inscripciones listo");
     }
+    // The original Pozos schedule restriction and September cleanup were
+    // one-time data corrections. Replaying them on every boot would cancel or
+    // delete Pilates classes created intentionally by admin.
     {
-      const pozosFunctionalScheduleSql = fs.readFileSync(
-        path.join(__dirname, "../supabase/migrations/202608270004_pozos_functional_schedule_only.sql"),
+      const manualPozosClassesSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202608310001_allow_manual_pozos_classes.sql"),
         "utf8",
       );
-      await pool.query(pozosFunctionalScheduleSql);
-      console.log("✅ Horario de Pozos configurado únicamente con Funcional");
-    }
-    {
-      const pozosSeptemberPilatesCleanupSql = fs.readFileSync(
-        path.join(__dirname, "../supabase/migrations/202608280001_remove_pozos_september_pilates_classes.sql"),
-        "utf8",
-      );
-      await pool.query(pozosSeptemberPilatesCleanupSql);
-      console.log("✅ Clases de Pilates de septiembre retiradas de Pozos");
+      await pool.query(manualPozosClassesSql);
+      console.log("✅ Clases manuales de Pilates habilitadas en Pozos");
     }
     // The Villa Magna September cleanup was a one-time data correction. Do not
     // execute 202608280002 here: ensureSchema runs on every server boot and
