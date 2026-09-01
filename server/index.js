@@ -16910,7 +16910,7 @@ function scheduleEmailCrons() {
   setInterval(() => { runClassReminders(); }, 5 * 60 * 1000);
 
   // Resumen semanal por EMAIL: domingos 8:00 AM hora de México.
-  // (Renovación y los recordatorios viejos 9pm/8am quedaron retirados.)
+  // (Los recordatorios viejos 9pm/8am quedaron retirados.)
   setInterval(() => {
     const now = new Date();
     const mexicoHour = (now.getUTCHours() - 6 + 24) % 24;
@@ -16918,6 +16918,15 @@ function scheduleEmailCrons() {
     if (dayOfWeek === 0 && mexicoHour === 8 && now.getUTCMinutes() < 60) {
       console.log("[Cron] Triggering weekly reminder...");
       runWeeklyReminderCron();
+    }
+  }, 60 * 60 * 1000);
+
+  // Recordatorio de renovación (push): días 28 y 1ro a las 12pm hora de México.
+  // La dedup por fecha evita doble envío si el intervalo cae dos veces en la hora.
+  setInterval(() => {
+    if (isRenewalReminderTime(new Date())) {
+      console.log("[Cron] Triggering renovación reminder...");
+      runMonthlyRenewalReminders();
     }
   }, 60 * 60 * 1000);
 }
