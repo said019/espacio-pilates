@@ -238,6 +238,10 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "Te queda 1 clase",
     body: "Hola {name} 💜 Te queda *1 clase* en tu plan {plan}. Renueva para seguir entrenando sin parar. 🤍",
   },
+  renewal_reminder: {
+    subject: "🩷 ¡No dejes que tu progreso se detenga!",
+    body: "Cada clase te acerca a tu objetivo. Renueva tu membresía y sigue construyendo la mejor versión de ti. 📲 ¡Te esperamos en clase!",
+  },
 };
 
 const DEFAULT_CANCELLATION_SETTINGS = {
@@ -10775,6 +10779,7 @@ const PUSH_TEMPLATE_URLS = {
   membership_activated: "/app",
   transfer_rejected: "/app/orders",
   last_class_reminder: "/app",
+  renewal_reminder: "/app/checkout",
   class_reminder_12h: "/app/bookings",
   class_reminder_30m: "/app/bookings",
 };

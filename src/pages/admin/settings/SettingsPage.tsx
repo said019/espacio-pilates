@@ -235,6 +235,7 @@ const NOTIFICATION_TEMPLATES: { key: string; label: string; icon: string; hint: 
   { key: "transfer_rejected",        label: "⚠️ Transferencia rechazada",      icon: "💳", hint: "Se envía cuando se rechaza un comprobante. Vars: {name}, {reason}", channels: ["push"] },
   { key: "class_reminder_12h",       label: "⏰ Recordatorio 12h antes",        icon: "🔔", hint: "Se envía 12 horas antes de la clase. Vars: {name}", channels: ["whatsapp", "push"] },
   { key: "class_reminder_30m",       label: "⏰ Recordatorio 30 min antes",     icon: "🔔", hint: "Se envía 30 minutos antes de la clase. Vars: {name}", channels: ["whatsapp", "push"] },
+  { key: "renewal_reminder",         label: "🩷 Recordatorio de renovación",    icon: "🔄", hint: "Se envía los días 28 y 1ro a las alumnas pendientes de renovar. Vars: {name}", channels: ["push"] },
 ];
 
 const CHANNEL_META: Record<"whatsapp" | "push", { label: string; icon: typeof MessageSquare; className: string }> = {
