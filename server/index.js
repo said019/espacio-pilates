@@ -45,6 +45,7 @@ import {
 import { isEmailIdentifier } from "./lib/authIdentity.js";
 import { resolveStampLayout, shouldRenderStampStrip, renderStampStripPng } from "./lib/walletStamps.js";
 import { shouldSkipAutomaticVillaMagnaSeptemberPilates } from "./lib/scheduleBlackouts.js";
+import { isRenewalReminderTime, renewalReminderDedupKey } from "./lib/renewalReminder.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -16833,6 +16834,74 @@ async function runClassReminders() {
     ).catch(() => {});
   } catch (err) {
     console.error("[Cron] runClassReminders error:", err.message);
+  }
+}
+
+// Recordatorio de renovación (push) — días 28 y 1ro, ~12pm México. Distinto del
+// muerto runRenewalReminderCron (que es de "última clase"). Solo push; a las
+// pendientes de renovar = su membresía más reciente (no cancelada) vence en <=3
+// días o venció hace <=40 días, y no tienen otra más reciente (no renovaron).
+async function runMonthlyRenewalReminders() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS renewal_reminders_sent (
+        membership_id UUID NOT NULL,
+        dedup_key     TEXT NOT NULL,
+        sent_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (membership_id, dedup_key)
+      )
+    `).catch(() => {});
+
+    const dedupKey = renewalReminderDedupKey(new Date());
+
+    const res = await pool.query(`
+      WITH latest AS (
+        SELECT DISTINCT ON (m.user_id)
+               m.user_id, m.id AS membership_id, m.end_date
+        FROM memberships m
+        WHERE m.status IN ('active','expired')
+          AND m.end_date IS NOT NULL
+        ORDER BY m.user_id, m.end_date DESC
+      )
+      SELECT l.user_id, l.membership_id, COALESCE(u.display_name, 'Alumna') AS name
+      FROM latest l
+      JOIN users u ON u.id = l.user_id
+      WHERE u.receive_reminders IS NOT FALSE
+        AND l.end_date <= CURRENT_DATE + INTERVAL '3 days'
+        AND l.end_date >= CURRENT_DATE - INTERVAL '40 days'
+    `);
+    console.log(`[Cron] Renovación — ${res.rows.length} pendientes de renovar`);
+
+    const candidates = res.rows;
+    let alreadySent = new Set();
+    if (candidates.length) {
+      const sentRes = await pool.query(
+        `SELECT membership_id FROM renewal_reminders_sent
+          WHERE dedup_key = $1 AND membership_id = ANY($2::uuid[])`,
+        [dedupKey, candidates.map((c) => c.membership_id)]
+      ).catch(() => ({ rows: [] }));
+      alreadySent = new Set(sentRes.rows.map((r) => r.membership_id));
+    }
+    const pending = candidates.filter((c) => !alreadySent.has(c.membership_id));
+    console.log(`[Cron] Renovación — enviando ${pending.length} (ya enviados: ${candidates.length - pending.length})`);
+
+    for (const row of pending) {
+      await sendConfiguredPushTemplate({
+        templateKey: "renewal_reminder",
+        userId: row.user_id,
+        vars: { name: row.name },
+      }).catch((e) => console.error("[Push] renovación:", e.message));
+
+      await pool.query(
+        `INSERT INTO renewal_reminders_sent (membership_id, dedup_key)
+         VALUES ($1, $2) ON CONFLICT (membership_id, dedup_key) DO NOTHING`,
+        [row.membership_id, dedupKey]
+      ).catch((e) => console.error("[Cron] renovación dedup insert:", e.message));
+
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  } catch (err) {
+    console.error("[Cron] Renovación error:", err.message);
   }
 }
 
