@@ -1,14 +1,17 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   CalendarDays,
+  Check,
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Loader2,
   LogOut,
   RefreshCw,
+  Undo2,
   UserRound,
   UsersRound,
 } from "lucide-react";
@@ -140,6 +143,17 @@ const EmptyState = ({ mode }: { mode: "today" | "future" }) => (
 
 const ClassCard = ({ classItem, isToday }: { classItem: CoachClass; isToday: boolean }) => {
   const [expanded, setExpanded] = useState(isToday);
+  const qc = useQueryClient();
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const attendance = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: "check-in" | "undo-check-in" }) =>
+      api.put(`/coach/bookings/${id}/${action}`),
+    onMutate: ({ id }) => setPendingId(id),
+    onSettled: () => {
+      setPendingId(null);
+      qc.invalidateQueries({ queryKey: ["coach-schedule"] });
+    },
+  });
 
   return (
     <details
@@ -191,9 +205,42 @@ const ClassCard = ({ classItem, isToday }: { classItem: CoachClass; isToday: boo
                   : <UserRound size={16} strokeWidth={1.8} />}
               </span>
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#3B2D31]">{reservation.clientName}</span>
-              <span className={`shrink-0 rounded-lg border px-2 py-1 text-[0.65rem] font-medium uppercase tracking-[0.08em] ${STATUS_STYLES[reservation.status] || STATUS_STYLES.confirmed}`}>
-                {STATUS_LABELS[reservation.status] || reservation.status}
-              </span>
+
+              {reservation.status === "confirmed" && (
+                <button
+                  type="button"
+                  disabled={pendingId === reservation.id}
+                  onClick={() => attendance.mutate({ id: reservation.id, action: "check-in" })}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#6E565E] px-2.5 py-1.5 text-[0.68rem] font-semibold text-white transition-colors hover:bg-[#5A4A52] disabled:opacity-60"
+                >
+                  {pendingId === reservation.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} strokeWidth={2.4} />}
+                  Confirmar
+                </button>
+              )}
+
+              {reservation.status === "checked_in" && (
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className={`rounded-lg border px-2 py-1 text-[0.65rem] font-medium uppercase tracking-[0.08em] ${STATUS_STYLES.checked_in}`}>
+                    {STATUS_LABELS.checked_in}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={pendingId === reservation.id}
+                    onClick={() => attendance.mutate({ id: reservation.id, action: "undo-check-in" })}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[#DCCFC8] px-2 py-1.5 text-[0.66rem] font-medium text-[#7B636A] transition-colors hover:bg-[#F1E8E3] disabled:opacity-60"
+                    aria-label="Deshacer asistencia"
+                  >
+                    {pendingId === reservation.id ? <Loader2 size={12} className="animate-spin" /> : <Undo2 size={12} strokeWidth={2} />}
+                    Deshacer
+                  </button>
+                </div>
+              )}
+
+              {reservation.status !== "confirmed" && reservation.status !== "checked_in" && (
+                <span className={`shrink-0 rounded-lg border px-2 py-1 text-[0.65rem] font-medium uppercase tracking-[0.08em] ${STATUS_STYLES[reservation.status] || STATUS_STYLES.confirmed}`}>
+                  {STATUS_LABELS[reservation.status] || reservation.status}
+                </span>
+              )}
             </li>
           ))}
         </ul>

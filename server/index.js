@@ -3726,6 +3726,83 @@ app.get("/api/coach/schedule", coachMiddleware, async (req, res) => {
   }
 });
 
+// PUT /api/coach/bookings/:id/check-in — la coach confirma la asistencia de una
+// alumna. Mismo efecto que el check-in de admin (registra hora, suma puntos de
+// lealtad, sincroniza el pase). Cualquier coach activa puede confirmar cualquier
+// clase. Solo toca el estado de asistencia; nada de pagos/membresías.
+app.put("/api/coach/bookings/:id/check-in", coachMiddleware, async (req, res) => {
+  try {
+    const upd = await pool.query(
+      "UPDATE bookings SET status = 'checked_in', checked_in_at = NOW() WHERE id = $1 AND status = 'confirmed' RETURNING *",
+      [req.params.id]
+    );
+    if (upd.rowCount === 0) {
+      const cur = await pool.query("SELECT * FROM bookings WHERE id = $1", [req.params.id]);
+      if (!cur.rows.length) return res.status(404).json({ message: "Reserva no encontrada" });
+      if (cur.rows[0].status === "checked_in") return res.json({ data: cur.rows[0] }); // idempotente: ya asistió
+      return res.status(409).json({ message: "Solo se puede confirmar asistencia de reservas confirmadas" });
+    }
+    const booking = upd.rows[0];
+    // Puntos de lealtad por asistir (idéntico al check-in de admin; solo en la transición real).
+    if (booking.user_id) {
+      try {
+        const cfgRes = await pool.query("SELECT value FROM settings WHERE key='loyalty_config' LIMIT 1");
+        const cfg = cfgRes.rows.length ? cfgRes.rows[0].value : {};
+        const pts = cfg.points_per_class ?? 10;
+        if (cfg.enabled !== false && pts > 0) {
+          await pool.query(
+            "INSERT INTO loyalty_transactions (user_id, type, points, description) VALUES ($1, 'earn', $2, 'Clase asistida')",
+            [booking.user_id, pts]
+          );
+        }
+      } catch (e) { /* los puntos no deben romper el check-in */ }
+    }
+    triggerWalletPassSync(booking.user_id, "booking_checked_in");
+    return res.json({ data: booking });
+  } catch (err) {
+    console.error("[PUT /coach/bookings/:id/check-in]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// PUT /api/coach/bookings/:id/undo-check-in — deshacer la confirmación (por si se
+// equivocaron). Regresa la reserva a 'confirmed' y revierte los puntos de lealtad
+// con un ajuste negativo, para que no queden puntos de más.
+app.put("/api/coach/bookings/:id/undo-check-in", coachMiddleware, async (req, res) => {
+  try {
+    const upd = await pool.query(
+      "UPDATE bookings SET status = 'confirmed', checked_in_at = NULL WHERE id = $1 AND status = 'checked_in' RETURNING *",
+      [req.params.id]
+    );
+    if (upd.rowCount === 0) {
+      const cur = await pool.query("SELECT * FROM bookings WHERE id = $1", [req.params.id]);
+      if (!cur.rows.length) return res.status(404).json({ message: "Reserva no encontrada" });
+      if (cur.rows[0].status === "confirmed") return res.json({ data: cur.rows[0] }); // idempotente: ya estaba confirmada
+      return res.status(409).json({ message: "Solo se puede deshacer una asistencia ya confirmada" });
+    }
+    const booking = upd.rows[0];
+    // Revertir los puntos otorgados en el check-in (ajuste negativo).
+    if (booking.user_id) {
+      try {
+        const cfgRes = await pool.query("SELECT value FROM settings WHERE key='loyalty_config' LIMIT 1");
+        const cfg = cfgRes.rows.length ? cfgRes.rows[0].value : {};
+        const pts = cfg.points_per_class ?? 10;
+        if (cfg.enabled !== false && pts > 0) {
+          await pool.query(
+            "INSERT INTO loyalty_transactions (user_id, type, points, description) VALUES ($1, 'adjust', $2, 'Asistencia deshecha')",
+            [booking.user_id, -pts]
+          );
+        }
+      } catch (e) { /* el ajuste no debe romper el deshacer */ }
+    }
+    triggerWalletPassSync(booking.user_id, "booking_checkin_undone");
+    return res.json({ data: booking });
+  } catch (err) {
+    console.error("[PUT /coach/bookings/:id/undo-check-in]", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // GET /api/plans
 app.get("/api/plans", async (req, res) => {
   try {
