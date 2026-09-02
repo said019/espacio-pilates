@@ -59,15 +59,21 @@ BEGIN
     ELSE membership_category = class_category
   END;
 
+  -- Los chequeos de CONSUMO (membresía activa + créditos disponibles) solo aplican
+  -- al CREAR una reserva (INSERT), NO al MOVERLA (reagendar = UPDATE de class_id):
+  -- al reagendar el crédito ya se consumió al reservar, así que exigir
+  -- classes_remaining > 0 (o status 'active') rompía el reagendado de cualquier
+  -- alumna que ya usó todos sus créditos. Branch/programa/categoría/vigencia SÍ se
+  -- validan siempre (no se puede mover a una clase incompatible ni fuera de vigencia).
   IF class_branch IS DISTINCT FROM membership_branch
      OR class_program IS DISTINCT FROM membership_program
      OR NEW.user_id IS DISTINCT FROM membership_user
-     OR membership_state IS DISTINCT FROM 'active'
      OR membership_plan_kind = 'registration'
      OR (membership_start_date IS NOT NULL AND membership_start_date > class_date)
      OR (membership_end_date IS NOT NULL AND membership_end_date < class_date)
-     OR (membership_classes_remaining IS NOT NULL AND membership_classes_remaining <= 0)
-     OR NOT COALESCE(categories_match, false) THEN
+     OR NOT COALESCE(categories_match, false)
+     OR (TG_OP = 'INSERT' AND membership_state IS DISTINCT FROM 'active')
+     OR (TG_OP = 'INSERT' AND membership_classes_remaining IS NOT NULL AND membership_classes_remaining <= 0) THEN
     RAISE EXCEPTION 'booking membership scope mismatch' USING ERRCODE = '23514';
   END IF;
 
