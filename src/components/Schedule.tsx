@@ -83,6 +83,12 @@ function prettyHHmm(hhmm: string) {
   return `${hh}:${String(m).padStart(2, "0")} ${ampm}`;
 }
 
+// ["Pilates", "Funcional"] → "Pilates y Funcional"
+function joinEs(items: string[]) {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} y ${items[items.length - 1]}`;
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function Schedule() {
@@ -120,9 +126,6 @@ export default function Schedule() {
     if (!rawClasses) return [];
     return rawClasses
       .filter((c) => matchesBranch(c, branch))
-      .filter((c) => branchCode === "pozos"
-        ? getEntityProgram(c) === "functional"
-        : getEntityProgram(c) !== "functional")
       .filter((c) => c.status !== "cancelled")
       .map((c) => {
         const dateStr = (c.date || c.class_date || (c.start_time?.split("T")[0]) || "").split("T")[0];
@@ -179,6 +182,14 @@ export default function Schedule() {
       map[key] = (map[key] ?? 0) + 1;
     });
     return map;
+  }, [allClasses]);
+
+  // Programas que la sucursal realmente tiene en su horario. Se deriva de las
+  // clases cargadas para que el texto nunca contradiga lo que se ve en pantalla.
+  const availablePrograms = useMemo(() => {
+    const order: StudioProgram[] = ["pilates", "functional", "prenatal"];
+    const present = new Set(allClasses.map((item) => item.program));
+    return order.filter((item) => present.has(item)).map(programLabel);
   }, [allClasses]);
 
   const selectedHasPilates = dayClasses.some((item) => item.program === "pilates");
@@ -263,7 +274,9 @@ export default function Schedule() {
           <span className="block h-px w-16 bg-valiance-gold/50 mt-6 mb-6" />
           <p className="font-body text-[1.02rem] text-valiance-charcoal/70 leading-[1.8] max-w-[60ch]">
             {branchCode === "pozos"
-              ? "Consulta las clases de Funcional disponibles en Pozos. Lunes, miércoles y viernes a las 8:00 am."
+              ? (availablePrograms.length
+                  ? `En Pozos encuentras clases de ${joinEs(availablePrograms)}. Elige tu día y reserva tu lugar.`
+                  : "Consulta las clases disponibles en la sucursal Pozos.")
               : "Trabajamos el cuerpo completo a lo largo de la semana. Tú eliges cuándo, nosotras marcamos el tema."}
           </p>
         </div>
