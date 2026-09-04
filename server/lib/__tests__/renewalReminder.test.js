@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { mexicoDateParts, isRenewalReminderTime, renewalReminderDedupKey } from "../renewalReminder.js";
+import {
+  mexicoDateParts,
+  isRenewalReminderTime,
+  renewalReminderDedupKey,
+  RENEWAL_NUDGE_BODY,
+  RENEWAL_NUDGE_TITLE,
+} from "../renewalReminder.js";
 
 // Construye un Date en UTC para (year, month 1-12, day, hour).
 const utc = (y, mo, d, h) => new Date(Date.UTC(y, mo - 1, d, h, 0, 0));
@@ -35,5 +41,17 @@ describe("renewalReminderDedupKey", () => {
   });
   it("día 28", () => {
     expect(renewalReminderDedupKey(utc(2026, 12, 28, 18))).toBe("renew_2026_12_28");
+  });
+});
+
+describe("mensaje de renovación", () => {
+  it("conserva el texto aprobado por el estudio", () => {
+    expect(RENEWAL_NUDGE_TITLE).toBe("🩷✨ ¡No dejes que tu progreso se detenga!");
+    expect(RENEWAL_NUDGE_BODY).toBe(
+      "Todo lo que has trabajado hasta hoy cuenta. 💪🏻 Cada clase te acerca un poquito más a tu objetivo.\n\n" +
+      "Renueva tu membresía y sigue construyendo la mejor versión de ti. 🥰✨\n\n" +
+      "📲 ¡Te esperamos en clase!",
+    );
+    expect(RENEWAL_NUDGE_BODY.length).toBeLessThanOrEqual(240);
   });
 });

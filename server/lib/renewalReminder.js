@@ -5,6 +5,13 @@
 
 const MEXICO_OFFSET_MS = 6 * 60 * 60 * 1000; // UTC-6
 
+export const RENEWAL_NUDGE_TITLE = "🩷✨ ¡No dejes que tu progreso se detenga!";
+
+export const RENEWAL_NUDGE_BODY =
+  "Todo lo que has trabajado hasta hoy cuenta. 💪🏻 Cada clase te acerca un poquito más a tu objetivo.\n\n" +
+  "Renueva tu membresía y sigue construyendo la mejor versión de ti. 🥰✨\n\n" +
+  "📲 ¡Te esperamos en clase!";
+
 // Partes de fecha/hora en horario de México.
 export function mexicoDateParts(date) {
   const mx = new Date(date.getTime() - MEXICO_OFFSET_MS);

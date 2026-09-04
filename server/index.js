@@ -45,7 +45,13 @@ import {
 import { isEmailIdentifier } from "./lib/authIdentity.js";
 import { resolveStampLayout, shouldRenderStampStrip, renderStampStripPng } from "./lib/walletStamps.js";
 import { shouldSkipAutomaticVillaMagnaSeptemberPilates } from "./lib/scheduleBlackouts.js";
-import { isRenewalReminderTime, renewalReminderDedupKey } from "./lib/renewalReminder.js";
+import {
+  isRenewalReminderTime,
+  renewalReminderDedupKey,
+  RENEWAL_NUDGE_BODY,
+  RENEWAL_NUDGE_TITLE,
+} from "./lib/renewalReminder.js";
+import { PUSH_SEGMENTS, normalizePushSegment, pushAudienceQuery } from "./lib/pushAudience.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -240,8 +246,8 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     body: "Hola {name} 💜 Te queda *1 clase* en tu plan {plan}. Renueva para seguir entrenando sin parar. 🤍",
   },
   renewal_reminder: {
-    subject: "🩷 ¡No dejes que tu progreso se detenga!",
-    body: "Cada clase te acerca a tu objetivo. Renueva tu membresía y sigue construyendo la mejor versión de ti. 📲 ¡Te esperamos en clase!",
+    subject: RENEWAL_NUDGE_TITLE,
+    body: RENEWAL_NUDGE_BODY,
   },
 };
 
@@ -16375,13 +16381,26 @@ app.put("/api/events/:id/register/payment", authMiddleware, async (req, res) => 
 // ─── Web Push: avisos del admin ──────────────────────────────────────────────
 app.get("/api/admin/push/stats", adminMiddleware, async (req, res) => {
   try {
-    const r = await pool.query(
-      "SELECT COUNT(DISTINCT user_id)::int AS subscribers, COUNT(*)::int AS devices FROM push_subscriptions"
-    );
+    const [allUsers, activeUsers, renewalUsers, devices] = await Promise.all([
+      pool.query(pushAudienceQuery(PUSH_SEGMENTS.ALL)),
+      pool.query(pushAudienceQuery(PUSH_SEGMENTS.ACTIVE_MEMBERSHIP)),
+      pool.query(pushAudienceQuery(PUSH_SEGMENTS.RENEWAL_PENDING)),
+      pool.query(`
+        SELECT COUNT(*)::int AS devices
+          FROM push_subscriptions ps
+          JOIN users u ON u.id = ps.user_id
+         WHERE u.role = 'client'
+           AND u.is_active IS NOT FALSE`),
+    ]);
     return res.json({
       enabled: isPushConfigured(),
-      subscribers: r.rows[0]?.subscribers ?? 0,
-      devices: r.rows[0]?.devices ?? 0,
+      subscribers: allUsers.rows.length,
+      devices: devices.rows[0]?.devices ?? 0,
+      segments: {
+        all: allUsers.rows.length,
+        active_membership: activeUsers.rows.length,
+        renewal_pending: renewalUsers.rows.length,
+      },
     });
   } catch (err) {
     console.error("GET /api/admin/push/stats:", err.message);
@@ -16389,41 +16408,60 @@ app.get("/api/admin/push/stats", adminMiddleware, async (req, res) => {
   }
 });
 
+async function sendPushBroadcastToSegment({ segment, title, body, url, tag }) {
+  const normalizedSegment = normalizePushSegment(segment);
+  const users = await pool.query(pushAudienceQuery(normalizedSegment));
+  let sent = 0, failed = 0, pruned = 0;
+  for (const row of users.rows) {
+    const result = await sendPushToUser(row.user_id, {
+      title: String(title).slice(0, 80),
+      body: String(body).slice(0, 240),
+      url: url || "/app",
+      tag,
+      respectPrefs: true,
+    });
+    sent += result.sent;
+    failed += result.failed;
+    pruned += result.pruned;
+  }
+  return { segment: normalizedSegment, recipients: users.rows.length, sent, failed, pruned };
+}
+
 app.post("/api/admin/push/broadcast", adminMiddleware, async (req, res) => {
   try {
     if (!isPushConfigured()) return res.status(400).json({ message: "Push no configurado" });
     const { title, body, url, segment } = req.body || {};
     if (!title || !body) return res.status(400).json({ message: "Falta título o mensaje" });
-    const seg = segment === "active_membership" ? "active_membership" : "all";
-    let userQuery;
-    if (seg === "active_membership") {
-      userQuery = `
-        SELECT DISTINCT ps.user_id
-          FROM push_subscriptions ps
-         WHERE EXISTS (
-           SELECT 1 FROM memberships m
-            WHERE m.user_id = ps.user_id
-              AND m.status = 'active'
-              AND (m.end_date IS NULL OR m.end_date >= CURRENT_DATE)
-         )`;
-    } else {
-      userQuery = "SELECT DISTINCT user_id FROM push_subscriptions";
-    }
-    const users = await pool.query(userQuery);
-    let sent = 0, failed = 0, pruned = 0;
-    for (const row of users.rows) {
-      const r = await sendPushToUser(row.user_id, {
-        title: String(title).slice(0, 80),
-        body: String(body).slice(0, 240),
-        url: url || "/app",
-        tag: "admin_broadcast",
-        respectPrefs: true,
-      });
-      sent += r.sent; failed += r.failed; pruned += r.pruned;
-    }
-    return res.json({ recipients: users.rows.length, sent, failed, pruned });
+    const result = await sendPushBroadcastToSegment({
+      segment,
+      title,
+      body,
+      url,
+      tag: "admin_broadcast",
+    });
+    return res.json(result);
   } catch (err) {
     console.error("POST /api/admin/push/broadcast:", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// POST /api/admin/push/renewal-reminder — shortcut with the studio-approved
+// copy. Its audience is resolved at send time, so clients who already renewed
+// are automatically excluded even if the admin leaves the page open.
+app.post("/api/admin/push/renewal-reminder", adminMiddleware, async (_req, res) => {
+  try {
+    if (!isPushConfigured()) return res.status(400).json({ message: "Push no configurado" });
+    const result = await sendPushBroadcastToSegment({
+      segment: PUSH_SEGMENTS.RENEWAL_PENDING,
+      title: RENEWAL_NUDGE_TITLE,
+      body: RENEWAL_NUDGE_BODY,
+      url: "/app/checkout",
+      tag: "admin_renewal_reminder",
+    });
+    return res.json(result);
+  } catch (err) {
+    console.error("POST /api/admin/push/renewal-reminder:", err.message);
     return res.status(500).json({ message: "Error interno" });
   }
 });

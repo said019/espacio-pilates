@@ -604,7 +604,7 @@ const PushBroadcastSection = () => {
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [url, setUrl] = useState("");
-  const [segment, setSegment] = useState<"all" | "active_membership">("all");
+  const [segment, setSegment] = useState<"all" | "active_membership" | "renewal_pending">("all");
 
   const { data: stats } = useQuery({
     queryKey: ["push-stats"],
@@ -623,6 +623,19 @@ const PushBroadcastSection = () => {
       toast({ title: "No se pudo enviar", description: e?.response?.data?.message || "Error", variant: "destructive" }),
   });
 
+  const renewalMutation = useMutation({
+    mutationFn: () => api.post("/admin/push/renewal-reminder"),
+    onSuccess: (res) => {
+      const d = res.data || {};
+      toast({
+        title: "Recordatorio enviado 🩷",
+        description: `Entregado a ${d.sent} dispositivo(s) de ${d.recipients} alumna(s) pendientes de renovar.`,
+      });
+    },
+    onError: (e: any) =>
+      toast({ title: "No se pudo enviar", description: e?.response?.data?.message || "Error", variant: "destructive" }),
+  });
+
   if (stats && stats.enabled === false) {
     return <p className="text-sm text-muted-foreground">Las notificaciones push no están configuradas en el servidor (falta VAPID).</p>;
   }
@@ -632,6 +645,38 @@ const PushBroadcastSection = () => {
       <p className="text-sm text-muted-foreground">
         {stats ? `${stats.subscribers} alumna(s) suscrita(s) · ${stats.devices} dispositivo(s)` : "Cargando…"}
       </p>
+      <div className="rounded-2xl border border-[#D9B5BA] bg-gradient-to-br from-[#F9F2F3] to-[#F4EAD6]/70 p-4 space-y-3">
+        <div>
+          <p className="font-semibold text-[#8C6B6F]">🩷 Recordatorio de renovación</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Solo lo reciben alumnas cuya membresía ya venció y que todavía no tienen otra activa.
+          </p>
+        </div>
+        <div className="rounded-xl bg-white/75 border border-white px-3 py-3 text-xs leading-relaxed whitespace-pre-line">
+          <strong>🩷✨ ¡No dejes que tu progreso se detenga!</strong>{"\n\n"}
+          Todo lo que has trabajado hasta hoy cuenta. 💪🏻 Cada clase te acerca un poquito más a tu objetivo.{"\n\n"}
+          Renueva tu membresía y sigue construyendo la mejor versión de ti. 🥰✨{"\n\n"}
+          📲 ¡Te esperamos en clase!
+        </div>
+        <Button
+          onClick={() => {
+            const n = stats?.segments?.renewal_pending ?? 0;
+            if (window.confirm(`¿Enviar el recordatorio de renovación a ${n} alumna(s)? Se excluirá a quienes ya renovaron.`)) {
+              renewalMutation.mutate();
+            }
+          }}
+          disabled={renewalMutation.isPending || !stats || (stats?.segments?.renewal_pending ?? 0) === 0}
+          className="w-full bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] text-white"
+        >
+          {renewalMutation.isPending
+            ? "Enviando…"
+            : `Enviar a ${stats?.segments?.renewal_pending ?? 0} pendiente(s) de renovar`}
+        </Button>
+      </div>
+      <div className="pt-2">
+        <p className="text-sm font-semibold">Aviso personalizado</p>
+        <p className="text-xs text-muted-foreground">Escribe otro mensaje y elige a quién enviarlo.</p>
+      </div>
       <div className="space-y-1">
         <Label>Título</Label>
         <Input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} placeholder="Ej. Clases especiales este sábado" />
@@ -649,11 +694,12 @@ const PushBroadcastSection = () => {
         <select className="w-full border rounded-md h-10 px-3 text-sm" value={segment} onChange={(e) => setSegment(e.target.value as any)}>
           <option value="all">Todas las suscritas</option>
           <option value="active_membership">Solo con membresía activa</option>
+          <option value="renewal_pending">Membresía vencida sin renovar</option>
         </select>
       </div>
       <Button
         onClick={() => {
-          const n = stats?.subscribers ?? 0;
+          const n = stats?.segments?.[segment] ?? 0;
           if (window.confirm(`¿Enviar este aviso a ${n} alumna(s) suscrita(s)? No se puede deshacer.`)) {
             mutation.mutate();
           }
