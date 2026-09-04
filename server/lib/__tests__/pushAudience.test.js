@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PUSH_SEGMENTS, normalizePushSegment, pushAudienceQuery } from "../pushAudience.js";
+import {
+  PUSH_SEGMENTS,
+  normalizePushSegment,
+  pushAudienceQuery,
+  renewalNotificationAudienceQuery,
+} from "../pushAudience.js";
 
 describe("normalizePushSegment", () => {
   it("acepta los tres segmentos públicos", () => {
@@ -15,16 +20,22 @@ describe("normalizePushSegment", () => {
 
 describe("pushAudienceQuery", () => {
   it("el segmento de renovación exige membresía vencida", () => {
-    const sql = pushAudienceQuery(PUSH_SEGMENTS.RENEWAL_PENDING);
+    const sql = renewalNotificationAudienceQuery();
     expect(sql).toContain("previous_membership.end_date < CURRENT_DATE");
     expect(sql).toContain("previous_membership.status IN ('active', 'expired')");
   });
 
   it("excluye a quien ya tiene otra membresía activa y vigente", () => {
-    const sql = pushAudienceQuery(PUSH_SEGMENTS.RENEWAL_PENDING);
+    const sql = renewalNotificationAudienceQuery();
     expect(sql).toContain("AND NOT EXISTS");
     expect(sql).toContain("current_membership.status = 'active'");
     expect(sql).toContain("current_membership.end_date >= CURRENT_DATE");
+  });
+
+  it("el push de renovación parte del mismo segmento y exige preferencia push", () => {
+    const sql = pushAudienceQuery(PUSH_SEGMENTS.RENEWAL_PENDING);
+    expect(sql).toContain("previous_membership.end_date < CURRENT_DATE");
+    expect(sql).toContain("u.push_reminders IS NOT FALSE");
   });
 
   it("no incluye cuentas ajenas a clientas ni cuentas desactivadas", () => {

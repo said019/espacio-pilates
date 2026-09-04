@@ -629,7 +629,7 @@ const PushBroadcastSection = () => {
       const d = res.data || {};
       toast({
         title: "Recordatorio enviado 🩷",
-        description: `Entregado a ${d.sent} dispositivo(s) de ${d.recipients} alumna(s) pendientes de renovar.`,
+        description: `Visible en la app de ${d.persisted} alumna(s) · push entregado a ${d.sent} dispositivo(s).`,
       });
     },
     onError: (e: any) =>
@@ -649,7 +649,7 @@ const PushBroadcastSection = () => {
         <div>
           <p className="font-semibold text-[#8C6B6F]">🩷 Recordatorio de renovación</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Solo lo reciben alumnas cuya membresía ya venció y que todavía no tienen otra activa.
+            Se guarda en la app de todas las alumnas cuya membresía venció y que todavía no tienen otra activa. También reciben push quienes lo tengan activado.
           </p>
         </div>
         <div className="rounded-xl bg-white/75 border border-white px-3 py-3 text-xs leading-relaxed whitespace-pre-line">
@@ -670,7 +670,7 @@ const PushBroadcastSection = () => {
         >
           {renewalMutation.isPending
             ? "Enviando…"
-            : `Enviar a ${stats?.segments?.renewal_pending ?? 0} pendiente(s) de renovar`}
+            : `Enviar a ${stats?.segments?.renewal_pending ?? 0} pendiente(s) · ${stats?.segments?.renewal_pending_push ?? 0} con push`}
         </Button>
       </div>
       <div className="pt-2">

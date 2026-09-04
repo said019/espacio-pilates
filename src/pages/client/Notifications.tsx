@@ -3,8 +3,7 @@ import ClientLayout from "@/components/layout/ClientLayout";
 import { Badge } from "@/components/ui/badge";
 import { Bell, CheckCircle, AlertCircle, Clock, AlertTriangle, Info } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-
-const API = import.meta.env.VITE_API_URL;
+import api from "@/lib/api";
 
 interface Notification {
   id: string;
@@ -45,16 +44,11 @@ const typeColor: Record<string, string> = {
 };
 
 const Notifications = () => {
-  const token = localStorage.getItem("token");
   const { data: notifications = [], isLoading } = useQuery<Notification[]>({
     queryKey: ["notifications"],
     queryFn: async () => {
-      const res = await fetch(`${API}/api/notifications`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("Error al cargar notificaciones");
-      const json = await res.json();
-      return json.data;
+      const response = await api.get("/notifications");
+      return response.data.data;
     },
     refetchInterval: 30000,
   });

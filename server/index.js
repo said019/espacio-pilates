@@ -51,7 +51,12 @@ import {
   RENEWAL_NUDGE_BODY,
   RENEWAL_NUDGE_TITLE,
 } from "./lib/renewalReminder.js";
-import { PUSH_SEGMENTS, normalizePushSegment, pushAudienceQuery } from "./lib/pushAudience.js";
+import {
+  PUSH_SEGMENTS,
+  normalizePushSegment,
+  pushAudienceQuery,
+  renewalNotificationAudienceQuery,
+} from "./lib/pushAudience.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -5036,6 +5041,27 @@ app.get("/api/orders", authMiddleware, async (req, res) => {
 app.get("/api/notifications", authMiddleware, async (req, res) => {
   try {
     const notifications = [];
+
+    // Avisos persistidos por administración. Aunque una alumna no tenga push
+    // disponible, el mensaje permanece visible dentro de su app.
+    const storedNotifications = await pool.query(
+      `SELECT id, title, body, type, is_read, COALESCE(sent_at, created_at) AS time
+         FROM notifications
+        WHERE user_id = $1
+        ORDER BY COALESCE(sent_at, created_at) DESC
+        LIMIT 30`,
+      [req.userId],
+    );
+    for (const notification of storedNotifications.rows) {
+      notifications.push({
+        id: `stored-${notification.id}`,
+        title: notification.title,
+        body: notification.body,
+        time: notification.time,
+        unread: !notification.is_read,
+        type: notification.type === "membership_expiring" ? "warning" : "info",
+      });
+    }
 
     // 1) Orders — approved, rejected, pending
     const orders = await pool.query(
@@ -16381,10 +16407,11 @@ app.put("/api/events/:id/register/payment", authMiddleware, async (req, res) => 
 // ─── Web Push: avisos del admin ──────────────────────────────────────────────
 app.get("/api/admin/push/stats", adminMiddleware, async (req, res) => {
   try {
-    const [allUsers, activeUsers, renewalUsers, devices] = await Promise.all([
+    const [allUsers, activeUsers, renewalPushUsers, renewalUsers, devices] = await Promise.all([
       pool.query(pushAudienceQuery(PUSH_SEGMENTS.ALL)),
       pool.query(pushAudienceQuery(PUSH_SEGMENTS.ACTIVE_MEMBERSHIP)),
       pool.query(pushAudienceQuery(PUSH_SEGMENTS.RENEWAL_PENDING)),
+      pool.query(renewalNotificationAudienceQuery()),
       pool.query(`
         SELECT COUNT(*)::int AS devices
           FROM push_subscriptions ps
@@ -16400,6 +16427,7 @@ app.get("/api/admin/push/stats", adminMiddleware, async (req, res) => {
         all: allUsers.rows.length,
         active_membership: activeUsers.rows.length,
         renewal_pending: renewalUsers.rows.length,
+        renewal_pending_push: renewalPushUsers.rows.length,
       },
     });
   } catch (err) {
@@ -16451,15 +16479,44 @@ app.post("/api/admin/push/broadcast", adminMiddleware, async (req, res) => {
 // are automatically excluded even if the admin leaves the page open.
 app.post("/api/admin/push/renewal-reminder", adminMiddleware, async (_req, res) => {
   try {
-    if (!isPushConfigured()) return res.status(400).json({ message: "Push no configurado" });
-    const result = await sendPushBroadcastToSegment({
+    const users = await pool.query(renewalNotificationAudienceQuery());
+    const userIds = users.rows.map((row) => row.user_id);
+    const campaignId = crypto.randomUUID();
+    let persisted = 0;
+    if (userIds.length) {
+      const inserted = await pool.query(
+        `INSERT INTO notifications (user_id, title, body, type, data, sent_at)
+         SELECT target.user_id, $2, $3, 'membership_expiring',
+                jsonb_build_object('source', 'admin_renewal_reminder', 'campaign_id', $4::text), NOW()
+           FROM unnest($1::uuid[]) AS target(user_id)`,
+        [userIds, RENEWAL_NUDGE_TITLE, RENEWAL_NUDGE_BODY, campaignId],
+      );
+      persisted = inserted.rowCount;
+    }
+
+    let sent = 0, failed = 0, pruned = 0, pushRecipients = 0;
+    for (const row of users.rows) {
+      const result = await sendPushToUser(row.user_id, {
+        title: RENEWAL_NUDGE_TITLE,
+        body: RENEWAL_NUDGE_BODY,
+        url: "/app/checkout",
+        tag: "admin_renewal_reminder",
+        respectPrefs: true,
+      });
+      if (result.sent > 0) pushRecipients++;
+      sent += result.sent;
+      failed += result.failed;
+      pruned += result.pruned;
+    }
+    return res.json({
       segment: PUSH_SEGMENTS.RENEWAL_PENDING,
-      title: RENEWAL_NUDGE_TITLE,
-      body: RENEWAL_NUDGE_BODY,
-      url: "/app/checkout",
-      tag: "admin_renewal_reminder",
+      recipients: users.rows.length,
+      persisted,
+      pushRecipients,
+      sent,
+      failed,
+      pruned,
     });
-    return res.json(result);
   } catch (err) {
     console.error("POST /api/admin/push/renewal-reminder:", err.message);
     return res.status(500).json({ message: "Error interno" });
