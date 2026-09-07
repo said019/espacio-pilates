@@ -5,7 +5,7 @@
 set -e
 if [ "$SERVE_MODE" = "frontend" ]; then
   echo "▶ Frontend estático en :$PORT"
-  exec npx serve -s dist -l "${PORT:-3000}"
+  exec node node_modules/serve/build/main.js -s dist -l "${PORT:-3000}"
 else
   echo "▶ Backend API"
   exec node server/index.js
