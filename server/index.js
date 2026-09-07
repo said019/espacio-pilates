@@ -57,6 +57,7 @@ import {
   pushAudienceQuery,
   renewalNotificationAudienceQuery,
 } from "./lib/pushAudience.js";
+import { effectiveWalkInAmount, isAdminOnlyPlan, isComplimentaryWalkInPlan } from "./lib/walkIn.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -1628,6 +1629,64 @@ async function ensureSchema() {
     } catch (e) {
       console.warn("[seed] TotalPass 154 failed:", e.message);
     }
+    // Complimentary walk-ins are intentionally admin-only. They reserve one
+    // seat and leave a $0 order for traceability, but never create a membership
+    // or enrollment, so a later package purchase still charges inscription.
+    try {
+      const walkInSeed = await pool.query(`
+        WITH desired(code, branch_code, program, class_category, name) AS (
+          VALUES
+            ('walkin-free-pilates',   'villa-magna', 'pilates',    'pilates',   'Walk-in Gratis · Pilates'),
+            ('walkin-free-pilates',   'pozos',       'pilates',    'pilates',   'Walk-in Gratis · Pilates'),
+            ('walkin-free-functional','pozos',       'functional', 'funcional', 'Walk-in Gratis · Funcional')
+        )
+        INSERT INTO plans
+          (branch_id, code, program, plan_kind, name, description, price, currency,
+           duration_days, class_limit, class_category, features, is_active,
+           sort_order, is_admin_only, is_non_transferable)
+        SELECT b.id, d.code, d.program, 'internal', d.name,
+               'Cortesía registrada como walk-in; no cubre ni elimina la inscripción.',
+               0, 'MXN', 1, 1, d.class_category,
+               '["Sin cobro","Solo administración","No cuenta como inscripción"]'::jsonb,
+               true, 998, true, true
+          FROM desired d
+          JOIN branches b ON b.code = d.branch_code
+         WHERE NOT EXISTS (
+           SELECT 1 FROM plans p WHERE p.branch_id = b.id AND p.code = d.code
+         )
+        RETURNING id
+      `);
+      const walkInEnsure = await pool.query(`
+        WITH desired(code, branch_code, program, class_category, name) AS (
+          VALUES
+            ('walkin-free-pilates',   'villa-magna', 'pilates',    'pilates',   'Walk-in Gratis · Pilates'),
+            ('walkin-free-pilates',   'pozos',       'pilates',    'pilates',   'Walk-in Gratis · Pilates'),
+            ('walkin-free-functional','pozos',       'functional', 'funcional', 'Walk-in Gratis · Funcional')
+        )
+        UPDATE plans p
+           SET plan_kind = 'internal',
+               name = d.name,
+               description = 'Cortesía registrada como walk-in; no cubre ni elimina la inscripción.',
+               program = d.program,
+               class_category = d.class_category,
+               price = 0,
+               discount_price = NULL,
+               duration_days = 1,
+               class_limit = 1,
+               features = '["Sin cobro","Solo administración","No cuenta como inscripción"]'::jsonb,
+               is_active = true,
+               is_admin_only = true,
+               is_non_transferable = true,
+               updated_at = NOW()
+          FROM desired d
+          JOIN branches b ON b.code = d.branch_code
+         WHERE p.branch_id = b.id AND p.code = d.code
+        RETURNING p.id
+      `);
+      console.log(`[seed] Walk-in Gratis — inserted=${walkInSeed.rowCount}, ensured=${walkInEnsure.rowCount}`);
+    } catch (e) {
+      console.warn("[seed] Walk-in Gratis failed:", e.message);
+    }
     // ── orders: one-time inscription (enrollment) fee charged with a package ──
     // Idempotent column. Defaults to 0 so existing/non-package orders are unaffected.
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS inscription_amount DECIMAL(10,2) DEFAULT 0`).catch(() => { });
@@ -3166,7 +3225,10 @@ async function clientNeedsInscription(userId, { branchId = DEFAULT_BRANCH_ID, pr
          LEFT JOIN plans p ON p.id = m.plan_id
         WHERE m.user_id = $1 AND m.branch_id = $2
           AND (CASE WHEN COALESCE(p.program, 'pilates') = 'prenatal' THEN 'pilates' ELSE COALESCE(p.program, 'pilates') END) = $3
-          AND COALESCE(p.plan_kind, 'single') <> 'registration'
+          -- Registration and internal walk-ins do not establish paid
+          -- enrollment. A complimentary visit must never waive the fee due on
+          -- the client's first real package.
+          AND COALESCE(p.plan_kind, 'single') NOT IN ('registration', 'internal')
           AND m.end_date IS NOT NULL
           AND m.end_date >= CURRENT_DATE - INTERVAL '6 months'
         LIMIT 1`,
@@ -9434,6 +9496,28 @@ app.delete("/api/admin/schedule-slots/:id", adminMiddleware, async (req, res) =>
 
 // ─── Routes: /api/admin/plans (CRUD) ────────────────────────────────────────
 
+// GET /api/admin/plans — complete catalog for management. Unlike the public
+// endpoint, this includes disabled and admin-only walk-in plans.
+app.get("/api/admin/plans", adminMiddleware, async (req, res) => {
+  try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const r = await pool.query(
+      `SELECT p.*, b.code AS branch_code, b.name AS branch_name
+         FROM plans p
+         JOIN branches b ON b.id = p.branch_id
+        WHERE ($1::uuid IS NULL OR p.branch_id = $1)
+        ORDER BY p.is_active DESC, p.is_admin_only DESC, p.sort_order ASC, p.price ASC`,
+      [branch?.id || null],
+    );
+    return res.json({ data: camelRows(r.rows) });
+  } catch (err) {
+    console.error("GET admin/plans error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
 // POST /api/admin/plans
 app.post("/api/admin/plans", adminMiddleware, async (req, res) => {
   const {
@@ -9449,6 +9533,10 @@ app.post("/api/admin/plans", adminMiddleware, async (req, res) => {
     const cat = validCats.includes(class_category) ? class_category : "all";
     const program = normalizeProgram(req.body.program || cat);
     const planKind = normalizePlanKind(req.body.planKind ?? req.body.plan_kind, { name, classLimit: class_limit });
+    const adminOnly = isAdminOnlyPlan(
+      planKind,
+      parseBooleanFlag(req.body.isAdminOnly ?? req.body.is_admin_only),
+    );
     const planCode = makePlanCode(code, name, program);
     const nonTransferable = parseBooleanFlag(is_non_transferable);
     const nonRepeatable = parseBooleanFlag(is_non_repeatable);
@@ -9456,13 +9544,13 @@ app.post("/api/admin/plans", adminMiddleware, async (req, res) => {
     const tr = sanitizeTimeRestriction(time_restriction);
     const r = await pool.query(
       `INSERT INTO plans
-        (branch_id, code, program, plan_kind, name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, discount_price, time_restriction)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
+        (branch_id, code, program, plan_kind, name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, discount_price, time_restriction, is_admin_only)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
       [branch.id, planCode, program, planKind, name.trim(), description || null, price, currency || "MXN",
       duration_days || 30, class_limit ?? null,
         cat, JSON.stringify(features || []), is_active ?? true, sort_order ?? 0, nonTransferable, nonRepeatable, safeRepeatKey,
         discount_price != null && discount_price !== "" ? parseFloat(discount_price) : null,
-        tr ? JSON.stringify(tr) : null]
+        tr ? JSON.stringify(tr) : null, adminOnly]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {
@@ -9490,6 +9578,10 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
   const programValue = req.body.program ? normalizeProgram(req.body.program) : null;
   const kindRaw = req.body.planKind ?? req.body.plan_kind;
   const planKindValue = kindRaw ? normalizePlanKind(kindRaw) : null;
+  const explicitAdminOnly = req.body.isAdminOnly ?? req.body.is_admin_only;
+  const adminOnlyValue = planKindValue === "internal"
+    ? true
+    : explicitAdminOnly === undefined ? null : parseBooleanFlag(explicitAdminOnly);
 
   // Transacción: el UPDATE del plan y la cascada de end_date deben ser atómicos
   // para evitar estado inconsistente (plan con duración nueva pero memberships
@@ -9517,6 +9609,7 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
          code                = COALESCE($17, code),
          program             = COALESCE($18, program),
          plan_kind           = COALESCE($19, plan_kind),
+         is_admin_only       = CASE WHEN COALESCE($19,plan_kind)='internal' THEN true ELSE COALESCE($21,is_admin_only) END,
          updated_at    = NOW()
        WHERE id = $20 RETURNING *`,
       [name || null, description || null, price ?? null, currency || null,
@@ -9529,7 +9622,8 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
         code ? makePlanCode(code, name || "", programValue || "pilates") : null,
         programValue,
         planKindValue,
-        req.params.id]
+        req.params.id,
+        adminOnlyValue]
     );
     if (r.rows.length === 0) {
       await client.query("ROLLBACK");
@@ -12928,6 +13022,10 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
     const programValue = req.body.program ? normalizeProgram(req.body.program) : null;
     const kindRaw = req.body.planKind ?? req.body.plan_kind;
     const planKindValue = kindRaw ? normalizePlanKind(kindRaw) : null;
+    const explicitAdminOnly = req.body.isAdminOnly ?? req.body.is_admin_only;
+    const adminOnlyValue = planKindValue === "internal"
+      ? true
+      : explicitAdminOnly === undefined ? null : parseBooleanFlag(explicitAdminOnly);
     const r = await pool.query(
       `UPDATE plans SET name=$1, description=$2, price=$3, currency=$4, duration_days=$5,
        class_limit=$6, features=$7, is_active=$8, sort_order=$9,
@@ -12936,6 +13034,7 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
        discount_price=$15,
        time_restriction = CASE WHEN $17::boolean THEN $16::jsonb ELSE time_restriction END,
        code=COALESCE($18,code), program=COALESCE($19,program), plan_kind=COALESCE($20,plan_kind),
+       is_admin_only=CASE WHEN COALESCE($20,plan_kind)='internal' THEN true ELSE COALESCE($21,is_admin_only) END,
        updated_at=NOW()
        WHERE id=$14 RETURNING *`,
       [
@@ -12959,6 +13058,7 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
         code ? makePlanCode(code, name || "", programValue || "pilates") : null,
         programValue,
         planKindValue,
+        adminOnlyValue,
       ]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Plan no encontrado" });
@@ -13034,6 +13134,10 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
     const cat = validCats.includes(classCategory) ? classCategory : "all";
     const program = normalizeProgram(req.body.program || cat);
     const planKind = normalizePlanKind(req.body.planKind ?? req.body.plan_kind, { name, classLimit });
+    const adminOnly = isAdminOnlyPlan(
+      planKind,
+      parseBooleanFlag(req.body.isAdminOnly ?? req.body.is_admin_only),
+    );
     const planCode = makePlanCode(code, name, program);
     const nonTransferable = parseBooleanFlag(isNonTransferable ?? req.body.is_non_transferable);
     const nonRepeatable = parseBooleanFlag(isNonRepeatable ?? req.body.is_non_repeatable);
@@ -13050,9 +13154,9 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
     const tr = sanitizeTimeRestriction(time_restriction ?? timeRestriction);
     const r = await pool.query(
       `INSERT INTO plans
-        (branch_id, code, program, plan_kind, name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, discount_price, time_restriction)
+        (branch_id, code, program, plan_kind, name, description, price, currency, duration_days, class_limit, class_category, features, is_active, sort_order, is_non_transferable, is_non_repeatable, repeat_key, discount_price, time_restriction, is_admin_only)
        VALUES
-        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
+        ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,
       [
         branch.id, planCode, program, planKind, name,
         description || null,
@@ -13069,6 +13173,7 @@ app.post("/api/plans", adminMiddleware, async (req, res) => {
         safeRepeatKey,
         safeDiscount,
         tr ? JSON.stringify(tr) : null,
+        adminOnly,
       ]
     );
     return res.status(201).json({ data: camelRow(r.rows[0]) });
@@ -13793,11 +13898,15 @@ app.get("/api/classes/:id/roster", adminMiddleware, async (req, res) => {
     const r = await pool.query(
       `SELECT b.id AS booking_id, b.status, b.checked_in_at, b.guest_name,
               u.id AS user_id, u.display_name, u.email, u.phone,
-              m.plan_id, p.name AS plan_name, m.classes_remaining
+              COALESCE(m.plan_id, walkin_plan.id) AS plan_id,
+              COALESCE(p.name, walkin_plan.name) AS plan_name,
+              m.classes_remaining
        FROM bookings b
        LEFT JOIN users u ON b.user_id = u.id
        LEFT JOIN memberships m ON b.membership_id = m.id
        LEFT JOIN plans p ON m.plan_id = p.id
+       LEFT JOIN orders walkin_order ON b.order_id = walkin_order.id
+       LEFT JOIN plans walkin_plan ON walkin_order.plan_id = walkin_plan.id
        WHERE b.class_id = $1 AND b.status != 'cancelled'
        ORDER BY CASE b.status
          WHEN 'confirmed'  THEN 1
@@ -13864,19 +13973,27 @@ app.post("/api/admin/classes/:id/walkin", adminMiddleware, async (req, res) => {
     const guestName = String(name).trim();
     const guestPhone = phone ? normalizePhoneForStorage(String(phone).trim()) : null;
     const program = programForClassCategory(c.class_category);
+    let selectedPlan = null;
     if (planId) {
-      const selectedPlan = await client.query("SELECT branch_id, program FROM plans WHERE id = $1 AND is_active = true", [planId]);
-      if (!selectedPlan.rows.length || String(selectedPlan.rows[0].branch_id) !== String(c.branch_id)
-        || normalizeProgram(selectedPlan.rows[0].program) !== program) {
+      const selectedPlanResult = await client.query(
+        "SELECT id, branch_id, program, plan_kind, is_admin_only, price FROM plans WHERE id = $1 AND is_active = true",
+        [planId],
+      );
+      selectedPlan = selectedPlanResult.rows[0] || null;
+      if (!selectedPlan || String(selectedPlan.branch_id) !== String(c.branch_id)
+        || normalizeProgram(selectedPlan.program) !== program) {
         await client.query("ROLLBACK");
         return res.status(400).json({ message: "El plan de walk-in no corresponde a la sucursal y programa de la clase." });
       }
     }
 
-    // Create order if payment info provided
+    // Free internal plans always remain $0, even if a stale or manipulated
+    // browser payload sends a positive amount. We still create a zero-value
+    // walk-in order so the selected plan and visit remain auditable.
     let orderId = null;
-    const amt = Number(amount);
-    if (Number.isFinite(amt) && amt > 0) {
+    const amt = effectiveWalkInAmount(selectedPlan, amount);
+    const complimentary = isComplimentaryWalkInPlan(selectedPlan);
+    if (amt > 0 || complimentary) {
       const paymentMethod = normalizePaymentMethod(rawPM || "cash");
       const orderRes = await client.query(
         `INSERT INTO orders (user_id, plan_id, branch_id, program, status, payment_method, subtotal, total_amount,
@@ -13896,7 +14013,15 @@ app.post("/api/admin/classes/:id/walkin", adminMiddleware, async (req, res) => {
     await client.query("UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1", [classId]);
 
     await client.query("COMMIT");
-    return res.json({ data: { ...bookingRes.rows[0], orderId } });
+    return res.json({
+      data: {
+        ...bookingRes.rows[0],
+        orderId,
+        amount: amt,
+        complimentary,
+        affectsInscription: false,
+      },
+    });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("[POST /admin/classes/:id/walkin]", err.code, err.message);

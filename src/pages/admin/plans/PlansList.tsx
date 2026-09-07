@@ -55,7 +55,7 @@ const PLAN_KINDS = [
   { value: "package", label: "Paquete" },
   { value: "single", label: "Clase individual" },
   { value: "registration", label: "Inscripción" },
-  { value: "internal", label: "Uso interno" },
+  { value: "internal", label: "Walk-in / uso interno" },
 ] as const;
 
 type ProgramValue = (typeof PROGRAMS)[number]["value"];
@@ -101,6 +101,7 @@ type PlanFormData = z.infer<typeof planSchema>;
 
 interface Plan extends PlanFormData {
   id: string;
+  isAdminOnly?: boolean;
 }
 
 function normalizePlanRow(row: any): Plan {
@@ -133,6 +134,7 @@ function normalizePlanRow(row: any): Plan {
       ? row.features.join(", ")
       : String(row?.features ?? ""),
     isActive: Boolean(row?.isActive ?? row?.is_active ?? true),
+    isAdminOnly: Boolean(row?.isAdminOnly ?? row?.is_admin_only ?? false),
     isNonTransferable: Boolean(row?.isNonTransferable ?? row?.is_non_transferable ?? false),
     isNonRepeatable: Boolean(row?.isNonRepeatable ?? row?.is_non_repeatable ?? false),
     repeatKey: String(row?.repeatKey ?? row?.repeat_key ?? ""),
@@ -236,7 +238,7 @@ const PlansList = () => {
 
   const { data, isLoading } = useQuery<{ data: Plan[] }>({
     queryKey: ["plans", branchScope.branchScope],
-    queryFn: async () => (await api.get("/plans", { params: branchQueryParams(branchScope.branchScope) })).data,
+    queryFn: async () => (await api.get("/admin/plans", { params: branchQueryParams(branchScope.branchScope) })).data,
   });
   const plans = Array.isArray(data?.data) ? data.data.map(normalizePlanRow) : [];
 
@@ -373,8 +375,12 @@ const PlansList = () => {
                           {((p as any).isNonRepeatable ?? (p as any).is_non_repeatable) && (
                             <Badge variant="outline">No repetible</Badge>
                           )}
+                          {p.isAdminOnly && (
+                            <Badge variant="outline">Solo admin</Badge>
+                          )}
                           {!((p as any).isNonTransferable ?? (p as any).is_non_transferable) &&
-                            !((p as any).isNonRepeatable ?? (p as any).is_non_repeatable) && (
+                            !((p as any).isNonRepeatable ?? (p as any).is_non_repeatable) &&
+                            !p.isAdminOnly && (
                               <span className="text-xs text-muted-foreground">—</span>
                             )}
                         </div>
@@ -495,6 +501,11 @@ const PlansList = () => {
                       ))}
                     </SelectContent>
                   </Select>
+                  {form.watch("planKind") === "internal" && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Solo aparece al administrar un walk-in; nunca se ofrece en el checkout público.
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="space-y-1">

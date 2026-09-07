@@ -268,7 +268,10 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
     onSuccess: () => {
       invalidateRoster();
       qc.invalidateQueries({ queryKey: ["payments"] });
-      toast({ title: "Lugar bloqueado y pago registrado" });
+      const selected = walkInPlans.find((p: any) => p.id === walkInForm.planId);
+      const isFreeInternal = (selected?.planKind ?? selected?.plan_kind) === "internal"
+        && Number(selected?.price ?? 0) === 0;
+      toast({ title: isFreeInternal ? "Walk-in gratuito registrado" : "Lugar bloqueado y pago registrado" });
       setWalkInForm({ name: "", phone: "", planId: "", paymentMethod: "cash", amount: "" });
       setShowWalkIn(false);
     },
@@ -433,7 +436,7 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
               <Select value={walkInForm.planId} onValueChange={(v) => {
                 const plan = walkInPlans.find((p: any) => p.id === v);
                 const price = plan?.discountPrice ?? plan?.discount_price ?? plan?.price ?? "";
-                setWalkInForm({ ...walkInForm, planId: v, amount: price ? String(price) : walkInForm.amount });
+                setWalkInForm({ ...walkInForm, planId: v, amount: price !== "" && price != null ? String(price) : "" });
               }}>
                 <SelectTrigger><SelectValue placeholder="Selecciona un plan" /></SelectTrigger>
                 <SelectContent>
@@ -466,7 +469,17 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
               <div className="space-y-1">
                 <Label className="text-xs">Monto cobrado</Label>
                 <Input type="number" placeholder="0" value={walkInForm.amount}
+                  disabled={(() => {
+                    const plan = walkInPlans.find((p: any) => p.id === walkInForm.planId);
+                    return (plan?.planKind ?? plan?.plan_kind) === "internal" && Number(plan?.price ?? 0) === 0;
+                  })()}
                   onChange={(e) => setWalkInForm({ ...walkInForm, amount: e.target.value })} />
+                {(() => {
+                  const plan = walkInPlans.find((p: any) => p.id === walkInForm.planId);
+                  return (plan?.planKind ?? plan?.plan_kind) === "internal" && Number(plan?.price ?? 0) === 0
+                    ? <p className="text-[10px] text-muted-foreground">Cortesía · no cuenta como inscripción</p>
+                    : null;
+                })()}
               </div>
             </div>
           </div>
