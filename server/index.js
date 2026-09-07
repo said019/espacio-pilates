@@ -33,7 +33,7 @@ import {
 } from "./lib/branchAccess.js";
 import { createPreference, createCardPayment, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
 import { computeCartTotals } from "./lib/cartPricing.js";
-import { isWalkInClass, shouldConsumeCredit, walkInStatusCanChange } from "./lib/classWalkIn.js";
+import { isWalkInClass, shouldConsumeCredit, walkInRequiresInscription, walkInStatusCanChange } from "./lib/classWalkIn.js";
 import {
   isPushConfigured,
   getVapidPublicKey,
@@ -4228,7 +4228,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
 
     // Lock class row to avoid overbooking in concurrent requests
     const classRes = await client.query(
-      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in,
+      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in, c.walk_in_requires_inscription,
               (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc,
               ct.category AS class_category
        FROM classes c
@@ -4252,7 +4252,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     let membership = null;
     let lockedMembership = null;
 
-    if (walkInClass) {
+    if (walkInClass && walkInRequiresInscription(cls)) {
       const hasPaidInscription = await clientHasPaidWalkInInscription(req.userId, {
         branchId: cls.branch_id,
         program: programForClassCategory(clsCategory),
@@ -4765,7 +4765,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
 
       // Lock the target class row to avoid overbooking in concurrent requests
       const newClassRes = await client.query(
-        `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in,
+        `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in, c.walk_in_requires_inscription,
                 ct.category AS class_category,
                 (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
            FROM classes c
@@ -4801,7 +4801,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
         });
       }
 
-      if (newWalkIn) {
+      if (newWalkIn && walkInRequiresInscription(newCls)) {
         const targetCategory = normalizeClassCategory(newCls.class_category, "all");
         const hasPaidInscription = await clientHasPaidWalkInInscription(req.userId, {
           branchId: newCls.branch_id,
@@ -9997,7 +9997,7 @@ app.delete("/api/class-types/:id", adminMiddleware, async (req, res) => {
 // POST /api/classes — admin creates a class (alias)
 app.post("/api/classes", adminMiddleware, async (req, res) => {
   try {
-    const { classTypeId, instructorId, startTime, endTime, maxCapacity, capacity, notes, isWalkIn } = req.body;
+    const { classTypeId, instructorId, startTime, endTime, maxCapacity, capacity, notes, isWalkIn, walkInRequiresInscription: requiresInscription } = req.body;
     if (!classTypeId) return res.status(400).json({ message: "classTypeId requerido" });
     if (!instructorId) return res.status(400).json({ message: "instructorId requerido" });
     const branch = await resolveRequestBranch(req);
@@ -10025,9 +10025,9 @@ app.post("/api/classes", adminMiddleware, async (req, res) => {
     }
     const cap = maxCapacity ?? capacity ?? 10;
     const r = await pool.query(
-      `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status, is_walk_in)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled',$9) RETURNING *`,
-      [branch.id, classTypeId, instructorId, dateStr, startTimeStr, endTimeStr, cap, notes || null, parseBooleanFlag(isWalkIn)]
+      `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status, is_walk_in, walk_in_requires_inscription)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled',$9,$10) RETURNING *`,
+      [branch.id, classTypeId, instructorId, dateStr, startTimeStr, endTimeStr, cap, notes || null, parseBooleanFlag(isWalkIn), requiresInscription === false ? false : true]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {
@@ -11222,7 +11222,7 @@ async function promoteWaitlist(classId) {
     // (1) Lock the class row; read capacity, status, category and start time.
     const clsRes = await client.query(
       `SELECT c.id, c.branch_id, c.date, c.start_time, c.is_walk_in,
-              c.current_bookings, c.max_capacity, c.status,
+              c.current_bookings, c.max_capacity, c.status, c.walk_in_requires_inscription,
               ct.category AS class_category,
               (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
          FROM classes c JOIN class_types ct ON c.class_type_id = ct.id
@@ -11250,12 +11250,14 @@ async function promoteWaitlist(classId) {
     let promoted = null;
     for (const wl of wlRes.rows) {
       if (isWalkInClass(cls)) {
-        const eligible = await clientHasPaidWalkInInscription(wl.user_id, {
-          branchId: cls.branch_id,
-          program: programForClassCategory(classCategory),
-          client,
-        });
-        if (!eligible) continue;
+        if (walkInRequiresInscription(cls)) {
+          const eligible = await clientHasPaidWalkInInscription(wl.user_id, {
+            branchId: cls.branch_id,
+            program: programForClassCategory(classCategory),
+            client,
+          });
+          if (!eligible) continue;
+        }
         await client.query("UPDATE bookings SET status = 'confirmed', membership_id = NULL WHERE id = $1", [wl.id]);
         await client.query("UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1", [classId]);
         promoted = { bookingId: wl.id, userId: wl.user_id };
@@ -13343,7 +13345,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     // time-windowed plans get blocked with their custom error message even when
     // the class is actually within the allowed window.
     const classRes = await client.query(
-      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in,
+      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in, c.walk_in_requires_inscription,
               ct.category AS class_category
        FROM classes c
        JOIN class_types ct ON c.class_type_id = ct.id
@@ -13365,7 +13367,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     const walkInClass = isWalkInClass(cls);
     let membership = null;
     let lockedMembership = null;
-    if (walkInClass) {
+    if (walkInClass && walkInRequiresInscription(cls)) {
       const hasPaidInscription = await clientHasPaidWalkInInscription(userId, {
         branchId: cls.branch_id,
         program: programForClassCategory(clsCategory),
@@ -13597,7 +13599,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
     // Candidatos: match por class_type + hora + día de semana, restringido a las fechas seleccionadas.
     // Incluye FOR UPDATE para bloquear current_bookings mientras insertamos.
     const candidatesRes = await client.query(
-      `SELECT c.id, c.date, c.start_time, c.current_bookings, c.max_capacity, c.status, c.is_walk_in
+      `SELECT c.id, c.date, c.start_time, c.current_bookings, c.max_capacity, c.status, c.is_walk_in, c.walk_in_requires_inscription
          FROM classes c
         WHERE c.class_type_id = $1
           AND c.branch_id = $5
@@ -13661,7 +13663,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
     // Si classes_remaining es NULL/ilimitada, toma esa. Si no, debe tener >= bookable.length.
     const walkInBookable = bookable.filter((item) => isWalkInClass(item));
     const needed = bookable.length - walkInBookable.length;
-    if (walkInBookable.length) {
+    if (walkInBookable.some((item) => walkInRequiresInscription(item))) {
       const hasPaidInscription = await clientHasPaidWalkInInscription(userId, {
         branchId: slot.branch_id,
         program: clsProgram,
@@ -15691,6 +15693,10 @@ app.put("/api/admin/classes/walk-in", adminMiddleware, async (req, res) => {
     ? [...new Set(req.body.classIds.map((id) => String(id || "").trim()).filter(Boolean))]
     : [];
   const nextValue = parseBooleanFlag(req.body?.isWalkIn ?? req.body?.is_walk_in);
+  const requiresInscriptionInput = req.body?.requiresInscription ?? req.body?.walkInRequiresInscription;
+  const requiresInscription = nextValue
+    ? (requiresInscriptionInput === undefined ? true : parseBooleanFlag(requiresInscriptionInput))
+    : true;
   if (!classIds.length || classIds.length > 200) {
     return res.status(400).json({ message: "Selecciona entre 1 y 200 clases." });
   }
@@ -15768,10 +15774,10 @@ app.put("/api/admin/classes/walk-in", adminMiddleware, async (req, res) => {
     }
     const updated = await client.query(
       `UPDATE classes
-          SET is_walk_in = $1, updated_at = NOW()
+          SET is_walk_in = $1, walk_in_requires_inscription = $4, updated_at = NOW()
         WHERE id = ANY($2::uuid[]) AND branch_id = $3
-      RETURNING id, is_walk_in`,
-      [nextValue, classIds, branch.id],
+      RETURNING id, is_walk_in, walk_in_requires_inscription`,
+      [nextValue, classIds, branch.id, requiresInscription],
     );
     await client.query("COMMIT");
     return res.json({
@@ -15791,7 +15797,7 @@ app.put("/api/admin/classes/walk-in", adminMiddleware, async (req, res) => {
 // POST /api/admin/classes — create a class
 app.post("/api/admin/classes", adminMiddleware, async (req, res) => {
   try {
-    const { classTypeId, instructorId, startTime, endTime, capacity = 10, maxCapacity, notes, isWalkIn } = req.body;
+    const { classTypeId, instructorId, startTime, endTime, capacity = 10, maxCapacity, notes, isWalkIn, walkInRequiresInscription: requiresInscription } = req.body;
     if (!classTypeId || !startTime) return res.status(400).json({ message: "classTypeId y startTime requeridos" });
     const branch = await resolveRequestBranch(req);
     if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
@@ -15802,9 +15808,9 @@ app.post("/api/admin/classes", adminMiddleware, async (req, res) => {
     const endTimeStr = endTime ? new Date(endTime).toISOString().slice(11, 19) : null;
     const cap = Number(maxCapacity ?? capacity);
     const r = await pool.query(
-      `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status, is_walk_in)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled',$9) RETURNING *`,
-      [branch.id, classTypeId, instructorId || null, dateStr, startTimeStr, endTimeStr, cap, notes || null, parseBooleanFlag(isWalkIn)]
+      `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status, is_walk_in, walk_in_requires_inscription)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled',$9,$10) RETURNING *`,
+      [branch.id, classTypeId, instructorId || null, dateStr, startTimeStr, endTimeStr, cap, notes || null, parseBooleanFlag(isWalkIn), requiresInscription === false ? false : true]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {

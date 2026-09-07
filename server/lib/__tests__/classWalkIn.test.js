@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { isWalkInClass, shouldConsumeCredit, walkInStatusCanChange } from "../classWalkIn.js";
+import { isWalkInClass, shouldConsumeCredit, walkInRequiresInscription, walkInStatusCanChange } from "../classWalkIn.js";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const serverSource = fs.readFileSync(path.resolve(testDirectory, "../../index.js"), "utf8");
@@ -17,6 +17,12 @@ describe("clases walk-in", () => {
   it("una reserva confirmada walk-in no consume crédito", () => {
     expect(shouldConsumeCredit({ walkIn: true, waitlist: false })).toBe(false);
     expect(shouldConsumeCredit({ walkIn: false, waitlist: false })).toBe(true);
+  });
+
+  it("por seguridad exige inscripción salvo que admin marque cortesía total", () => {
+    expect(walkInRequiresInscription({})).toBe(true);
+    expect(walkInRequiresInscription({ walk_in_requires_inscription: true })).toBe(true);
+    expect(walkInRequiresInscription({ walkInRequiresInscription: false })).toBe(false);
   });
 
   it("la lista de espera nunca consume crédito al unirse", () => {
@@ -34,6 +40,7 @@ describe("clases walk-in", () => {
     expect(serverSource).toContain("WALK_IN_REQUIRES_INSCRIPTION");
     expect(serverSource).toContain("[classId, req.userId, membership?.id || null, status]");
     expect(serverSource).toContain("shouldConsumeCredit({ walkIn: walkInClass, waitlist: isWaitlist })");
+    expect(serverSource).toContain("walkInClass && walkInRequiresInscription(cls)");
   });
 
   it("revalida inscripción al promover la lista de espera", () => {

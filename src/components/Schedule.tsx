@@ -39,6 +39,8 @@ interface ApiClass {
   class_category?: string;
   is_walk_in?: boolean;
   isWalkIn?: boolean;
+  walk_in_requires_inscription?: boolean;
+  walkInRequiresInscription?: boolean;
 }
 
 interface ScheduleClass {
@@ -55,6 +57,7 @@ interface ScheduleClass {
   branchName: string;
   program: StudioProgram;
   isWalkIn: boolean;
+  walkInRequiresInscription: boolean;
 }
 
 // Enfoque del día — index = getDay() (0=Dom … 6=Sáb)
@@ -163,6 +166,7 @@ export default function Schedule() {
           branchName: String(c.branch_name ?? branch.name),
           program:    getEntityProgram(c),
           isWalkIn:   Boolean(c.isWalkIn ?? c.is_walk_in),
+          walkInRequiresInscription: (c.walkInRequiresInscription ?? c.walk_in_requires_inscription) !== false,
         };
       });
   }, [rawClasses, branch, branchCode]);
@@ -246,6 +250,7 @@ export default function Schedule() {
       branchAddress: branch.address,
       program:    cls.program,
       isWalkIn:   cls.isWalkIn,
+      walkInRequiresInscription: cls.walkInRequiresInscription,
     });
     setDialogOpen(true);
   };

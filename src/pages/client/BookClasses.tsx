@@ -306,6 +306,7 @@ const BookClasses = () => {
                             : "Pilates";
                           const classProgram = getEntityProgram(cls);
                           const isWalkIn = Boolean(cls.isWalkIn ?? cls.is_walk_in);
+                          const walkInRequiresInscription = (cls.walkInRequiresInscription ?? cls.walk_in_requires_inscription) !== false;
                           const isPrenatalClass = classProgram === "prenatal";
                           const hasProgramAccess = memberships.some((item) => membershipSupports(item, classProgram));
                           const accessMismatch = !isWalkIn && hasActive && !hasProgramAccess;
@@ -384,7 +385,7 @@ const BookClasses = () => {
 
                               {isWalkIn && (
                                 <span className="mt-1.5 inline-flex rounded-full bg-[#F4EAD6] px-2 py-0.5 text-[0.56rem] font-semibold uppercase tracking-[0.08em] text-[#8A672C] ring-1 ring-[#E5CF9F]">
-                                  Walk-in · sin crédito
+                                  {walkInRequiresInscription ? "Walk-in · sin crédito" : "Gratis · sin inscripción"}
                                 </span>
                               )}
 

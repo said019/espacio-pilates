@@ -66,6 +66,7 @@ interface ClassInstance {
   branchId?: string;
   branchName?: string;
   isWalkIn?: boolean;
+  walkInRequiresInscription?: boolean;
 }
 
 interface ClassType {
@@ -109,6 +110,7 @@ const classSchema = z.object({
   maxCapacity: z.coerce.number().min(1),
   notes: z.string().optional(),
   isWalkIn: z.boolean().default(false),
+  walkInRequiresInscription: z.boolean().default(true),
 });
 type ClassFormData = z.infer<typeof classSchema>;
 
@@ -707,6 +709,7 @@ function CalendarTab({
         branchId:         c.branchId ?? c.branch_id,
         branchName:       c.branchName ?? c.branch_name,
         isWalkIn:         Boolean(c.isWalkIn ?? c.is_walk_in),
+        walkInRequiresInscription: (c.walkInRequiresInscription ?? c.walk_in_requires_inscription) !== false,
       }));
       return { data: mapped };
     },
@@ -715,7 +718,7 @@ function CalendarTab({
 
   const form = useForm<ClassFormData>({
     resolver: zodResolver(classSchema),
-    defaultValues: { branchId: "", isWalkIn: false },
+    defaultValues: { branchId: "", isWalkIn: false, walkInRequiresInscription: true },
   });
 
   const createMutation = useMutation({
@@ -757,12 +760,12 @@ function CalendarTab({
   });
 
   const markWalkInMutation = useMutation({
-    mutationFn: ({ classIds, isWalkIn }: { classIds: string[]; isWalkIn: boolean }) =>
-      api.put("/admin/classes/walk-in", { classIds, isWalkIn, branchId: branchScope.branchId }),
+    mutationFn: ({ classIds, isWalkIn, requiresInscription = true }: { classIds: string[]; isWalkIn: boolean; requiresInscription?: boolean }) =>
+      api.put("/admin/classes/walk-in", { classIds, isWalkIn, requiresInscription, branchId: branchScope.branchId }),
     onSuccess: (res: any, variables) => {
       qc.invalidateQueries({ queryKey: ["classes"] });
       setSelectedClass((current) => current && variables.classIds.includes(current.id)
-        ? { ...current, isWalkIn: variables.isWalkIn }
+        ? { ...current, isWalkIn: variables.isWalkIn, walkInRequiresInscription: variables.requiresInscription ?? true }
         : current);
       toast({
         title: variables.classIds.length === 1
@@ -771,7 +774,9 @@ function CalendarTab({
         description: variables.isWalkIn
           ? Number(res?.data?.refundedCredits || 0) > 0
             ? `Se devolvieron ${res.data.refundedCredits} crédito${Number(res.data.refundedCredits) === 1 ? "" : "s"} de reservas existentes. Las alumnas conservaron su lugar.`
-            : "Las reservas no usarán créditos y exigirán inscripción pagada."
+            : variables.requiresInscription === false
+              ? "La clase será completamente gratis: sin crédito y sin inscripción."
+              : "Las reservas no usarán créditos y exigirán inscripción pagada."
           : undefined,
       });
       setSelectedWalkInIds(new Set());
@@ -804,6 +809,7 @@ function CalendarTab({
       endTime: date + "T10:00",
       maxCapacity: 5,
       isWalkIn: false,
+      walkInRequiresInscription: true,
     });
     setCreateOpen(true);
   };
@@ -897,8 +903,14 @@ function CalendarTab({
             <Button
               size="sm"
               disabled={!selectedWalkInIds.size || markWalkInMutation.isPending}
-              onClick={() => markWalkInMutation.mutate({ classIds: [...selectedWalkInIds], isWalkIn: true })}
-            >Marcar walk-in</Button>
+              onClick={() => markWalkInMutation.mutate({ classIds: [...selectedWalkInIds], isWalkIn: true, requiresInscription: true })}
+            >Walk-in con inscripción</Button>
+            <Button
+              size="sm"
+              disabled={!selectedWalkInIds.size || markWalkInMutation.isPending}
+              className="bg-[#B5832F] text-white hover:bg-[#9B6F26]"
+              onClick={() => markWalkInMutation.mutate({ classIds: [...selectedWalkInIds], isWalkIn: true, requiresInscription: false })}
+            >Gratis sin inscripción</Button>
             <Button
               size="sm"
               variant="outline"
@@ -1000,7 +1012,7 @@ function CalendarTab({
                         {(c.bookedCount ?? c.currentBookings ?? 0)}/{c.maxCapacity ?? c.capacity ?? "?"}
                       </span>
                     </div>
-                    {c.isWalkIn && <Badge className="mt-2 bg-[#F4EAD6] text-[#8A672C] hover:bg-[#F4EAD6]">Walk-in · sin crédito</Badge>}
+                    {c.isWalkIn && <Badge className="mt-2 bg-[#F4EAD6] text-[#8A672C] hover:bg-[#F4EAD6]">{c.walkInRequiresInscription === false ? "Gratis · sin inscripción" : "Walk-in · sin crédito"}</Badge>}
                   </button>
                 ))}
               </div>
@@ -1094,7 +1106,7 @@ function CalendarTab({
                           </div>
 
                           {c.isCancelled && <Badge variant="destructive" className="mt-3 rounded-full px-2 text-[0.6rem]">Cancelada</Badge>}
-                          {c.isWalkIn && <Badge className="mt-3 rounded-full bg-[#F4EAD6] px-2 text-[0.6rem] text-[#8A672C] hover:bg-[#F4EAD6]">Walk-in · sin crédito</Badge>}
+                          {c.isWalkIn && <Badge className="mt-3 rounded-full bg-[#F4EAD6] px-2 text-[0.6rem] text-[#8A672C] hover:bg-[#F4EAD6]">{c.walkInRequiresInscription === false ? "Gratis · sin inscripción" : "Walk-in · sin crédito"}</Badge>}
                         </button>
                       );
                     })}
@@ -1167,6 +1179,19 @@ function CalendarTab({
                 onCheckedChange={(checked) => form.setValue("isWalkIn", checked)}
               />
             </div>
+            {form.watch("isWalkIn") && (
+              <div className="flex items-center justify-between gap-4 rounded-xl border border-border px-3 py-3">
+                <div>
+                  <Label htmlFor="new-class-requires-inscription">Exigir inscripción</Label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Apágalo para una cortesía totalmente gratis.</p>
+                </div>
+                <Switch
+                  id="new-class-requires-inscription"
+                  checked={form.watch("walkInRequiresInscription")}
+                  onCheckedChange={(checked) => form.setValue("walkInRequiresInscription", checked)}
+                />
+              </div>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button>
               <Button type="submit" disabled={createMutation.isPending || !branchScope.branchId} className="bg-gradient-to-r from-[#D1B9B4] to-[#716D64] text-white">Crear</Button>
@@ -1200,7 +1225,9 @@ function CalendarTab({
               <div><span className="font-medium">Cupo:</span> {(selectedClass.bookedCount ?? selectedClass.currentBookings ?? 0) + " / " + (selectedClass.maxCapacity ?? selectedClass.capacity ?? "?")}</div>
               {selectedClass.isWalkIn && (
                 <div className="rounded-xl border border-[#E5CF9F] bg-[#F4EAD6]/60 px-3 py-2 text-xs text-[#8A672C]">
-                  Walk-in: no descuenta créditos y solo permite reservar con inscripción pagada.
+                  {selectedClass.walkInRequiresInscription === false
+                    ? "Cortesía total: no descuenta créditos ni exige inscripción."
+                    : "Walk-in: no descuenta créditos y solo permite reservar con inscripción pagada."}
                 </div>
               )}
               {selectedClass.notes && <div><span className="font-medium">Notas:</span> {selectedClass.notes}</div>}
@@ -1209,14 +1236,25 @@ function CalendarTab({
               <ClassAttendees classId={selectedClass.id} branchId={selectedClass.branchId} />
 
               <div className="pt-2 flex flex-col gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => markWalkInMutation.mutate({ classIds: [selectedClass.id], isWalkIn: !selectedClass.isWalkIn })}
-                  disabled={markWalkInMutation.isPending || !selectedClass.branchId}
-                >
-                  <Sparkles size={14} className="mr-2" />
-                  {selectedClass.isWalkIn ? "Quitar modo walk-in" : "Marcar como walk-in"}
-                </Button>
+                {!selectedClass.isWalkIn ? (
+                  <>
+                    <Button variant="outline" onClick={() => markWalkInMutation.mutate({ classIds: [selectedClass.id], isWalkIn: true, requiresInscription: true })} disabled={markWalkInMutation.isPending || !selectedClass.branchId}>
+                      <Sparkles size={14} className="mr-2" />Walk-in con inscripción
+                    </Button>
+                    <Button onClick={() => markWalkInMutation.mutate({ classIds: [selectedClass.id], isWalkIn: true, requiresInscription: false })} disabled={markWalkInMutation.isPending || !selectedClass.branchId}>
+                      <Sparkles size={14} className="mr-2" />Gratis sin inscripción
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="outline" onClick={() => markWalkInMutation.mutate({ classIds: [selectedClass.id], isWalkIn: true, requiresInscription: selectedClass.walkInRequiresInscription === false })} disabled={markWalkInMutation.isPending || !selectedClass.branchId}>
+                      {selectedClass.walkInRequiresInscription === false ? "Cambiar a walk-in con inscripción" : "Cambiar a gratis sin inscripción"}
+                    </Button>
+                    <Button variant="outline" onClick={() => markWalkInMutation.mutate({ classIds: [selectedClass.id], isWalkIn: false })} disabled={markWalkInMutation.isPending || !selectedClass.branchId}>
+                      Quitar modo walk-in
+                    </Button>
+                  </>
+                )}
                 {!selectedClass.isCancelled && (
                   <Button variant="destructive" onClick={() => cancelMutation.mutate({ id: selectedClass.id, branchId: selectedClass.branchId })} disabled={cancelMutation.isPending || !selectedClass.branchId}>
                     Cancelar clase

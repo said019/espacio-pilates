@@ -9,6 +9,11 @@ export function isWalkInClass(classRow) {
   return booleanFlag(classRow?.is_walk_in ?? classRow?.isWalkIn);
 }
 
+export function walkInRequiresInscription(classRow) {
+  const value = classRow?.walk_in_requires_inscription ?? classRow?.walkInRequiresInscription;
+  return value === undefined || value === null ? true : booleanFlag(value);
+}
+
 export function shouldConsumeCredit({ walkIn, waitlist }) {
   return !booleanFlag(walkIn) && !booleanFlag(waitlist);
 }

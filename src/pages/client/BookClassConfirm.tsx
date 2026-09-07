@@ -38,6 +38,7 @@ const BookClassConfirm = () => {
   const classBranch = branches.find((item) => item.code === classBranchCode) ?? branch;
   const classProgram = getEntityProgram(cls);
   const isWalkIn = Boolean(cls?.isWalkIn ?? cls?.is_walk_in);
+  const walkInRequiresInscription = (cls?.walkInRequiresInscription ?? cls?.walk_in_requires_inscription) !== false;
 
   useEffect(() => {
     if (classBranchCode) setBranchCode(classBranchCode);
@@ -108,7 +109,9 @@ const BookClassConfirm = () => {
                 </div>
                 {isWalkIn && (
                   <div className="rounded-xl border border-[#E5CF9F] bg-[#F4EAD6]/60 px-3 py-2 text-xs text-[#8A672C]">
-                    Esta reserva no descontará créditos. Necesitas tener pagada tu inscripción de {programLabel(classProgram)} en {classBranch.name}.
+                    {walkInRequiresInscription
+                      ? `Esta reserva no descontará créditos. Necesitas tener pagada tu inscripción de ${programLabel(classProgram)} en ${classBranch.name}.`
+                      : "Esta clase es una cortesía completamente gratis: no descuenta créditos ni requiere inscripción."}
                   </div>
                 )}
                 <div className="flex items-center gap-2 text-sm">
