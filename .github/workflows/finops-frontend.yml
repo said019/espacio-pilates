@@ -1,0 +1,20 @@
+name: FinOps frontend
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - run: npm run build
+      - run: node scripts/prepare-static-runtime.mjs
+      - run: node scripts/test-caddy-static.mjs
+      - run: node scripts/finops-frontend-check.mjs
