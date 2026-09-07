@@ -57,7 +57,12 @@ import {
   pushAudienceQuery,
   renewalNotificationAudienceQuery,
 } from "./lib/pushAudience.js";
-import { effectiveWalkInAmount, isAdminOnlyPlan, isComplimentaryWalkInPlan } from "./lib/walkIn.js";
+import {
+  effectiveWalkInAmount,
+  isAdminOnlyPlan,
+  isComplimentaryWalkInPlan,
+  isPublicComplimentaryWalkInPlan,
+} from "./lib/walkIn.js";
 import {
   sendMembershipActivated,
   sendBookingConfirmed,
@@ -5258,7 +5263,10 @@ async function createCartOrder(req, res, paymentMethod) {
     // Cargar planes
     const loaded = [];
     for (const it of cart) {
-      const r = await client.query("SELECT * FROM plans WHERE id = $1 AND is_active = true", [it.planId]);
+      const r = await client.query(
+        "SELECT * FROM plans WHERE id = $1 AND is_active = true AND COALESCE(is_admin_only, false) = false",
+        [it.planId],
+      );
       if (!r.rows.length) { await client.query("ROLLBACK"); return res.status(404).json({ message: "Uno de los planes no existe o está inactivo" }); }
       loaded.push({ plan: r.rows[0], quantity: it.quantity });
     }
@@ -5273,6 +5281,14 @@ async function createCartOrder(req, res, paymentMethod) {
       return res.status(400).json({ code: "PLAN_BRANCH_MISMATCH", message: "El paquete no pertenece a la sucursal seleccionada." });
     }
     const scope = { branchId: requestedBranch.id, program: cartScope.program, client };
+    const complimentaryItems = loaded.filter(({ plan }) => isPublicComplimentaryWalkInPlan(plan));
+    if (complimentaryItems.length > 0 && (loaded.length !== 1 || complimentaryItems[0].quantity !== 1)) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        message: "El walk-in gratuito debe registrarse solo y una sola vez.",
+      });
+    }
+    const isComplimentaryOrder = complimentaryItems.length === 1;
 
     // Bloquear si ya hay una orden pendiente para alguno de los planes del carrito
     // (evita acumular órdenes pendientes duplicadas; espejo del camino de 1 plan).
@@ -5369,10 +5385,13 @@ async function createCartOrder(req, res, paymentMethod) {
 
     const bankInfo = await getConfiguredBankInfo(client);
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000);
-    const initialStatus = paymentMethod === "cash" ? "pending_verification" : "pending_payment";
+    const initialStatus = isComplimentaryOrder
+      ? "approved"
+      : paymentMethod === "cash" ? "pending_verification" : "pending_payment";
+    const orderPaymentMethod = isComplimentaryOrder ? "transfer" : paymentMethod;
 
     const cols = ["user_id", "plan_id", "branch_id", "program", "status", "payment_method", "subtotal", "tax_amount", "total_amount", "bank_info", "expires_at"];
-    const vals = [req.userId, primary.id, requestedBranch.id, cartScope.program, initialStatus, paymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
+    const vals = [req.userId, primary.id, requestedBranch.id, cartScope.program, initialStatus, orderPaymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
     if (platformFee > 0) { cols.push("platform_fee"); vals.push(platformFee); }
     if (discount > 0 || appliedDiscountCode) {
       cols.push("discount_amount"); vals.push(discount);
@@ -5386,7 +5405,7 @@ async function createCartOrder(req, res, paymentMethod) {
       return `$${i + 1}`;
     }).join(", ");
     const orderRes = await client.query(`INSERT INTO orders (${cols.join(", ")}) VALUES (${placeholders}) RETURNING *`, vals);
-    const order = orderRes.rows[0];
+    let order = orderRes.rows[0];
 
     // Renglones del carrito (la aprobación crea 1 membresía por unidad de cada renglón)
     for (const { plan, quantity, unit, lineTotal } of lineRows) {
@@ -5396,9 +5415,26 @@ async function createCartOrder(req, res, paymentMethod) {
       );
     }
 
+    // A public $0 walk-in is activated immediately: there is no payment or
+    // proof to verify. It creates one usable class credit, while plan_kind
+    // "internal" keeps it out of the paid-enrollment/inscription history.
+    if (isComplimentaryOrder) {
+      const approved = await client.query(
+        `UPDATE orders
+            SET approved_at = COALESCE(approved_at, NOW()),
+                paid_at = COALESCE(paid_at, NOW()),
+                notes = COALESCE(notes, '') || ' [walk-in gratuito autoconfirmado]'
+          WHERE id = $1
+        RETURNING *`,
+        [order.id],
+      );
+      order = approved.rows[0];
+      await createMembershipsForOrder(order, client, orderPaymentMethod);
+    }
+
     await client.query("COMMIT");
 
-    if (paymentMethod === "cash") {
+    if (paymentMethod === "cash" && !isComplimentaryOrder) {
       pool.query("SELECT display_name FROM users WHERE id = $1", [req.userId])
         .then((r) => sendPushToAdmins({
           ...buildAdminPendingMessage({ clientName: r.rows[0]?.display_name || "Alumna", reason: "cash" }),
@@ -5410,7 +5446,7 @@ async function createCartOrder(req, res, paymentMethod) {
 
     // Tarjeta: preferencia de MP (por compatibilidad) — el Brick usa total_amount
     let mp_checkout_url = null;
-    if (paymentMethod === "card") {
+    if (paymentMethod === "card" && !isComplimentaryOrder) {
       try {
         const u = await pool.query("SELECT email FROM users WHERE id = $1", [req.userId]);
         const planName = lineRows.length > 1 ? `${primary.name} y ${lineRows.length - 1} más` : primary.name;
@@ -5422,7 +5458,17 @@ async function createCartOrder(req, res, paymentMethod) {
 
     const itemsOut = lineRows.map((l) => ({ plan_id: l.plan.id, plan_name: l.plan.name, quantity: l.quantity, unit_price: l.unit, line_total: l.lineTotal }));
     return res.status(201).json({
-      data: { ...order, branch_code: requestedBranch.code, program: cartScope.program, plan_name: primary.name, items: itemsOut, mp_checkout_url, inscriptionAmount, bank_details: { ...bankInfo, amount: total, currency: "MXN" } },
+      data: {
+        ...order,
+        branch_code: requestedBranch.code,
+        program: cartScope.program,
+        plan_name: primary.name,
+        items: itemsOut,
+        mp_checkout_url,
+        inscriptionAmount,
+        complimentary: isComplimentaryOrder,
+        bank_details: { ...bankInfo, amount: total, currency: "MXN" },
+      },
     });
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) { }
@@ -5451,12 +5497,16 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       return res.status(404).json({ message: "Sucursal no encontrada" });
     }
 
-    const planRes = await client.query("SELECT * FROM plans WHERE id = $1 AND is_active = true", [planId]);
+    const planRes = await client.query(
+      "SELECT * FROM plans WHERE id = $1 AND is_active = true AND COALESCE(is_admin_only, false) = false",
+      [planId],
+    );
     if (planRes.rows.length === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ message: "Plan no encontrado" });
     }
     const plan = planRes.rows[0];
+    const isComplimentaryOrder = isPublicComplimentaryWalkInPlan(plan);
     if (String(plan.branch_id) !== String(requestedBranch.id)) {
       await client.query("ROLLBACK");
       return res.status(400).json({ code: "PLAN_BRANCH_MISMATCH", message: "El paquete no pertenece a la sucursal seleccionada." });
@@ -5576,17 +5626,20 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     // El cliente paga la comisión del procesador. Transferencia/efectivo NO lo llevan.
     const PLATFORM_FEE_RATE = 0.04;
     let platformFee = 0;
-    if (paymentMethod === "card") {
+    if (paymentMethod === "card" && !isComplimentaryOrder) {
       platformFee = Math.round(total * PLATFORM_FEE_RATE * 100) / 100;
       total = total + platformFee;
     }
     const bankInfo = await getConfiguredBankInfo(client);
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h
     // Cash orders skip proof upload → go straight to pending_verification so admin can approve
-    const initialStatus = paymentMethod === "cash" ? "pending_verification" : "pending_payment";
+    const initialStatus = isComplimentaryOrder
+      ? "approved"
+      : paymentMethod === "cash" ? "pending_verification" : "pending_payment";
+    const orderPaymentMethod = isComplimentaryOrder ? "transfer" : paymentMethod;
     // Build INSERT dynamically — complement_id column may not exist yet
     const cols = ["user_id", "plan_id", "branch_id", "program", "status", "payment_method", "subtotal", "tax_amount", "total_amount", "bank_info", "expires_at"];
-    const vals = [req.userId, planId, requestedBranch.id, program, initialStatus, paymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
+    const vals = [req.userId, planId, requestedBranch.id, program, initialStatus, orderPaymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
     if (platformFee > 0) {
       cols.push("platform_fee");
       vals.push(platformFee);
@@ -5625,11 +5678,24 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       throw insertErr;
     }
 
+    let order = orderRes.rows[0];
+    if (isComplimentaryOrder) {
+      const approved = await client.query(
+        `UPDATE orders
+            SET approved_at = COALESCE(approved_at, NOW()),
+                paid_at = COALESCE(paid_at, NOW()),
+                notes = COALESCE(notes, '') || ' [walk-in gratuito autoconfirmado]'
+          WHERE id = $1
+        RETURNING *`,
+        [order.id],
+      );
+      order = approved.rows[0];
+      await createMembershipsForOrder(order, client, orderPaymentMethod);
+    }
+
     await client.query("COMMIT");
 
-    const order = orderRes.rows[0];
-
-    if (paymentMethod === "cash") {
+    if (paymentMethod === "cash" && !isComplimentaryOrder) {
       pool.query("SELECT display_name FROM users WHERE id = $1", [req.userId])
         .then((r) => sendPushToAdmins({
           ...buildAdminPendingMessage({ clientName: r.rows[0]?.display_name || "Alumna", reason: "cash" }),
@@ -5641,7 +5707,7 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
 
     // ── Tarjeta: generar checkout de MercadoPago (fuera de la transacción) ──
     let mp_checkout_url = null;
-    if (paymentMethod === "card") {
+    if (paymentMethod === "card" && !isComplimentaryOrder) {
       try {
         const u = await pool.query("SELECT email FROM users WHERE id = $1", [req.userId]);
         const pref = await createPreference({
@@ -5672,6 +5738,7 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
         plan_name: plan.name,
         mp_checkout_url,
         inscriptionAmount,
+        complimentary: isComplimentaryOrder,
         bank_details: { ...bankInfo, amount: total, currency: "MXN" },
       }
     });
@@ -9521,9 +9588,9 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
   const kindRaw = req.body.planKind ?? req.body.plan_kind;
   const planKindValue = kindRaw ? normalizePlanKind(kindRaw) : null;
   const explicitAdminOnly = req.body.isAdminOnly ?? req.body.is_admin_only;
-  const adminOnlyValue = planKindValue === "internal"
-    ? true
-    : explicitAdminOnly === undefined ? null : parseBooleanFlag(explicitAdminOnly);
+  const adminOnlyValue = explicitAdminOnly === undefined
+    ? null
+    : isAdminOnlyPlan(planKindValue, parseBooleanFlag(explicitAdminOnly));
 
   // Transacción: el UPDATE del plan y la cascada de end_date deben ser atómicos
   // para evitar estado inconsistente (plan con duración nueva pero memberships
@@ -9551,7 +9618,7 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
          code                = COALESCE($17, code),
          program             = COALESCE($18, program),
          plan_kind           = COALESCE($19, plan_kind),
-         is_admin_only       = CASE WHEN COALESCE($19,plan_kind)='internal' THEN true ELSE COALESCE($21,is_admin_only) END,
+         is_admin_only       = COALESCE($21, is_admin_only),
          updated_at    = NOW()
        WHERE id = $20 RETURNING *`,
       [name || null, description || null, price ?? null, currency || null,
@@ -12965,9 +13032,9 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
     const kindRaw = req.body.planKind ?? req.body.plan_kind;
     const planKindValue = kindRaw ? normalizePlanKind(kindRaw) : null;
     const explicitAdminOnly = req.body.isAdminOnly ?? req.body.is_admin_only;
-    const adminOnlyValue = planKindValue === "internal"
-      ? true
-      : explicitAdminOnly === undefined ? null : parseBooleanFlag(explicitAdminOnly);
+    const adminOnlyValue = explicitAdminOnly === undefined
+      ? null
+      : isAdminOnlyPlan(planKindValue, parseBooleanFlag(explicitAdminOnly));
     const r = await pool.query(
       `UPDATE plans SET name=$1, description=$2, price=$3, currency=$4, duration_days=$5,
        class_limit=$6, features=$7, is_active=$8, sort_order=$9,
@@ -12976,7 +13043,7 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
        discount_price=$15,
        time_restriction = CASE WHEN $17::boolean THEN $16::jsonb ELSE time_restriction END,
        code=COALESCE($18,code), program=COALESCE($19,program), plan_kind=COALESCE($20,plan_kind),
-       is_admin_only=CASE WHEN COALESCE($20,plan_kind)='internal' THEN true ELSE COALESCE($21,is_admin_only) END,
+       is_admin_only=COALESCE($21,is_admin_only),
        updated_at=NOW()
        WHERE id=$14 RETURNING *`,
       [

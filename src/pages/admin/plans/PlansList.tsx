@@ -78,6 +78,7 @@ const planSchema = z.object({
   classCategory: z.enum(["reformer", "barre", "mixto", "pilates", "bienestar", "prenatal", "funcional", "all"]).default("all"),
   features: z.string().optional(),
   isActive: z.boolean().default(true),
+  isAdminOnly: z.boolean().default(false),
   isNonTransferable: z.boolean().default(false),
   isNonRepeatable: z.boolean().default(false),
   repeatKey: z.string().optional(),
@@ -101,7 +102,6 @@ type PlanFormData = z.infer<typeof planSchema>;
 
 interface Plan extends PlanFormData {
   id: string;
-  isAdminOnly?: boolean;
 }
 
 function normalizePlanRow(row: any): Plan {
@@ -171,7 +171,7 @@ const EMPTY: PlanFormData = {
   branchId: "", code: "", program: "pilates", planKind: "package",
   name: "", description: "", price: 0, currency: "MXN",
   durationDays: 30, classLimit: null, classCategory: "all",
-  features: "", isActive: true, isNonTransferable: false, isNonRepeatable: false, repeatKey: "", sortOrder: 0,
+  features: "", isActive: true, isAdminOnly: false, isNonTransferable: false, isNonRepeatable: false, repeatKey: "", sortOrder: 0,
   discountPrice: null,
   scheduleDays: [], scheduleStart: "", scheduleEnd: "", scheduleMessage: "",
 };
@@ -378,9 +378,12 @@ const PlansList = () => {
                           {p.isAdminOnly && (
                             <Badge variant="outline">Solo admin</Badge>
                           )}
+                          {p.planKind === "internal" && !p.isAdminOnly && (
+                            <Badge variant="outline">Visible a usuarias</Badge>
+                          )}
                           {!((p as any).isNonTransferable ?? (p as any).is_non_transferable) &&
                             !((p as any).isNonRepeatable ?? (p as any).is_non_repeatable) &&
-                            !p.isAdminOnly && (
+                            !p.isAdminOnly && p.planKind !== "internal" && (
                               <span className="text-xs text-muted-foreground">—</span>
                             )}
                         </div>
@@ -492,6 +495,11 @@ const PlansList = () => {
                     onValueChange={(value) => {
                       form.setValue("planKind", value as PlanKindValue, { shouldValidate: true });
                       if (value === "registration") form.setValue("classLimit", 0);
+                      if (value === "internal") {
+                        form.setValue("classLimit", 1);
+                        form.setValue("isNonTransferable", true);
+                        form.setValue("isNonRepeatable", true);
+                      }
                     }}
                   >
                     <SelectTrigger><SelectValue /></SelectTrigger>
@@ -503,7 +511,7 @@ const PlansList = () => {
                   </Select>
                   {form.watch("planKind") === "internal" && (
                     <p className="text-[11px] text-muted-foreground">
-                      Solo aparece al administrar un walk-in; nunca se ofrece en el checkout público.
+                      En $0 se activa sin pago y no cuenta como inscripción.
                     </p>
                   )}
                 </div>
@@ -639,6 +647,20 @@ const PlansList = () => {
                 <div className="space-y-1">
                   <Label>Clave de repetición (grupo)</Label>
                   <Input placeholder="ej. trial_single_session" {...form.register("repeatKey")} />
+                </div>
+              )}
+              {form.watch("planKind") === "internal" && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border p-3">
+                  <div>
+                    <Label>Visible para usuarias</Label>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      Aparece en Comprar membresía. Si cuesta $0, se activa inmediatamente sin comprobante.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!form.watch("isAdminOnly")}
+                    onCheckedChange={(visible) => form.setValue("isAdminOnly", !visible, { shouldDirty: true })}
+                  />
                 </div>
               )}
               <div className="flex items-center gap-3">

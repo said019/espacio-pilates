@@ -123,8 +123,10 @@ const PlanCard = ({
         </div>
       </div>
       <div className="flex items-baseline gap-1 mt-2">
-        <span className="text-2xl font-bold text-[#1A1A1A]">${planPrice.toLocaleString("es-MX")}</span>
-        <span className="text-xs text-[#1A1A1A]/35">{plan.currency ?? "MXN"}</span>
+        <span className="text-2xl font-bold text-[#1A1A1A]">
+          {planPrice === 0 ? "Gratis" : `$${planPrice.toLocaleString("es-MX")}`}
+        </span>
+        {planPrice > 0 && <span className="text-xs text-[#1A1A1A]/35">{plan.currency ?? "MXN"}</span>}
       </div>
       {discountPrice && (
         <p className="text-[11px] text-[#6B4F53] font-bold mt-0.5">
@@ -221,6 +223,7 @@ const Checkout = () => {
   const [discountResult, setDiscountResult] = useState<any>(null);
   const [orderId, setOrderId] = useState<string | null>(null);
   const [orderUuid, setOrderUuid] = useState<string | null>(null);
+  const [complimentaryDone, setComplimentaryDone] = useState(false);
   const [bankDetails, setBankDetails] = useState<any>(null);
   const [file, setFile] = useState<File | null>(null);
   const { branch, branchCode, setBranchCode } = useBranch();
@@ -337,7 +340,12 @@ const Checkout = () => {
     .filter((p) => !/inscrip/i.test(String(p.name ?? "")));
 
   // ── Carrito: helpers ───────────────────────────────────────────────────────
-  const planNonRepeatable = (p: any) => flag(p?.isNonRepeatable ?? p?.is_non_repeatable);
+  const planIsFreeWalkIn = (p: any) => {
+    const kind = String(p?.planKind ?? p?.plan_kind ?? "").toLowerCase();
+    return kind === "internal" && Number(p?.price ?? 0) === 0;
+  };
+  const planNonRepeatable = (p: any) => planIsFreeWalkIn(p)
+    || flag(p?.isNonRepeatable ?? p?.is_non_repeatable);
   const planIsPackage = (p: any) => {
     const name = String(p?.name ?? "").toLowerCase();
     const explicit = p?.isPackage ?? p?.is_package;
@@ -359,6 +367,8 @@ const Checkout = () => {
     }
     setDiscountResult(null);
     setCart((prev) => {
+      if (planIsFreeWalkIn(plan)) return [{ plan, quantity: 1 }];
+      if (prev.some((item) => planIsFreeWalkIn(item.plan))) return [{ plan, quantity: 1 }];
       const existing = prev.find((c) => c.plan.id === plan.id);
       if (existing) {
         if (planNonRepeatable(plan)) return prev; // no se puede más de 1
@@ -411,6 +421,9 @@ const Checkout = () => {
   const PLATFORM_FEE_RATE = 0.04;
   const platformFee = paymentMethod === "card" ? round2(afterDiscount * PLATFORM_FEE_RATE) : 0;
   const grandTotal = round2(afterDiscount + platformFee);
+  const complimentaryWalkIn = cart.length === 1
+    && cart[0].quantity === 1
+    && planIsFreeWalkIn(cart[0].plan);
 
   // Plan principal (para validar el código y mostrar el nombre)
   const primaryPlan = cart.find((c) => planIsPackage(c.plan))?.plan ?? cart[0]?.plan ?? null;
@@ -450,6 +463,14 @@ const Checkout = () => {
       setOrderUuid(data.id);
       setOrderId(data.order_number ?? data.orderNumber ?? data.orderId ?? data.id);
       setBankDetails(data.bankDetails ?? data.bank_details);
+      if (data.complimentary === true) {
+        setComplimentaryDone(true);
+        qc.invalidateQueries({ queryKey: ["my-memberships"] });
+        qc.invalidateQueries({ queryKey: ["inscription-status"] });
+        setStep("done");
+        toast({ title: "Walk-in activado", description: "Ya tienes una clase disponible para reservar." });
+        return;
+      }
       if (paymentMethod === "card") {
         // Pago DENTRO de la app (Payment Brick), sin abrir navegador externo.
         navigate(`/app/pay/${data.id}`);
@@ -730,14 +751,18 @@ const Checkout = () => {
                     </div>
                   )}
                   <button
-                    onClick={() => setStep("method")}
-                    disabled={blockedClaseExtra || cart.length === 0}
+                    onClick={() => complimentaryWalkIn ? createOrderMutation.mutate() : setStep("method")}
+                    disabled={blockedClaseExtra || cart.length === 0 || createOrderMutation.isPending}
                     className={cn(
                       "w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-white bg-gradient-to-r from-[#8C6B6F] to-[#D9B5BA] transition-opacity",
-                      (blockedClaseExtra || cart.length === 0) ? "opacity-40 cursor-not-allowed" : "hover:opacity-90"
+                      (blockedClaseExtra || cart.length === 0 || createOrderMutation.isPending) ? "opacity-40 cursor-not-allowed" : "hover:opacity-90"
                     )}
                   >
-                    Seleccionar método de pago <ChevronRight size={15} />
+                    {createOrderMutation.isPending
+                      ? <><Loader2 className="animate-spin" size={15} /> Activando…</>
+                      : complimentaryWalkIn
+                        ? <><Check size={15} /> Registrar walk-in gratis</>
+                        : <>Seleccionar método de pago <ChevronRight size={15} /></>}
                   </button>
                 </div>
               )}
@@ -939,8 +964,14 @@ const Checkout = () => {
               <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#4ade80]/20 to-[#4ade80]/5 border border-[#4ade80]/30 flex items-center justify-center mx-auto">
                 <CheckCircle size={30} className="text-[#4ade80]" />
               </div>
-              <h2 className="text-xl font-bold text-[#1A1A1A]">¡Comprobante recibido!</h2>
-              <p className="text-sm text-[#1A1A1A]/45 max-w-xs mx-auto">Verificaremos tu pago en breve. Recibirás una notificación cuando tu membresía esté activa.</p>
+              <h2 className="text-xl font-bold text-[#1A1A1A]">
+                {complimentaryDone ? "¡Walk-in activado!" : "¡Comprobante recibido!"}
+              </h2>
+              <p className="text-sm text-[#1A1A1A]/45 max-w-xs mx-auto">
+                {complimentaryDone
+                  ? "Ya tienes una clase disponible para reservar. Este walk-in no sustituye ni elimina el pago de inscripción de un paquete futuro."
+                  : "Verificaremos tu pago en breve. Recibirás una notificación cuando tu membresía esté activa."}
+              </p>
               <button onClick={() => window.location.replace("/app")} className="mt-2 px-6 py-2.5 rounded-xl text-sm font-semibold border border-[#8C6B6F]/20 text-[#1A1A1A]/70 hover:text-[#1A1A1A] hover:border-[#8C6B6F]/30 transition-all">
                 Ir a mi panel
               </button>
