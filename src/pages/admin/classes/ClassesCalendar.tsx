@@ -775,7 +775,7 @@ function CalendarTab({
           ? Number(res?.data?.refundedCredits || 0) > 0
             ? `Se devolvieron ${res.data.refundedCredits} crédito${Number(res.data.refundedCredits) === 1 ? "" : "s"} de reservas existentes. Las alumnas conservaron su lugar.`
             : variables.requiresInscription === false
-              ? "La clase será completamente gratis: sin crédito y sin inscripción."
+              ? "La clase será walk-in gratis: sin crédito y sin inscripción."
               : "Las reservas no usarán créditos y exigirán inscripción pagada."
           : undefined,
       });
@@ -910,7 +910,7 @@ function CalendarTab({
               disabled={!selectedWalkInIds.size || markWalkInMutation.isPending}
               className="bg-[#B5832F] text-white hover:bg-[#9B6F26]"
               onClick={() => markWalkInMutation.mutate({ classIds: [...selectedWalkInIds], isWalkIn: true, requiresInscription: false })}
-            >Gratis sin inscripción</Button>
+            >Walk-in gratis · sin inscripción</Button>
             <Button
               size="sm"
               variant="outline"
@@ -1012,7 +1012,7 @@ function CalendarTab({
                         {(c.bookedCount ?? c.currentBookings ?? 0)}/{c.maxCapacity ?? c.capacity ?? "?"}
                       </span>
                     </div>
-                    {c.isWalkIn && <Badge className="mt-2 bg-[#F4EAD6] text-[#8A672C] hover:bg-[#F4EAD6]">{c.walkInRequiresInscription === false ? "Gratis · sin inscripción" : "Walk-in · sin crédito"}</Badge>}
+                    {c.isWalkIn && <Badge className="mt-2 bg-[#F4EAD6] text-[#8A672C] hover:bg-[#F4EAD6]">{c.walkInRequiresInscription === false ? "Walk-in gratis · sin inscripción" : "Walk-in · sin crédito"}</Badge>}
                   </button>
                 ))}
               </div>
@@ -1106,7 +1106,7 @@ function CalendarTab({
                           </div>
 
                           {c.isCancelled && <Badge variant="destructive" className="mt-3 rounded-full px-2 text-[0.6rem]">Cancelada</Badge>}
-                          {c.isWalkIn && <Badge className="mt-3 rounded-full bg-[#F4EAD6] px-2 text-[0.6rem] text-[#8A672C] hover:bg-[#F4EAD6]">{c.walkInRequiresInscription === false ? "Gratis · sin inscripción" : "Walk-in · sin crédito"}</Badge>}
+                          {c.isWalkIn && <Badge className="mt-3 rounded-full bg-[#F4EAD6] px-2 text-[0.6rem] text-[#8A672C] hover:bg-[#F4EAD6]">{c.walkInRequiresInscription === false ? "Walk-in gratis · sin inscripción" : "Walk-in · sin crédito"}</Badge>}
                         </button>
                       );
                     })}
@@ -1242,7 +1242,7 @@ function CalendarTab({
                       <Sparkles size={14} className="mr-2" />Walk-in con inscripción
                     </Button>
                     <Button onClick={() => markWalkInMutation.mutate({ classIds: [selectedClass.id], isWalkIn: true, requiresInscription: false })} disabled={markWalkInMutation.isPending || !selectedClass.branchId}>
-                      <Sparkles size={14} className="mr-2" />Gratis sin inscripción
+                      <Sparkles size={14} className="mr-2" />Walk-in gratis · sin inscripción
                     </Button>
                   </>
                 ) : (

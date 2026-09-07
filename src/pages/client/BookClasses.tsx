@@ -385,7 +385,7 @@ const BookClasses = () => {
 
                               {isWalkIn && (
                                 <span className="mt-1.5 inline-flex rounded-full bg-[#F4EAD6] px-2 py-0.5 text-[0.56rem] font-semibold uppercase tracking-[0.08em] text-[#8A672C] ring-1 ring-[#E5CF9F]">
-                                  {walkInRequiresInscription ? "Walk-in · sin crédito" : "Gratis · sin inscripción"}
+                                  {walkInRequiresInscription ? "Walk-in · sin crédito" : "Walk-in gratis · sin inscripción"}
                                 </span>
                               )}
 

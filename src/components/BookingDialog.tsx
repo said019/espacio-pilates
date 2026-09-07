@@ -148,7 +148,7 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
             <div className="rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[11px] text-[#B5832F] leading-relaxed">
               {classData.isWalkIn ? (
                 <>
-                  <p className="font-semibold mb-0.5">{classData.walkInRequiresInscription === false ? "Clase completamente gratis" : "Clase walk-in · no usa crédito"}</p>
+                  <p className="font-semibold mb-0.5">{classData.walkInRequiresInscription === false ? "Clase walk-in gratis" : "Clase walk-in · no usa crédito"}</p>
                   <p>{classData.walkInRequiresInscription === false
                     ? "No descuenta créditos ni requiere inscripción."
                     : <>Para reservar necesitas tener pagada tu inscripción de {classData.program ? programLabel(classData.program) : "la disciplina"} en {classData.branchName ?? "esta sucursal"}.</>}</p>
