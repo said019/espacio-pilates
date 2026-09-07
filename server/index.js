@@ -184,9 +184,17 @@ function normalizeBankInfo(rawValue) {
   };
 }
 
-async function getConfiguredBankInfo(dbClient = pool) {
+async function getConfiguredBankInfo(dbClient = pool, branchCode = "villa-magna") {
   // Use pool (not transaction client) to avoid aborting active transactions on error
   const safeClient = pool;
+  if (branchCode === "pozos") {
+    // An explicitly saved (even empty) Pozos account must never resolve to
+    // Villa Magna. Only an absent setting keeps the original shared account.
+    const scoped = await safeClient.query(
+      "SELECT value FROM settings WHERE key = $1 LIMIT 1", ["bank_info_pozos"]
+    );
+    if (scoped.rows.length) return normalizeBankInfo(scoped.rows[0].value);
+  }
   // Leer PRIMERO de `settings` (la tabla canónica que usa el admin para leer/guardar
   // en getSettingValueWithDefaults / PUT /api/settings). `system_settings` es legacy
   // y, si existe con un bank_info viejo/vacío, NO debe ensombrecer lo que el admin guardó.
@@ -5474,7 +5482,7 @@ async function createCartOrder(req, res, paymentMethod) {
       discount, inscription: inscriptionAmount, isCard: paymentMethod === "card",
     });
 
-    const bankInfo = await getConfiguredBankInfo(client);
+    const bankInfo = await getConfiguredBankInfo(client, requestedBranch.code);
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000);
     const initialStatus = paymentMethod === "cash" ? "pending_verification" : "pending_payment";
 
@@ -5699,7 +5707,7 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       platformFee = Math.round(total * PLATFORM_FEE_RATE * 100) / 100;
       total = total + platformFee;
     }
-    const bankInfo = await getConfiguredBankInfo(client);
+    const bankInfo = await getConfiguredBankInfo(client, requestedBranch.code);
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h
     // Cash orders skip proof upload → go straight to pending_verification so admin can approve
     const initialStatus = paymentMethod === "cash" ? "pending_verification" : "pending_payment";

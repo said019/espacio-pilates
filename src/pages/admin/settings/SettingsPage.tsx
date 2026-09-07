@@ -53,7 +53,7 @@ const SettingsSection = ({ settingKey, fields }: { settingKey: string; fields: {
   const [values, setValues] = useState<Record<string, any>>({});
   const [loaded, setLoaded] = useState(false);
 
-  const { data } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["settings", settingKey],
     queryFn: async () => (await api.get(`/settings/${settingKey}`)).data,
     staleTime: Infinity, // don't re-fetch unless explicitly invalidated
@@ -80,6 +80,8 @@ const SettingsSection = ({ settingKey, fields }: { settingKey: string; fields: {
 
   return (
     <div className="space-y-4 max-w-md">
+      {isLoading && <p className="text-sm text-muted-foreground">Cargando configuración…</p>}
+      {isError && <p role="alert" className="text-sm text-destructive">No se pudo cargar la configuración. Recarga la página antes de editar.</p>}
       {fields.map((f) => (
         <div key={f.key} className="space-y-1">
           <Label>{f.label}</Label>
@@ -91,7 +93,7 @@ const SettingsSection = ({ settingKey, fields }: { settingKey: string; fields: {
           }
         </div>
       ))}
-      <Button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending}>
+      <Button onClick={() => updateMutation.mutate()} disabled={updateMutation.isPending || isLoading || isError}>
         {updateMutation.isPending ? <Loader2 className="animate-spin mr-2" size={14} /> : null}
         Guardar cambios
       </Button>
@@ -926,11 +928,10 @@ const SettingsPage = () => (
           <TabsContent value="bank">
             <div className="space-y-4 max-w-md">
               <div className="rounded-lg border border-[#E5CF9F] bg-[#F4EAD6] px-4 py-3 text-xs text-[#B5832F]">
-                Estos datos aparecen al cliente en el flujo de checkout cuando elige
-                <strong> transferencia</strong>. Si quedan vacíos, el sistema mostrará
-                "El estudio aún no ha configurado datos bancarios" y el cliente no
-                podrá completar el pago por transferencia.
+                Cada compra muestra la cuenta de su sucursal. Los cambios aplican a
+                nuevas órdenes; las ya creadas conservan su cuenta original.
               </div>
+              <h3 className="font-semibold">Villa Magna</h3>
               <SettingsSection
                 settingKey="bank_info"
                 fields={[
@@ -941,6 +942,23 @@ const SettingsPage = () => (
                   { key: "card_number", label: "Tarjeta (opcional, 16 dígitos)" },
                 ]}
               />
+              <div className="border-t pt-6 space-y-4">
+                <h3 className="font-semibold">Pozos</h3>
+                <p className="text-sm text-muted-foreground">
+                  Configura aquí la cuenta exclusiva de Pozos. Si nunca has guardado
+                  una cuenta para Pozos, se usa la de Villa Magna. Al guardar aquí,
+                  ambas cuentas quedan independientes.
+                </p>
+                <SettingsSection
+                  settingKey="bank_info_pozos"
+                  fields={[
+                    { key: "bank", label: "Banco de Pozos" },
+                    { key: "account_holder", label: "Titular de la cuenta" },
+                    { key: "account_number", label: "Número de cuenta" },
+                    { key: "clabe", label: "CLABE interbancaria (18 dígitos)" },
+                  ]}
+                />
+              </div>
             </div>
           </TabsContent>
 
