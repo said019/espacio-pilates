@@ -4265,7 +4265,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
           message: "Esta clase walk-in no usa créditos, pero requiere tener la inscripción pagada en esta sucursal.",
         });
       }
-    } else {
+    } else if (!walkInClass) {
       membership = await selectMembershipForClass({
         userId: req.userId,
         branchId: cls.branch_id,
@@ -13380,7 +13380,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
           message: "La clienta necesita tener la inscripción pagada en esta sucursal para entrar a la clase walk-in.",
         });
       }
-    } else {
+    } else if (!walkInClass) {
       membership = await selectMembershipForClass({
         userId,
         branchId: cls.branch_id,
