@@ -1629,64 +1629,6 @@ async function ensureSchema() {
     } catch (e) {
       console.warn("[seed] TotalPass 154 failed:", e.message);
     }
-    // Complimentary walk-ins are intentionally admin-only. They reserve one
-    // seat and leave a $0 order for traceability, but never create a membership
-    // or enrollment, so a later package purchase still charges inscription.
-    try {
-      const walkInSeed = await pool.query(`
-        WITH desired(code, branch_code, program, class_category, name) AS (
-          VALUES
-            ('walkin-free-pilates',   'villa-magna', 'pilates',    'pilates',   'Walk-in Gratis · Pilates'),
-            ('walkin-free-pilates',   'pozos',       'pilates',    'pilates',   'Walk-in Gratis · Pilates'),
-            ('walkin-free-functional','pozos',       'functional', 'funcional', 'Walk-in Gratis · Funcional')
-        )
-        INSERT INTO plans
-          (branch_id, code, program, plan_kind, name, description, price, currency,
-           duration_days, class_limit, class_category, features, is_active,
-           sort_order, is_admin_only, is_non_transferable)
-        SELECT b.id, d.code, d.program, 'internal', d.name,
-               'Cortesía registrada como walk-in; no cubre ni elimina la inscripción.',
-               0, 'MXN', 1, 1, d.class_category,
-               '["Sin cobro","Solo administración","No cuenta como inscripción"]'::jsonb,
-               true, 998, true, true
-          FROM desired d
-          JOIN branches b ON b.code = d.branch_code
-         WHERE NOT EXISTS (
-           SELECT 1 FROM plans p WHERE p.branch_id = b.id AND p.code = d.code
-         )
-        RETURNING id
-      `);
-      const walkInEnsure = await pool.query(`
-        WITH desired(code, branch_code, program, class_category, name) AS (
-          VALUES
-            ('walkin-free-pilates',   'villa-magna', 'pilates',    'pilates',   'Walk-in Gratis · Pilates'),
-            ('walkin-free-pilates',   'pozos',       'pilates',    'pilates',   'Walk-in Gratis · Pilates'),
-            ('walkin-free-functional','pozos',       'functional', 'funcional', 'Walk-in Gratis · Funcional')
-        )
-        UPDATE plans p
-           SET plan_kind = 'internal',
-               name = d.name,
-               description = 'Cortesía registrada como walk-in; no cubre ni elimina la inscripción.',
-               program = d.program,
-               class_category = d.class_category,
-               price = 0,
-               discount_price = NULL,
-               duration_days = 1,
-               class_limit = 1,
-               features = '["Sin cobro","Solo administración","No cuenta como inscripción"]'::jsonb,
-               is_active = true,
-               is_admin_only = true,
-               is_non_transferable = true,
-               updated_at = NOW()
-          FROM desired d
-          JOIN branches b ON b.code = d.branch_code
-         WHERE p.branch_id = b.id AND p.code = d.code
-        RETURNING p.id
-      `);
-      console.log(`[seed] Walk-in Gratis — inserted=${walkInSeed.rowCount}, ensured=${walkInEnsure.rowCount}`);
-    } catch (e) {
-      console.warn("[seed] Walk-in Gratis failed:", e.message);
-    }
     // ── orders: one-time inscription (enrollment) fee charged with a package ──
     // Idempotent column. Defaults to 0 so existing/non-package orders are unaffected.
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS inscription_amount DECIMAL(10,2) DEFAULT 0`).catch(() => { });
