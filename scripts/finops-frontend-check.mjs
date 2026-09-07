@@ -26,7 +26,7 @@ function processTree(root){
 async function request(url,options={}){
  const r=await fetch(base+url,{...options,redirect:'manual',signal:AbortSignal.timeout(5000)});
  const b=Buffer.from(await r.arrayBuffer());
- return {url,status:r.status,hash:hash(b),bytes:b.length,headers:Object.fromEntries(['content-type','cache-control','etag','location','accept-ranges','content-range','content-encoding'].map(k=>[k,r.headers.get(k)]))};
+  return {url,method:options.method||'GET',status:r.status,hash:hash(b),bytes:b.length,headers:Object.fromEntries(['content-type','cache-control','etag','location','accept-ranges','content-range','content-encoding'].map(k=>[k,r.headers.get(k)]))};
 }
 async function measure(mode){
  const args=mode==='old'?['-c','exec npx serve -s dist -l "$PORT"']:['start.sh'];
@@ -53,7 +53,26 @@ async function measure(mode){
  }
 }
 const old=await measure('old');await delay(200);const next=await measure('new');
-assert.deepEqual(next.responses,old.responses);
+// ETag representations belong to each server; both must honor their own tag.
+for (const result of [old, next]) {
+  assert.ok(result.responses.find(r=>r.url===css).headers.etag);
+  assert.equal(result.responses.at(-1).status,304);
+  assert.equal(result.responses.at(-1).bytes,0);
+}
+function comparable(response) {
+  if (response.status===304) return {url:response.url,status:response.status,hash:response.hash,bytes:response.bytes};
+  const headers={...response.headers,etag:'validated-separately'};
+  // HEAD has no body: Caddy describes the compressed GET representation;
+  // serve omits that metadata. Status, empty body, MIME and cache stay checked.
+  if (response.method==='HEAD') {
+    assert.equal(response.status,200);
+    assert.equal(response.bytes,0);
+    headers['content-encoding']='bodyless-head-metadata';
+  }
+  if (/^(application|text)\/javascript/.test(headers['content-type']||'')) headers['content-type']='javascript';
+  return {...response,headers};
+}
+assert.deepEqual(next.responses.map(comparable),old.responses.map(comparable));
 assert.ok(next.rssMiB<old.rssMiB,'Measured process-tree memory improves');
 assert.equal(next.processes.length,1);
 const start=fs.readFileSync('start.sh','utf8');

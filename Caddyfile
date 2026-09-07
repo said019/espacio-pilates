@@ -1,0 +1,17 @@
+{
+	admin off
+	auto_https off
+	persist_config off
+}
+
+:{$PORT:3000} {
+	root * ./dist
+	header /site.webmanifest Content-Type "application/manifest+json"
+	redir /index.html /index 301
+	redir /index / 301
+	try_files {path} /index.html
+	encode gzip
+	file_server {
+		precompressed br gzip
+	}
+}
