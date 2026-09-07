@@ -15,4 +15,6 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
       - run: npm run build
+      - run: node scripts/prepare-static-runtime.mjs
+      - run: node scripts/test-caddy-static.mjs
       - run: node scripts/finops-frontend-check.mjs
