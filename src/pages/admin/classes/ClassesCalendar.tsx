@@ -759,7 +759,7 @@ function CalendarTab({
   const markWalkInMutation = useMutation({
     mutationFn: ({ classIds, isWalkIn }: { classIds: string[]; isWalkIn: boolean }) =>
       api.put("/admin/classes/walk-in", { classIds, isWalkIn, branchId: branchScope.branchId }),
-    onSuccess: (_res, variables) => {
+    onSuccess: (res: any, variables) => {
       qc.invalidateQueries({ queryKey: ["classes"] });
       setSelectedClass((current) => current && variables.classIds.includes(current.id)
         ? { ...current, isWalkIn: variables.isWalkIn }
@@ -769,7 +769,9 @@ function CalendarTab({
           ? (variables.isWalkIn ? "Clase marcada como walk-in" : "Walk-in retirado de la clase")
           : `${variables.classIds.length} clases actualizadas`,
         description: variables.isWalkIn
-          ? "Las reservas no usarán créditos y exigirán inscripción pagada."
+          ? Number(res?.data?.refundedCredits || 0) > 0
+            ? `Se devolvieron ${res.data.refundedCredits} crédito${Number(res.data.refundedCredits) === 1 ? "" : "s"} de reservas existentes. Las alumnas conservaron su lugar.`
+            : "Las reservas no usarán créditos y exigirán inscripción pagada."
           : undefined,
       });
       setSelectedWalkInIds(new Set());

@@ -24,9 +24,10 @@ describe("clases walk-in", () => {
     expect(shouldConsumeCredit({ walkIn: true, waitlist: true })).toBe(false);
   });
 
-  it("solo permite cambiar el modo sin reservas activas", () => {
-    expect(walkInStatusCanChange(0)).toBe(true);
-    expect(walkInStatusCanChange(1)).toBe(false);
+  it("permite convertir con reservas, pero no quitar walk-in mientras existan", () => {
+    expect(walkInStatusCanChange({ currentWalkIn: false, nextWalkIn: true, activeBookingCount: 2 })).toBe(true);
+    expect(walkInStatusCanChange({ currentWalkIn: true, nextWalkIn: false, activeBookingCount: 0 })).toBe(true);
+    expect(walkInStatusCanChange({ currentWalkIn: true, nextWalkIn: false, activeBookingCount: 1 })).toBe(false);
   });
 
   it("exige inscripción y no descuenta crédito en reservas walk-in", () => {
@@ -40,8 +41,10 @@ describe("clases walk-in", () => {
     expect(serverSource).toContain("clientHasPaidWalkInInscription(wl.user_id");
   });
 
-  it("impide cambiar el modo de clases que ya tienen reservas", () => {
+  it("reembolsa créditos existentes al convertir y protege el camino inverso", () => {
     expect(serverSource).toContain('app.put("/api/admin/classes/walk-in"');
     expect(serverSource).toContain("WALK_IN_HAS_BOOKINGS");
+    expect(serverSource).toContain("refunded_credits");
+    expect(serverSource).toContain("SET membership_id = NULL");
   });
 });

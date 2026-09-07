@@ -15681,9 +15681,11 @@ app.get("/api/admin/classes", adminMiddleware, async (req, res) => {
   }
 });
 
-// PUT /api/admin/classes/walk-in — mark one or many calendar classes. Changing
-// the mode after bookings exist would make previous credit movements ambiguous,
-// so it is deliberately blocked until those reservations are removed.
+// PUT /api/admin/classes/walk-in — mark one or many calendar classes. When a
+// normal class already has reservations, converting it to walk-in refunds the
+// credits and clears their membership link atomically without removing anyone.
+// Reverting a walk-in class with active bookings remains blocked: those clients
+// may not have a compatible package from which a credit can safely be charged.
 app.put("/api/admin/classes/walk-in", adminMiddleware, async (req, res) => {
   const classIds = Array.isArray(req.body?.classIds)
     ? [...new Set(req.body.classIds.map((id) => String(id || "").trim()).filter(Boolean))]
@@ -15701,7 +15703,7 @@ app.put("/api/admin/classes/walk-in", adminMiddleware, async (req, res) => {
       return res.status(404).json({ message: "Sucursal no encontrada" });
     }
     const selected = await client.query(
-      `SELECT c.id,
+      `SELECT c.id, c.is_walk_in,
               (SELECT COUNT(*)::int
                  FROM bookings b
                 WHERE b.class_id = c.id
@@ -15715,14 +15717,54 @@ app.put("/api/admin/classes/walk-in", adminMiddleware, async (req, res) => {
       await client.query("ROLLBACK");
       return res.status(404).json({ message: "Una o más clases no existen en la sucursal seleccionada." });
     }
-    const blocked = selected.rows.filter((row) => !walkInStatusCanChange(row.active_bookings));
+    const blocked = selected.rows.filter((row) => !walkInStatusCanChange({
+      currentWalkIn: row.is_walk_in,
+      nextWalkIn: nextValue,
+      activeBookingCount: row.active_bookings,
+    }));
     if (blocked.length) {
       await client.query("ROLLBACK");
       return res.status(409).json({
         code: "WALK_IN_HAS_BOOKINGS",
-        message: "No se puede cambiar el modo walk-in porque una o más clases ya tienen reservas o lista de espera.",
+        message: "No se puede quitar el modo walk-in mientras la clase tenga reservas o lista de espera.",
         blockedClassIds: blocked.map((row) => row.id),
       });
+    }
+    const convertingIds = nextValue
+      ? selected.rows.filter((row) => !isWalkInClass(row)).map((row) => row.id)
+      : [];
+    let refundedCredits = 0;
+    if (convertingIds.length) {
+      const refundResult = await client.query(
+        `WITH refunds AS (
+           SELECT membership_id, COUNT(*)::int AS credits
+             FROM bookings
+            WHERE class_id = ANY($1::uuid[])
+              AND status IN ('confirmed','checked_in')
+              AND membership_id IS NOT NULL
+            GROUP BY membership_id
+         ), updated_memberships AS (
+           UPDATE memberships m
+              SET classes_remaining = m.classes_remaining + refunds.credits,
+                  updated_at = NOW()
+             FROM refunds
+            WHERE m.id = refunds.membership_id
+              AND m.classes_remaining IS NOT NULL
+              AND m.classes_remaining < 9999
+           RETURNING refunds.credits AS refunded_credits
+         )
+         SELECT COALESCE(SUM(refunded_credits), 0)::int AS refunded_credits
+           FROM updated_memberships`,
+        [convertingIds],
+      );
+      refundedCredits = Number(refundResult.rows[0]?.refunded_credits || 0);
+      await client.query(
+        `UPDATE bookings
+            SET membership_id = NULL
+          WHERE class_id = ANY($1::uuid[])
+            AND status IN ('confirmed','checked_in','waitlist')`,
+        [convertingIds],
+      );
     }
     const updated = await client.query(
       `UPDATE classes
@@ -15732,7 +15774,11 @@ app.put("/api/admin/classes/walk-in", adminMiddleware, async (req, res) => {
       [nextValue, classIds, branch.id],
     );
     await client.query("COMMIT");
-    return res.json({ data: camelRows(updated.rows), updated: updated.rowCount });
+    return res.json({
+      data: camelRows(updated.rows),
+      updated: updated.rowCount,
+      refundedCredits,
+    });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("PUT /admin/classes/walk-in error:", err.message);

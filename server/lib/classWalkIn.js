@@ -13,7 +13,12 @@ export function shouldConsumeCredit({ walkIn, waitlist }) {
   return !booleanFlag(walkIn) && !booleanFlag(waitlist);
 }
 
-export function walkInStatusCanChange(activeBookingCount) {
+export function walkInStatusCanChange({ currentWalkIn, nextWalkIn, activeBookingCount }) {
+  if (booleanFlag(currentWalkIn) === booleanFlag(nextWalkIn)) return true;
+  // Converting a normal class to walk-in is safe when the server refunds the
+  // already-consumed credits atomically. Reverting to normal with reservations
+  // is blocked because those clients may no longer have a compatible package.
+  if (booleanFlag(nextWalkIn)) return true;
   const count = Number(activeBookingCount);
   return Number.isFinite(count) && count === 0;
 }
