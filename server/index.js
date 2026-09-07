@@ -33,6 +33,7 @@ import {
 } from "./lib/branchAccess.js";
 import { createPreference, createCardPayment, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
 import { computeCartTotals } from "./lib/cartPricing.js";
+import { isWalkInClass, shouldConsumeCredit, walkInStatusCanChange } from "./lib/classWalkIn.js";
 import {
   isPushConfigured,
   getVapidPublicKey,
@@ -61,7 +62,6 @@ import {
   effectiveWalkInAmount,
   isAdminOnlyPlan,
   isComplimentaryWalkInPlan,
-  isPublicComplimentaryWalkInPlan,
 } from "./lib/walkIn.js";
 import {
   sendMembershipActivated,
@@ -804,6 +804,14 @@ async function ensureSchema() {
       );
       await pool.query(membershipScopeSql);
       console.log("✅ Alcance de membresías por sucursal reforzado");
+    }
+    {
+      const classWalkInSql = fs.readFileSync(
+        path.join(__dirname, "../supabase/migrations/202609060001_class_walk_in.sql"),
+        "utf8",
+      );
+      await pool.query(classWalkInSql);
+      console.log("✅ Clases walk-in listas");
     }
     {
       const adminPaymentRegistrationSql = fs.readFileSync(
@@ -3190,6 +3198,39 @@ async function clientNeedsInscription(userId, { branchId = DEFAULT_BRANCH_ID, pr
   }
 }
 
+// Access gate for calendar classes marked as walk-in. Unlike the checkout
+// helper above, this fails closed: a database error must never grant free
+// access. Explicit enrollments are preferred; the membership branch preserves
+// compatibility for clients enrolled before the enrollments table existed.
+async function clientHasPaidWalkInInscription(userId, { branchId = DEFAULT_BRANCH_ID, program = "pilates", client = pool } = {}) {
+  if (!userId) return false;
+  try {
+    const normalizedProgram = enrollmentProgram(program);
+    const r = await client.query(
+      `SELECT 1
+         FROM enrollments e
+        WHERE e.user_id = $1 AND e.branch_id = $2 AND e.program = $3
+          AND e.paid_at IS NOT NULL
+          AND GREATEST(e.paid_at, e.last_activity_at) >= NOW() - INTERVAL '6 months'
+       UNION ALL
+       SELECT 1
+         FROM memberships m
+         JOIN plans p ON p.id = m.plan_id
+        WHERE m.user_id = $1 AND m.branch_id = $2
+          AND (CASE WHEN COALESCE(p.program, 'pilates') = 'prenatal' THEN 'pilates' ELSE COALESCE(p.program, 'pilates') END) = $3
+          AND COALESCE(p.plan_kind, 'single') NOT IN ('registration', 'internal')
+          AND m.end_date IS NOT NULL
+          AND m.end_date >= CURRENT_DATE - INTERVAL '6 months'
+        LIMIT 1`,
+      [userId, branchId, normalizedProgram],
+    );
+    return r.rows.length > 0;
+  } catch (err) {
+    console.error("[walk-in] inscripción query failed:", err?.message || err);
+    return false;
+  }
+}
+
 // Reads the active "Inscripción" plan price; falls back to 500 if unavailable.
 async function getInscriptionPrice({ branchId = DEFAULT_BRANCH_ID, program = "pilates", client = pool } = {}) {
   try {
@@ -4187,7 +4228,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
 
     // Lock class row to avoid overbooking in concurrent requests
     const classRes = await client.query(
-      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
+      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in,
               (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc,
               ct.category AS class_category
        FROM classes c
@@ -4207,60 +4248,77 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     }
 
     const clsCategory = normalizeClassCategory(cls.class_category, "all");
-    const membership = await selectMembershipForClass({
-      userId: req.userId,
-      branchId: cls.branch_id,
-      classCategory: clsCategory,
-      classDate: cls.date,
-      classStartTime: cls.start_time,
-      client,
-    });
-    if (!membership) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        message: `No tienes membresía activa con créditos para esta clase.`,
+    const walkInClass = isWalkInClass(cls);
+    let membership = null;
+    let lockedMembership = null;
+
+    if (walkInClass) {
+      const hasPaidInscription = await clientHasPaidWalkInInscription(req.userId, {
+        branchId: cls.branch_id,
+        program: programForClassCategory(clsCategory),
+        client,
       });
-    }
-
-    // Lock selected membership row to prevent double consumption
-    const lockedMembershipRes = await client.query(
-      "SELECT id, classes_remaining FROM memberships WHERE id = $1 FOR UPDATE",
-      [membership.id]
-    );
-    const lockedMembership = lockedMembershipRes.rows[0];
-    if (!lockedMembership) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({ message: "No se encontró una membresía válida para esta reserva." });
-    }
-
-    if (!membershipCanBookClass(membership, cls)) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        code: "MEMBERSHIP_CLASS_MISMATCH",
-        message: "Tu membresía no corresponde a la sucursal o programa de esta clase.",
+      if (!hasPaidInscription) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          code: "WALK_IN_REQUIRES_INSCRIPTION",
+          message: "Esta clase walk-in no usa créditos, pero requiere tener la inscripción pagada en esta sucursal.",
+        });
+      }
+    } else {
+      membership = await selectMembershipForClass({
+        userId: req.userId,
+        branchId: cls.branch_id,
+        classCategory: clsCategory,
+        classDate: cls.date,
+        classStartTime: cls.start_time,
+        client,
       });
-    }
+      if (!membership) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          message: "No tienes membresía activa con créditos para esta clase.",
+        });
+      }
 
-    // ── Clase Muestra: restrict to allowed day+time slots ──
-    if (isTrialPlan(membership) && !isClassAllowedForTrial(cls.date, cls.start_time)) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        message: "Tu Clase Muestra solo puede reservarse en los horarios disponibles: Lunes 8:20 AM / 7:20 PM, Martes 9:25 AM, Jueves 9:25 AM.",
-      });
-    }
+      // Lock selected membership row to prevent double consumption.
+      const lockedMembershipRes = await client.query(
+        "SELECT id, classes_remaining FROM memberships WHERE id = $1 FOR UPDATE",
+        [membership.id],
+      );
+      lockedMembership = lockedMembershipRes.rows[0] || null;
+      if (!lockedMembership) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ message: "No se encontró una membresía válida para esta reserva." });
+      }
 
-    // ── Generic time-window restriction (e.g. Morning Pass) ──
-    const timeCheck = checkPlanTimeRestriction(membership, cls.date, cls.start_time);
-    if (!timeCheck.allowed) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({ message: timeCheck.message });
-    }
+      if (!membershipCanBookClass(membership, cls)) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          code: "MEMBERSHIP_CLASS_MISMATCH",
+          message: "Tu membresía no corresponde a la sucursal o programa de esta clase.",
+        });
+      }
 
-    if (!isUnlimitedClasses(lockedMembership.classes_remaining) && Number(lockedMembership.classes_remaining) <= 0) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        message: "Ya no tienes clases disponibles en tu paquete. Renueva o adquiere un nuevo plan.",
-      });
+      if (isTrialPlan(membership) && !isClassAllowedForTrial(cls.date, cls.start_time)) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          message: "Tu Clase Muestra solo puede reservarse en los horarios disponibles: Lunes 8:20 AM / 7:20 PM, Martes 9:25 AM, Jueves 9:25 AM.",
+        });
+      }
+
+      const timeCheck = checkPlanTimeRestriction(membership, cls.date, cls.start_time);
+      if (!timeCheck.allowed) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ message: timeCheck.message });
+      }
+
+      if (!isUnlimitedClasses(lockedMembership.classes_remaining) && Number(lockedMembership.classes_remaining) <= 0) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          message: "Ya no tienes clases disponibles en tu paquete. Renueva o adquiere un nuevo plan.",
+        });
+      }
     }
 
     const dupRes = await client.query(
@@ -4295,7 +4353,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
     const result = await client.query(
       `INSERT INTO bookings (class_id, user_id, membership_id, status)
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [classId, req.userId, membership.id, status]
+      [classId, req.userId, membership?.id || null, status]
     );
 
     if (!isWaitlist) {
@@ -4303,7 +4361,7 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
         "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
         [classId]
       );
-      if (!isUnlimitedClasses(lockedMembership.classes_remaining)) {
+      if (shouldConsumeCredit({ walkIn: walkInClass, waitlist: isWaitlist }) && lockedMembership && !isUnlimitedClasses(lockedMembership.classes_remaining)) {
         await consumeMembershipCredit(client, membership.id, clsCategory);
       }
     }
@@ -4333,8 +4391,10 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
          WHERE c.id = $1`,
         [classId]
       );
-      const memAfter = await pool.query("SELECT classes_remaining FROM memberships WHERE id = $1", [membership.id]);
-      const classesLeft = memAfter.rows[0]?.classes_remaining ?? null;
+      const memAfter = membership
+        ? await pool.query("SELECT classes_remaining FROM memberships WHERE id = $1", [membership.id])
+        : null;
+      const classesLeft = memAfter?.rows[0]?.classes_remaining ?? null;
 
       if (userRes.rows[0] && classFullRes.rows[0]) {
         const u = userRes.rows[0];
@@ -4378,7 +4438,13 @@ app.post("/api/bookings", authMiddleware, async (req, res) => {
       ? `Añadido a la lista de espera${waitlistPosition ? ` · posición ${waitlistPosition}` : ""}`
       : "Reserva confirmada";
     triggerWalletPassSync(req.userId, isWaitlist ? "booking_waitlist_created" : "booking_created");
-    return res.status(201).json({ message: msg, booking: result.rows[0], waitlistPosition });
+    return res.status(201).json({
+      message: msg,
+      booking: result.rows[0],
+      waitlistPosition,
+      walkIn: walkInClass,
+      creditCharged: !walkInClass && !isWaitlist,
+    });
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) { }
     console.error("POST bookings error:", err);
@@ -4393,7 +4459,7 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
   try {
     // Load booking
     const r = await pool.query(
-      `SELECT b.*, c.date, c.start_time, ct.name AS class_type_name, br.name AS branch_name
+      `SELECT b.*, c.date, c.start_time, c.is_walk_in, ct.name AS class_type_name, br.name AS branch_name
        FROM bookings b
        JOIN classes c ON b.class_id = c.id
        JOIN class_types ct ON c.class_type_id = ct.id
@@ -4498,7 +4564,9 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
     }
 
     // Refund credit only when within the refund window (>= min_hours) AND the config flag allows it.
-    const shouldRefund = cancelCheck.refundCredit && (cancelConfig.refund_credit_on_cancel !== false);
+    const shouldRefund = Boolean(membership)
+      && cancelCheck.refundCredit
+      && (cancelConfig.refund_credit_on_cancel !== false);
 
     // Cancelar de forma IDEMPOTENTE: el UPDATE con guard `status='confirmed'`
     // serializa por el lock de fila; solo la petición que realmente transiciona
@@ -4573,7 +4641,9 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
             time: booking.start_time ? String(booking.start_time).slice(0, 5) : "",
             creditRestored: shouldRefund ? "Sí" : "No",
           },
-          fallbackMessage: shouldRefund
+          fallbackMessage: isWalkInClass(booking)
+            ? `Hola ${u.display_name || "Alumna"}, cancelaste tu reserva walk-in de ${booking.class_type_name || "tu clase"}. No se usó ningún crédito.`
+            : shouldRefund
             ? `Hola ${u.display_name || "Alumna"}, cancelaste tu reserva de ${booking.class_type_name || "tu clase"}. Tu crédito fue devuelto.`
             : `Hola ${u.display_name || "Alumna"}, cancelaste tu reserva de ${booking.class_type_name || "tu clase"}. La clase no fue devuelta.`,
         }).catch((e) => console.error("[WA] booking cancelled:", e.message));
@@ -4595,7 +4665,9 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
 
     triggerWalletPassSync(req.userId, "booking_cancelled");
     return res.json({
-      message: shouldRefund
+      message: isWalkInClass(booking)
+        ? "Reserva walk-in cancelada. No se descontó ni devolvió ningún crédito."
+        : shouldRefund
         ? "Reserva cancelada. Se devolvió el crédito a tu paquete."
         : "Reserva cancelada. La clase no fue devuelta al paquete.",
       creditRestored: shouldRefund,
@@ -4615,8 +4687,10 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
 
     // ── Load booking (must exist + belong to user) ────────────────────────────
     const r = await pool.query(
-      `SELECT b.id, b.class_id, b.user_id, b.membership_id, b.status
+      `SELECT b.id, b.class_id, b.user_id, b.membership_id, b.status,
+              COALESCE(c.is_walk_in, false) AS old_is_walk_in
          FROM bookings b
+         JOIN classes c ON c.id = b.class_id
         WHERE b.id = $1 AND b.user_id = $2`,
       [bookingId, req.userId]
     );
@@ -4691,7 +4765,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
 
       // Lock the target class row to avoid overbooking in concurrent requests
       const newClassRes = await client.query(
-        `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
+        `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in,
                 ct.category AS class_category,
                 (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
            FROM classes c
@@ -4717,10 +4791,36 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
         return res.status(400).json({ message: "No puedes reagendar a una clase que ya pasó." });
       }
 
+      const oldWalkIn = isWalkInClass({ is_walk_in: booking.old_is_walk_in });
+      const newWalkIn = isWalkInClass(newCls);
+      if (oldWalkIn !== newWalkIn) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          code: "WALK_IN_RESCHEDULE_MISMATCH",
+          message: "Una reserva walk-in solo puede reagendarse a otra clase walk-in; una reserva normal, a otra clase normal.",
+        });
+      }
+
+      if (newWalkIn) {
+        const targetCategory = normalizeClassCategory(newCls.class_category, "all");
+        const hasPaidInscription = await clientHasPaidWalkInInscription(req.userId, {
+          branchId: newCls.branch_id,
+          program: programForClassCategory(targetCategory),
+          client,
+        });
+        if (!hasPaidInscription) {
+          await client.query("ROLLBACK");
+          return res.status(403).json({
+            code: "WALK_IN_REQUIRES_INSCRIPTION",
+            message: "La clase walk-in requiere tener la inscripción pagada en esa sucursal.",
+          });
+        }
+      }
+
       // Reagendar must preserve the same access policy as a fresh booking.
       // Otherwise a Prenatal reservation could be moved into a Studio class
       // (or vice versa) without consuming a new credit.
-      if (booking.membership_id) {
+      if (!newWalkIn && booking.membership_id) {
         const accessRes = await client.query(
           `SELECT m.id, m.branch_id, COALESCE(p.class_category, 'all') AS class_category,
                   COALESCE(p.program, 'pilates') AS program,
@@ -4762,7 +4862,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
       }
 
       // ── Vigencia: la nueva clase debe caer dentro de la vigencia del paquete ──
-      if (booking.membership_id) {
+      if (!newWalkIn && booking.membership_id) {
         const vig = await client.query(
           "SELECT 1 FROM memberships WHERE id = $1 AND (end_date IS NULL OR end_date >= $2::date)",
           [booking.membership_id, newCls.date]
@@ -5281,15 +5381,6 @@ async function createCartOrder(req, res, paymentMethod) {
       return res.status(400).json({ code: "PLAN_BRANCH_MISMATCH", message: "El paquete no pertenece a la sucursal seleccionada." });
     }
     const scope = { branchId: requestedBranch.id, program: cartScope.program, client };
-    const complimentaryItems = loaded.filter(({ plan }) => isPublicComplimentaryWalkInPlan(plan));
-    if (complimentaryItems.length > 0 && (loaded.length !== 1 || complimentaryItems[0].quantity !== 1)) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        message: "El walk-in gratuito debe registrarse solo y una sola vez.",
-      });
-    }
-    const isComplimentaryOrder = complimentaryItems.length === 1;
-
     // Bloquear si ya hay una orden pendiente para alguno de los planes del carrito
     // (evita acumular órdenes pendientes duplicadas; espejo del camino de 1 plan).
     const planIds = loaded.map((l) => l.plan.id);
@@ -5385,13 +5476,10 @@ async function createCartOrder(req, res, paymentMethod) {
 
     const bankInfo = await getConfiguredBankInfo(client);
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000);
-    const initialStatus = isComplimentaryOrder
-      ? "approved"
-      : paymentMethod === "cash" ? "pending_verification" : "pending_payment";
-    const orderPaymentMethod = isComplimentaryOrder ? "transfer" : paymentMethod;
+    const initialStatus = paymentMethod === "cash" ? "pending_verification" : "pending_payment";
 
     const cols = ["user_id", "plan_id", "branch_id", "program", "status", "payment_method", "subtotal", "tax_amount", "total_amount", "bank_info", "expires_at"];
-    const vals = [req.userId, primary.id, requestedBranch.id, cartScope.program, initialStatus, orderPaymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
+    const vals = [req.userId, primary.id, requestedBranch.id, cartScope.program, initialStatus, paymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
     if (platformFee > 0) { cols.push("platform_fee"); vals.push(platformFee); }
     if (discount > 0 || appliedDiscountCode) {
       cols.push("discount_amount"); vals.push(discount);
@@ -5405,7 +5493,7 @@ async function createCartOrder(req, res, paymentMethod) {
       return `$${i + 1}`;
     }).join(", ");
     const orderRes = await client.query(`INSERT INTO orders (${cols.join(", ")}) VALUES (${placeholders}) RETURNING *`, vals);
-    let order = orderRes.rows[0];
+    const order = orderRes.rows[0];
 
     // Renglones del carrito (la aprobación crea 1 membresía por unidad de cada renglón)
     for (const { plan, quantity, unit, lineTotal } of lineRows) {
@@ -5415,26 +5503,9 @@ async function createCartOrder(req, res, paymentMethod) {
       );
     }
 
-    // A public $0 walk-in is activated immediately: there is no payment or
-    // proof to verify. It creates one usable class credit, while plan_kind
-    // "internal" keeps it out of the paid-enrollment/inscription history.
-    if (isComplimentaryOrder) {
-      const approved = await client.query(
-        `UPDATE orders
-            SET approved_at = COALESCE(approved_at, NOW()),
-                paid_at = COALESCE(paid_at, NOW()),
-                notes = COALESCE(notes, '') || ' [walk-in gratuito autoconfirmado]'
-          WHERE id = $1
-        RETURNING *`,
-        [order.id],
-      );
-      order = approved.rows[0];
-      await createMembershipsForOrder(order, client, orderPaymentMethod);
-    }
-
     await client.query("COMMIT");
 
-    if (paymentMethod === "cash" && !isComplimentaryOrder) {
+    if (paymentMethod === "cash") {
       pool.query("SELECT display_name FROM users WHERE id = $1", [req.userId])
         .then((r) => sendPushToAdmins({
           ...buildAdminPendingMessage({ clientName: r.rows[0]?.display_name || "Alumna", reason: "cash" }),
@@ -5446,7 +5517,7 @@ async function createCartOrder(req, res, paymentMethod) {
 
     // Tarjeta: preferencia de MP (por compatibilidad) — el Brick usa total_amount
     let mp_checkout_url = null;
-    if (paymentMethod === "card" && !isComplimentaryOrder) {
+    if (paymentMethod === "card") {
       try {
         const u = await pool.query("SELECT email FROM users WHERE id = $1", [req.userId]);
         const planName = lineRows.length > 1 ? `${primary.name} y ${lineRows.length - 1} más` : primary.name;
@@ -5466,7 +5537,6 @@ async function createCartOrder(req, res, paymentMethod) {
         items: itemsOut,
         mp_checkout_url,
         inscriptionAmount,
-        complimentary: isComplimentaryOrder,
         bank_details: { ...bankInfo, amount: total, currency: "MXN" },
       },
     });
@@ -5506,7 +5576,6 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       return res.status(404).json({ message: "Plan no encontrado" });
     }
     const plan = planRes.rows[0];
-    const isComplimentaryOrder = isPublicComplimentaryWalkInPlan(plan);
     if (String(plan.branch_id) !== String(requestedBranch.id)) {
       await client.query("ROLLBACK");
       return res.status(400).json({ code: "PLAN_BRANCH_MISMATCH", message: "El paquete no pertenece a la sucursal seleccionada." });
@@ -5626,20 +5695,17 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
     // El cliente paga la comisión del procesador. Transferencia/efectivo NO lo llevan.
     const PLATFORM_FEE_RATE = 0.04;
     let platformFee = 0;
-    if (paymentMethod === "card" && !isComplimentaryOrder) {
+    if (paymentMethod === "card") {
       platformFee = Math.round(total * PLATFORM_FEE_RATE * 100) / 100;
       total = total + platformFee;
     }
     const bankInfo = await getConfiguredBankInfo(client);
     const expires = new Date(Date.now() + 48 * 60 * 60 * 1000); // 48h
     // Cash orders skip proof upload → go straight to pending_verification so admin can approve
-    const initialStatus = isComplimentaryOrder
-      ? "approved"
-      : paymentMethod === "cash" ? "pending_verification" : "pending_payment";
-    const orderPaymentMethod = isComplimentaryOrder ? "transfer" : paymentMethod;
+    const initialStatus = paymentMethod === "cash" ? "pending_verification" : "pending_payment";
     // Build INSERT dynamically — complement_id column may not exist yet
     const cols = ["user_id", "plan_id", "branch_id", "program", "status", "payment_method", "subtotal", "tax_amount", "total_amount", "bank_info", "expires_at"];
-    const vals = [req.userId, planId, requestedBranch.id, program, initialStatus, orderPaymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
+    const vals = [req.userId, planId, requestedBranch.id, program, initialStatus, paymentMethod, subtotal, 0, total, JSON.stringify(bankInfo), expires];
     if (platformFee > 0) {
       cols.push("platform_fee");
       vals.push(platformFee);
@@ -5678,24 +5744,11 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
       throw insertErr;
     }
 
-    let order = orderRes.rows[0];
-    if (isComplimentaryOrder) {
-      const approved = await client.query(
-        `UPDATE orders
-            SET approved_at = COALESCE(approved_at, NOW()),
-                paid_at = COALESCE(paid_at, NOW()),
-                notes = COALESCE(notes, '') || ' [walk-in gratuito autoconfirmado]'
-          WHERE id = $1
-        RETURNING *`,
-        [order.id],
-      );
-      order = approved.rows[0];
-      await createMembershipsForOrder(order, client, orderPaymentMethod);
-    }
-
     await client.query("COMMIT");
 
-    if (paymentMethod === "cash" && !isComplimentaryOrder) {
+    const order = orderRes.rows[0];
+
+    if (paymentMethod === "cash") {
       pool.query("SELECT display_name FROM users WHERE id = $1", [req.userId])
         .then((r) => sendPushToAdmins({
           ...buildAdminPendingMessage({ clientName: r.rows[0]?.display_name || "Alumna", reason: "cash" }),
@@ -5707,7 +5760,7 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
 
     // ── Tarjeta: generar checkout de MercadoPago (fuera de la transacción) ──
     let mp_checkout_url = null;
-    if (paymentMethod === "card" && !isComplimentaryOrder) {
+    if (paymentMethod === "card") {
       try {
         const u = await pool.query("SELECT email FROM users WHERE id = $1", [req.userId]);
         const pref = await createPreference({
@@ -5738,7 +5791,6 @@ app.post("/api/orders", authMiddleware, async (req, res) => {
         plan_name: plan.name,
         mp_checkout_url,
         inscriptionAmount,
-        complimentary: isComplimentaryOrder,
         bank_details: { ...bankInfo, amount: total, currency: "MXN" },
       }
     });
@@ -9588,9 +9640,9 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
   const kindRaw = req.body.planKind ?? req.body.plan_kind;
   const planKindValue = kindRaw ? normalizePlanKind(kindRaw) : null;
   const explicitAdminOnly = req.body.isAdminOnly ?? req.body.is_admin_only;
-  const adminOnlyValue = explicitAdminOnly === undefined
-    ? null
-    : isAdminOnlyPlan(planKindValue, parseBooleanFlag(explicitAdminOnly));
+  const adminOnlyValue = planKindValue === "internal"
+    ? true
+    : explicitAdminOnly === undefined ? null : parseBooleanFlag(explicitAdminOnly);
 
   // Transacción: el UPDATE del plan y la cascada de end_date deben ser atómicos
   // para evitar estado inconsistente (plan con duración nueva pero memberships
@@ -9618,7 +9670,7 @@ app.put("/api/admin/plans/:id", adminMiddleware, async (req, res) => {
          code                = COALESCE($17, code),
          program             = COALESCE($18, program),
          plan_kind           = COALESCE($19, plan_kind),
-         is_admin_only       = COALESCE($21, is_admin_only),
+         is_admin_only       = CASE WHEN COALESCE($19,plan_kind)='internal' THEN true ELSE COALESCE($21,is_admin_only) END,
          updated_at    = NOW()
        WHERE id = $20 RETURNING *`,
       [name || null, description || null, price ?? null, currency || null,
@@ -9945,7 +9997,7 @@ app.delete("/api/class-types/:id", adminMiddleware, async (req, res) => {
 // POST /api/classes — admin creates a class (alias)
 app.post("/api/classes", adminMiddleware, async (req, res) => {
   try {
-    const { classTypeId, instructorId, startTime, endTime, maxCapacity, capacity, notes } = req.body;
+    const { classTypeId, instructorId, startTime, endTime, maxCapacity, capacity, notes, isWalkIn } = req.body;
     if (!classTypeId) return res.status(400).json({ message: "classTypeId requerido" });
     if (!instructorId) return res.status(400).json({ message: "instructorId requerido" });
     const branch = await resolveRequestBranch(req);
@@ -9973,9 +10025,9 @@ app.post("/api/classes", adminMiddleware, async (req, res) => {
     }
     const cap = maxCapacity ?? capacity ?? 10;
     const r = await pool.query(
-      `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled') RETURNING *`,
-      [branch.id, classTypeId, instructorId, dateStr, startTimeStr, endTimeStr, cap, notes || null]
+      `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status, is_walk_in)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled',$9) RETURNING *`,
+      [branch.id, classTypeId, instructorId, dateStr, startTimeStr, endTimeStr, cap, notes || null, parseBooleanFlag(isWalkIn)]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {
@@ -11169,7 +11221,7 @@ async function promoteWaitlist(classId) {
     await client.query("BEGIN");
     // (1) Lock the class row; read capacity, status, category and start time.
     const clsRes = await client.query(
-      `SELECT c.id, c.branch_id, c.date, c.start_time,
+      `SELECT c.id, c.branch_id, c.date, c.start_time, c.is_walk_in,
               c.current_bookings, c.max_capacity, c.status,
               ct.category AS class_category,
               (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
@@ -11197,6 +11249,18 @@ async function promoteWaitlist(classId) {
     );
     let promoted = null;
     for (const wl of wlRes.rows) {
+      if (isWalkInClass(cls)) {
+        const eligible = await clientHasPaidWalkInInscription(wl.user_id, {
+          branchId: cls.branch_id,
+          program: programForClassCategory(classCategory),
+          client,
+        });
+        if (!eligible) continue;
+        await client.query("UPDATE bookings SET status = 'confirmed', membership_id = NULL WHERE id = $1", [wl.id]);
+        await client.query("UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1", [classId]);
+        promoted = { bookingId: wl.id, userId: wl.user_id };
+        break;
+      }
       // Revalidar toda la membresía justo antes de promover. Pudo vencer,
       // cancelarse o cambiar de plan/sucursal mientras esperaba.
       if (!wl.membership_id) continue;
@@ -13032,9 +13096,9 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
     const kindRaw = req.body.planKind ?? req.body.plan_kind;
     const planKindValue = kindRaw ? normalizePlanKind(kindRaw) : null;
     const explicitAdminOnly = req.body.isAdminOnly ?? req.body.is_admin_only;
-    const adminOnlyValue = explicitAdminOnly === undefined
-      ? null
-      : isAdminOnlyPlan(planKindValue, parseBooleanFlag(explicitAdminOnly));
+    const adminOnlyValue = planKindValue === "internal"
+      ? true
+      : explicitAdminOnly === undefined ? null : parseBooleanFlag(explicitAdminOnly);
     const r = await pool.query(
       `UPDATE plans SET name=$1, description=$2, price=$3, currency=$4, duration_days=$5,
        class_limit=$6, features=$7, is_active=$8, sort_order=$9,
@@ -13043,7 +13107,7 @@ app.put("/api/plans/:id", adminMiddleware, async (req, res) => {
        discount_price=$15,
        time_restriction = CASE WHEN $17::boolean THEN $16::jsonb ELSE time_restriction END,
        code=COALESCE($18,code), program=COALESCE($19,program), plan_kind=COALESCE($20,plan_kind),
-       is_admin_only=COALESCE($21,is_admin_only),
+       is_admin_only=CASE WHEN COALESCE($20,plan_kind)='internal' THEN true ELSE COALESCE($21,is_admin_only) END,
        updated_at=NOW()
        WHERE id=$14 RETURNING *`,
       [
@@ -13279,7 +13343,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     // time-windowed plans get blocked with their custom error message even when
     // the class is actually within the allowed window.
     const classRes = await client.query(
-      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time,
+      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in,
               ct.category AS class_category
        FROM classes c
        JOIN class_types ct ON c.class_type_id = ct.id
@@ -13298,35 +13362,53 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     }
 
     const clsCategory = normalizeClassCategory(cls.class_category, "all");
-    const membership = await selectMembershipForClass({
-      userId,
-      branchId: cls.branch_id,
-      classCategory: clsCategory,
-      classDate: cls.date,
-      classStartTime: cls.start_time,
-      client,
-    });
-    if (!membership) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({ message: "La clienta no tiene membresía activa con créditos para esta clase" });
-    }
-
-    const lockedMembershipRes = await client.query(
-      "SELECT id, classes_remaining FROM memberships WHERE id = $1 FOR UPDATE",
-      [membership.id]
-    );
-    const lockedMembership = lockedMembershipRes.rows[0];
-    if (!lockedMembership) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({ message: "No se encontró una membresía válida para esta clase" });
-    }
-
-    if (!membershipCanBookClass(membership, cls)) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        code: "MEMBERSHIP_CLASS_MISMATCH",
-        message: "La membresía de la clienta no corresponde a la sucursal o programa de esta clase.",
+    const walkInClass = isWalkInClass(cls);
+    let membership = null;
+    let lockedMembership = null;
+    if (walkInClass) {
+      const hasPaidInscription = await clientHasPaidWalkInInscription(userId, {
+        branchId: cls.branch_id,
+        program: programForClassCategory(clsCategory),
+        client,
       });
+      if (!hasPaidInscription) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          code: "WALK_IN_REQUIRES_INSCRIPTION",
+          message: "La clienta necesita tener la inscripción pagada en esta sucursal para entrar a la clase walk-in.",
+        });
+      }
+    } else {
+      membership = await selectMembershipForClass({
+        userId,
+        branchId: cls.branch_id,
+        classCategory: clsCategory,
+        classDate: cls.date,
+        classStartTime: cls.start_time,
+        client,
+      });
+      if (!membership) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ message: "La clienta no tiene membresía activa con créditos para esta clase" });
+      }
+
+      const lockedMembershipRes = await client.query(
+        "SELECT id, classes_remaining FROM memberships WHERE id = $1 FOR UPDATE",
+        [membership.id],
+      );
+      lockedMembership = lockedMembershipRes.rows[0] || null;
+      if (!lockedMembership) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ message: "No se encontró una membresía válida para esta clase" });
+      }
+
+      if (!membershipCanBookClass(membership, cls)) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          code: "MEMBERSHIP_CLASS_MISMATCH",
+          message: "La membresía de la clienta no corresponde a la sucursal o programa de esta clase.",
+        });
+      }
     }
 
     // Admin assigns bypass trial-slot and time-window restrictions.
@@ -13335,7 +13417,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     // confusing "Error interno" if checkPlanTimeRestriction throws on
     // an edge-case membership. Self-service (/api/bookings) still enforces.
 
-    if (!isUnlimitedClasses(lockedMembership.classes_remaining) && Number(lockedMembership.classes_remaining) <= 0) {
+    if (!walkInClass && lockedMembership && !isUnlimitedClasses(lockedMembership.classes_remaining) && Number(lockedMembership.classes_remaining) <= 0) {
       await client.query("ROLLBACK");
       return res.status(403).json({
         message: "La clienta ya no tiene clases disponibles en su membresía.",
@@ -13356,7 +13438,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
     const result = await client.query(
       `INSERT INTO bookings (class_id, user_id, membership_id, status)
        VALUES ($1, $2, $3, $4) RETURNING *`,
-      [classId, userId, membership.id, bookingStatus]
+      [classId, userId, membership?.id || null, bookingStatus]
     );
 
     if (!isWaitlist) {
@@ -13364,7 +13446,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
         "UPDATE classes SET current_bookings = current_bookings + 1 WHERE id = $1",
         [classId]
       );
-      if (!isUnlimitedClasses(lockedMembership.classes_remaining)) {
+      if (shouldConsumeCredit({ walkIn: walkInClass, waitlist: isWaitlist }) && lockedMembership && !isUnlimitedClasses(lockedMembership.classes_remaining)) {
         await consumeMembershipCredit(client, membership.id, clsCategory);
       }
     }
@@ -13382,8 +13464,10 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
          WHERE c.id = $1`,
         [classId]
       );
-      const memAfter = await pool.query("SELECT classes_remaining FROM memberships WHERE id = $1", [membership.id]);
-      const classesLeft = memAfter.rows[0]?.classes_remaining ?? null;
+      const memAfter = membership
+        ? await pool.query("SELECT classes_remaining FROM memberships WHERE id = $1", [membership.id])
+        : null;
+      const classesLeft = memAfter?.rows[0]?.classes_remaining ?? null;
 
       if (userRes.rows[0] && classFullRes.rows[0]) {
         const u = userRes.rows[0];
@@ -13513,7 +13597,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
     // Candidatos: match por class_type + hora + día de semana, restringido a las fechas seleccionadas.
     // Incluye FOR UPDATE para bloquear current_bookings mientras insertamos.
     const candidatesRes = await client.query(
-      `SELECT c.id, c.date, c.start_time, c.current_bookings, c.max_capacity, c.status
+      `SELECT c.id, c.date, c.start_time, c.current_bookings, c.max_capacity, c.status, c.is_walk_in
          FROM classes c
         WHERE c.class_type_id = $1
           AND c.branch_id = $5
@@ -13575,12 +13659,27 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
 
     // Selección de membresía: usa la mejor compatible con la categoría.
     // Si classes_remaining es NULL/ilimitada, toma esa. Si no, debe tener >= bookable.length.
-    const needed = bookable.length;
+    const walkInBookable = bookable.filter((item) => isWalkInClass(item));
+    const needed = bookable.length - walkInBookable.length;
+    if (walkInBookable.length) {
+      const hasPaidInscription = await clientHasPaidWalkInInscription(userId, {
+        branchId: slot.branch_id,
+        program: clsProgram,
+        client,
+      });
+      if (!hasPaidInscription) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({
+          code: "WALK_IN_REQUIRES_INSCRIPTION",
+          message: "La clienta necesita tener la inscripción pagada en esta sucursal para reservar las clases walk-in.",
+        });
+      }
+    }
     const compatibleCategories = compatibleMembershipCategoriesForClass(clsCategory);
     const scopedDates = bookable.map((item) => toDbDateString(new Date(item.date))).sort();
     const firstScopedDate = scopedDates[0];
     const lastScopedDate = scopedDates[scopedDates.length - 1];
-    const memRes = await client.query(
+    const memRes = needed > 0 ? await client.query(
       `SELECT m.id, m.user_id, m.branch_id, m.status, m.classes_remaining,
               m.start_date, m.end_date,
               COALESCE(p.class_category, 'all') AS class_category,
@@ -13613,8 +13712,8 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
         userId, clsCategory, needed, compatibleCategories, slot.branch_id,
         clsProgram, firstScopedDate, lastScopedDate,
       ]
-    );
-    const membership = memRes.rows[0];
+    ) : { rows: [] };
+    const membership = memRes.rows[0] || null;
     if (membership && !membershipCanBookClass(membership, {
       branch_id: slot.branch_id,
       program: clsProgram,
@@ -13633,6 +13732,10 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
     if (membership?.time_restriction) {
       const stillBookable = [];
       for (const cls of bookable) {
+        if (isWalkInClass(cls)) {
+          stillBookable.push(cls);
+          continue;
+        }
         const tc = checkPlanTimeRestriction(membership, cls.date, cls.start_time);
         if (tc.allowed) stillBookable.push(cls);
         else outOfWindow.push({ classId: cls.id, date: toDbDateString(new Date(cls.date)), reason: tc.message });
@@ -13640,7 +13743,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
       bookable.length = 0;
       bookable.push(...stillBookable);
     }
-    if (!membership) {
+    if (needed > 0 && !membership) {
       await client.query("ROLLBACK");
       return res.status(403).json({
         message: `Se necesitan ${needed} créditos; la clienta no tiene una membresía activa con ese saldo para esta categoría de clase.`,
@@ -13648,7 +13751,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
       });
     }
 
-    const unlimited = isUnlimitedClasses(membership.classes_remaining);
+    const unlimited = !membership || isUnlimitedClasses(membership.classes_remaining);
 
     // Transacción: insertar bookings + sumar current_bookings + restar créditos.
     const createdBookings = [];
@@ -13656,7 +13759,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
       const ins = await client.query(
         `INSERT INTO bookings (class_id, user_id, membership_id, status)
          VALUES ($1, $2, $3, 'confirmed') RETURNING id`,
-        [cls.id, userId, membership.id]
+        [cls.id, userId, isWalkInClass(cls) ? null : membership.id]
       );
       createdBookings.push({ bookingId: ins.rows[0].id, classId: cls.id, date: toDbDateString(new Date(cls.date)) });
       await client.query(
@@ -13665,13 +13768,17 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
       );
     }
 
-    if (!unlimited) {
+    const creditsUsed = createdBookings.filter((booking) => {
+      const cls = bookable.find((item) => item.id === booking.classId);
+      return cls && !isWalkInClass(cls);
+    }).length;
+    if (!unlimited && creditsUsed > 0) {
       await client.query(
         `UPDATE memberships
             SET classes_remaining = GREATEST(classes_remaining - $1, 0),
                 updated_at = NOW()
           WHERE id = $2`,
-        [createdBookings.length, membership.id]
+        [creditsUsed, membership.id]
       );
     }
 
@@ -13684,8 +13791,9 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => 
       data: {
         booked: createdBookings.length,
         bookings: createdBookings,
-        membershipId: membership.id,
-        creditsRemaining: unlimited ? null : Math.max(0, (membership.classes_remaining ?? 0) - createdBookings.length),
+        membershipId: membership?.id ?? null,
+        creditsRemaining: unlimited ? null : Math.max(0, (membership.classes_remaining ?? 0) - creditsUsed),
+        walkInBooked: createdBookings.length - creditsUsed,
         skipped: {
           missingDates,
           full,
@@ -13764,7 +13872,7 @@ app.put("/api/admin/bookings/:id/cancel", adminMiddleware, async (req, res) => {
   try {
     await client.query("BEGIN");
     const booking = await client.query(
-      `SELECT b.*, c.date, c.start_time,
+      `SELECT b.*, c.date, c.start_time, c.is_walk_in,
               (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
          FROM bookings b
          JOIN classes c ON b.class_id = c.id
@@ -13824,7 +13932,7 @@ app.put("/api/admin/bookings/:id/cancel", adminMiddleware, async (req, res) => {
     const minMinutes = (Number(cancelConfig.min_hours) || 0) * 60;
     const isLate = minMinutes > 0 && minutesUntilClass < minMinutes;
     const refundConfigured = cancelConfig.refund_credit_on_cancel !== false;
-    const shouldRefund = refundConfigured && !isLate;
+    const shouldRefund = Boolean(membership) && refundConfigured && !isLate;
 
     await client.query(
       "UPDATE bookings SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = 'admin' WHERE id = $1",
@@ -13878,7 +13986,9 @@ app.put("/api/admin/bookings/:id/cancel", adminMiddleware, async (req, res) => {
         notifyWaitlistPromotion(promotedUserId, b.class_id).catch(() => {});
       }
     }
-    const msg = shouldRefund
+    const msg = isWalkInClass(b)
+      ? "Reserva walk-in cancelada. No se descontó ni devolvió ningún crédito."
+      : shouldRefund
       ? "Reserva cancelada y crédito devuelto."
       : (isLate
           ? "Reserva cancelada. Crédito no devuelto: la cancelación quedó fuera de la ventana de anticipación."
@@ -15571,10 +15681,71 @@ app.get("/api/admin/classes", adminMiddleware, async (req, res) => {
   }
 });
 
+// PUT /api/admin/classes/walk-in — mark one or many calendar classes. Changing
+// the mode after bookings exist would make previous credit movements ambiguous,
+// so it is deliberately blocked until those reservations are removed.
+app.put("/api/admin/classes/walk-in", adminMiddleware, async (req, res) => {
+  const classIds = Array.isArray(req.body?.classIds)
+    ? [...new Set(req.body.classIds.map((id) => String(id || "").trim()).filter(Boolean))]
+    : [];
+  const nextValue = parseBooleanFlag(req.body?.isWalkIn ?? req.body?.is_walk_in);
+  if (!classIds.length || classIds.length > 200) {
+    return res.status(400).json({ message: "Selecciona entre 1 y 200 clases." });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const branch = await resolveRequestBranch(req, client);
+    if (!branch) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Sucursal no encontrada" });
+    }
+    const selected = await client.query(
+      `SELECT c.id,
+              (SELECT COUNT(*)::int
+                 FROM bookings b
+                WHERE b.class_id = c.id
+                  AND b.status IN ('confirmed','checked_in','waitlist')) AS active_bookings
+         FROM classes c
+        WHERE c.id = ANY($1::uuid[]) AND c.branch_id = $2
+        FOR UPDATE`,
+      [classIds, branch.id],
+    );
+    if (selected.rows.length !== classIds.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Una o más clases no existen en la sucursal seleccionada." });
+    }
+    const blocked = selected.rows.filter((row) => !walkInStatusCanChange(row.active_bookings));
+    if (blocked.length) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        code: "WALK_IN_HAS_BOOKINGS",
+        message: "No se puede cambiar el modo walk-in porque una o más clases ya tienen reservas o lista de espera.",
+        blockedClassIds: blocked.map((row) => row.id),
+      });
+    }
+    const updated = await client.query(
+      `UPDATE classes
+          SET is_walk_in = $1, updated_at = NOW()
+        WHERE id = ANY($2::uuid[]) AND branch_id = $3
+      RETURNING id, is_walk_in`,
+      [nextValue, classIds, branch.id],
+    );
+    await client.query("COMMIT");
+    return res.json({ data: camelRows(updated.rows), updated: updated.rowCount });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("PUT /admin/classes/walk-in error:", err.message);
+    return res.status(500).json({ message: "No se pudo actualizar el modo walk-in." });
+  } finally {
+    client.release();
+  }
+});
+
 // POST /api/admin/classes — create a class
 app.post("/api/admin/classes", adminMiddleware, async (req, res) => {
   try {
-    const { classTypeId, instructorId, startTime, endTime, capacity = 10, maxCapacity, notes } = req.body;
+    const { classTypeId, instructorId, startTime, endTime, capacity = 10, maxCapacity, notes, isWalkIn } = req.body;
     if (!classTypeId || !startTime) return res.status(400).json({ message: "classTypeId y startTime requeridos" });
     const branch = await resolveRequestBranch(req);
     if (!branch) return res.status(404).json({ message: "Sucursal no encontrada" });
@@ -15585,9 +15756,9 @@ app.post("/api/admin/classes", adminMiddleware, async (req, res) => {
     const endTimeStr = endTime ? new Date(endTime).toISOString().slice(11, 19) : null;
     const cap = Number(maxCapacity ?? capacity);
     const r = await pool.query(
-      `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled') RETURNING *`,
-      [branch.id, classTypeId, instructorId || null, dateStr, startTimeStr, endTimeStr, cap, notes || null]
+      `INSERT INTO classes (branch_id, class_type_id, instructor_id, date, start_time, end_time, max_capacity, notes, status, is_walk_in)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled',$9) RETURNING *`,
+      [branch.id, classTypeId, instructorId || null, dateStr, startTimeStr, endTimeStr, cap, notes || null, parseBooleanFlag(isWalkIn)]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {
@@ -15604,7 +15775,8 @@ app.put("/api/admin/classes/:id", adminMiddleware, async (req, res) => {
     const r = await pool.query(
       `UPDATE classes SET class_type_id=COALESCE($1,class_type_id), instructor_id=COALESCE($2,instructor_id),
        start_time=COALESCE($3,start_time), end_time=COALESCE($4,end_time),
-       max_capacity=COALESCE($5,max_capacity), status=COALESCE($6,status), notes=COALESCE($7,notes), updated_at=NOW()
+       max_capacity=COALESCE($5,max_capacity), status=COALESCE($6,status), notes=COALESCE($7,notes),
+       updated_at=NOW()
        WHERE id=$8 RETURNING *`,
       [classTypeId || null, instructorId || null, startTime || null, endTime || null, cap || null, status || null, notes || null, req.params.id]
     );

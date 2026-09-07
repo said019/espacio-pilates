@@ -65,6 +65,7 @@ interface ClassInstance {
   notes?: string;
   branchId?: string;
   branchName?: string;
+  isWalkIn?: boolean;
 }
 
 interface ClassType {
@@ -107,6 +108,7 @@ const classSchema = z.object({
   endTime: z.string().min(1),
   maxCapacity: z.coerce.number().min(1),
   notes: z.string().optional(),
+  isWalkIn: z.boolean().default(false),
 });
 type ClassFormData = z.infer<typeof classSchema>;
 
@@ -672,6 +674,8 @@ function CalendarTab({
   const [selectedClass, setSelectedClass] = useState<ClassInstance | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => format(new Date(), "yyyy-MM-dd"));
+  const [walkInSelectionMode, setWalkInSelectionMode] = useState(false);
+  const [selectedWalkInIds, setSelectedWalkInIds] = useState<Set<string>>(new Set());
 
   const start = format(weekStart, "yyyy-MM-dd");
   const end = format(addDays(weekStart, 6), "yyyy-MM-dd");
@@ -702,6 +706,7 @@ function CalendarTab({
         notes:            c.notes,
         branchId:         c.branchId ?? c.branch_id,
         branchName:       c.branchName ?? c.branch_name,
+        isWalkIn:         Boolean(c.isWalkIn ?? c.is_walk_in),
       }));
       return { data: mapped };
     },
@@ -710,7 +715,7 @@ function CalendarTab({
 
   const form = useForm<ClassFormData>({
     resolver: zodResolver(classSchema),
-    defaultValues: { branchId: "" },
+    defaultValues: { branchId: "", isWalkIn: false },
   });
 
   const createMutation = useMutation({
@@ -751,6 +756,31 @@ function CalendarTab({
     },
   });
 
+  const markWalkInMutation = useMutation({
+    mutationFn: ({ classIds, isWalkIn }: { classIds: string[]; isWalkIn: boolean }) =>
+      api.put("/admin/classes/walk-in", { classIds, isWalkIn, branchId: branchScope.branchId }),
+    onSuccess: (_res, variables) => {
+      qc.invalidateQueries({ queryKey: ["classes"] });
+      setSelectedClass((current) => current && variables.classIds.includes(current.id)
+        ? { ...current, isWalkIn: variables.isWalkIn }
+        : current);
+      toast({
+        title: variables.classIds.length === 1
+          ? (variables.isWalkIn ? "Clase marcada como walk-in" : "Walk-in retirado de la clase")
+          : `${variables.classIds.length} clases actualizadas`,
+        description: variables.isWalkIn
+          ? "Las reservas no usarán créditos y exigirán inscripción pagada."
+          : undefined,
+      });
+      setSelectedWalkInIds(new Set());
+      setWalkInSelectionMode(false);
+    },
+    onError: (error: any) => toast({
+      title: error?.response?.data?.message ?? "No se pudieron actualizar las clases",
+      variant: "destructive",
+    }),
+  });
+
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const classesForDay = (date: Date) =>
     classes.filter((c) => c.startTime?.startsWith(format(date, "yyyy-MM-dd")));
@@ -771,6 +801,7 @@ function CalendarTab({
       startTime: date + "T09:00",
       endTime: date + "T10:00",
       maxCapacity: 5,
+      isWalkIn: false,
     });
     setCreateOpen(true);
   };
@@ -794,6 +825,23 @@ function CalendarTab({
 
   const mobileDayDate = parseISO(mobileDay);
   const mobileClasses = classes.filter((c) => c.startTime?.startsWith(mobileDay));
+  const toggleWalkInSelection = (classId: string) => {
+    setSelectedWalkInIds((current) => {
+      const next = new Set(current);
+      if (next.has(classId)) next.delete(classId);
+      else next.add(classId);
+      return next;
+    });
+  };
+
+  const handleClassClick = (classItem: ClassInstance) => {
+    if (walkInSelectionMode) {
+      toggleWalkInSelection(classItem.id);
+      return;
+    }
+    setSelectedClass(classItem);
+    setSheetOpen(true);
+  };
 
   return (
     <>
@@ -810,7 +858,20 @@ function CalendarTab({
             <ChevronRight size={14} />
           </Button>
         </div>
-        <div className="flex justify-center sm:justify-end">
+        <div className="flex flex-wrap justify-center gap-2 sm:justify-end">
+          <Button
+            type="button"
+            variant={walkInSelectionMode ? "secondary" : "outline"}
+            onClick={() => {
+              setWalkInSelectionMode((value) => !value);
+              setSelectedWalkInIds(new Set());
+            }}
+            disabled={!branchScope.branchId || classes.length === 0}
+            className="min-h-[44px]"
+          >
+            <Sparkles size={14} className="mr-2" />
+            {walkInSelectionMode ? "Cancelar selección" : "Seleccionar walk-in"}
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -824,6 +885,27 @@ function CalendarTab({
           </Button>
         </div>
       </div>
+
+      {walkInSelectionMode && (
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-[#E5CF9F] bg-[#F4EAD6]/70 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-[#716D64]">
+            Selecciona una o varias clases. <strong>{selectedWalkInIds.size} seleccionada{selectedWalkInIds.size === 1 ? "" : "s"}</strong>
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={!selectedWalkInIds.size || markWalkInMutation.isPending}
+              onClick={() => markWalkInMutation.mutate({ classIds: [...selectedWalkInIds], isWalkIn: true })}
+            >Marcar walk-in</Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!selectedWalkInIds.size || markWalkInMutation.isPending}
+              onClick={() => markWalkInMutation.mutate({ classIds: [...selectedWalkInIds], isWalkIn: false })}
+            >Quitar walk-in</Button>
+          </div>
+        </div>
+      )}
 
       {isMobile ? (
         <div className="space-y-3">
@@ -875,8 +957,11 @@ function CalendarTab({
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => { setSelectedClass(c); setSheetOpen(true); }}
-                    className="w-full rounded-xl border border-[#716D64]/15 bg-[#716D64]/10 p-3 text-left"
+                    onClick={() => handleClassClick(c)}
+                    className={cn(
+                      "w-full rounded-xl border bg-[#716D64]/10 p-3 text-left",
+                      selectedWalkInIds.has(c.id) ? "border-[#B5832F] ring-2 ring-[#B5832F]/25" : "border-[#716D64]/15",
+                    )}
                     style={{ borderLeftColor: c.classTypeColor ?? "#D1B9B4", borderLeftWidth: 3 }}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -913,6 +998,7 @@ function CalendarTab({
                         {(c.bookedCount ?? c.currentBookings ?? 0)}/{c.maxCapacity ?? c.capacity ?? "?"}
                       </span>
                     </div>
+                    {c.isWalkIn && <Badge className="mt-2 bg-[#F4EAD6] text-[#8A672C] hover:bg-[#F4EAD6]">Walk-in · sin crédito</Badge>}
                   </button>
                 ))}
               </div>
@@ -955,10 +1041,12 @@ function CalendarTab({
                         <button
                           key={c.id}
                           type="button"
-                          onClick={() => { setSelectedClass(c); setSheetOpen(true); }}
+                          onClick={() => handleClassClick(c)}
                           className={cn(
                             "w-full rounded-2xl border bg-valiance-surface2 p-3 text-left shadow-[0_10px_24px_-22px_rgba(68,68,68,0.4)] transition-all hover:-translate-y-0.5 hover:shadow-valiance-card",
-                            c.isCancelled ? "border-destructive/25 opacity-60" : "border-valiance-oat hover:border-valiance-fern/45"
+                            selectedWalkInIds.has(c.id)
+                              ? "border-[#B5832F] ring-2 ring-[#B5832F]/25"
+                              : c.isCancelled ? "border-destructive/25 opacity-60" : "border-valiance-oat hover:border-valiance-fern/45"
                           )}
                         >
                           <div className="mb-2 flex items-start justify-between gap-2">
@@ -1004,6 +1092,7 @@ function CalendarTab({
                           </div>
 
                           {c.isCancelled && <Badge variant="destructive" className="mt-3 rounded-full px-2 text-[0.6rem]">Cancelada</Badge>}
+                          {c.isWalkIn && <Badge className="mt-3 rounded-full bg-[#F4EAD6] px-2 text-[0.6rem] text-[#8A672C] hover:bg-[#F4EAD6]">Walk-in · sin crédito</Badge>}
                         </button>
                       );
                     })}
@@ -1065,6 +1154,17 @@ function CalendarTab({
             </div>
             <div className="space-y-1"><Label>Capacidad máxima</Label><Input type="number" {...form.register("maxCapacity")} /></div>
             <div className="space-y-1"><Label>Notas</Label><Input {...form.register("notes")} /></div>
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-[#E5CF9F] bg-[#F4EAD6]/55 px-3 py-3">
+              <div>
+                <Label htmlFor="new-class-walk-in">Clase walk-in</Label>
+                <p className="mt-0.5 text-xs text-muted-foreground">No descuenta crédito; exige inscripción pagada en esta sucursal.</p>
+              </div>
+              <Switch
+                id="new-class-walk-in"
+                checked={form.watch("isWalkIn")}
+                onCheckedChange={(checked) => form.setValue("isWalkIn", checked)}
+              />
+            </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>Cancelar</Button>
               <Button type="submit" disabled={createMutation.isPending || !branchScope.branchId} className="bg-gradient-to-r from-[#D1B9B4] to-[#716D64] text-white">Crear</Button>
@@ -1096,12 +1196,25 @@ function CalendarTab({
               <div><span className="font-medium">Inicio:</span> {selectedClass.startTime ? new Date(selectedClass.startTime).toLocaleString("es-MX", { year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : "—"}</div>
               <div><span className="font-medium">Sucursal:</span> {branchNameFromRow(selectedClass, branchScope.branches)}</div>
               <div><span className="font-medium">Cupo:</span> {(selectedClass.bookedCount ?? selectedClass.currentBookings ?? 0) + " / " + (selectedClass.maxCapacity ?? selectedClass.capacity ?? "?")}</div>
+              {selectedClass.isWalkIn && (
+                <div className="rounded-xl border border-[#E5CF9F] bg-[#F4EAD6]/60 px-3 py-2 text-xs text-[#8A672C]">
+                  Walk-in: no descuenta créditos y solo permite reservar con inscripción pagada.
+                </div>
+              )}
               {selectedClass.notes && <div><span className="font-medium">Notas:</span> {selectedClass.notes}</div>}
 
               {/* ── Attendees list ── */}
               <ClassAttendees classId={selectedClass.id} branchId={selectedClass.branchId} />
 
               <div className="pt-2 flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => markWalkInMutation.mutate({ classIds: [selectedClass.id], isWalkIn: !selectedClass.isWalkIn })}
+                  disabled={markWalkInMutation.isPending || !selectedClass.branchId}
+                >
+                  <Sparkles size={14} className="mr-2" />
+                  {selectedClass.isWalkIn ? "Quitar modo walk-in" : "Marcar como walk-in"}
+                </Button>
                 {!selectedClass.isCancelled && (
                   <Button variant="destructive" onClick={() => cancelMutation.mutate({ id: selectedClass.id, branchId: selectedClass.branchId })} disabled={cancelMutation.isPending || !selectedClass.branchId}>
                     Cancelar clase

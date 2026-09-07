@@ -6,7 +6,6 @@ import {
   effectiveWalkInAmount,
   isAdminOnlyPlan,
   isComplimentaryWalkInPlan,
-  isPublicComplimentaryWalkInPlan,
 } from "../walkIn.js";
 
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -19,8 +18,8 @@ describe("walk-in gratuito", () => {
     price: "0.00",
   };
 
-  it("la administración decide si el walk-in es público o privado", () => {
-    expect(isAdminOnlyPlan("internal", false)).toBe(false);
+  it("todo plan interno queda oculto al público", () => {
+    expect(isAdminOnlyPlan("internal", false)).toBe(true);
     expect(isAdminOnlyPlan("internal", true)).toBe(true);
     expect(isAdminOnlyPlan("single", false)).toBe(false);
   });
@@ -37,20 +36,6 @@ describe("walk-in gratuito", () => {
 
   it("conserva el monto solicitado para walk-ins cobrados", () => {
     expect(effectiveWalkInAmount({ plan_kind: "single", is_admin_only: false, price: 250 }, 250)).toBe(250);
-  });
-
-  it("reconoce un walk-in público gratuito para activarlo sin pago", () => {
-    expect(isPublicComplimentaryWalkInPlan({
-      plan_kind: "internal",
-      is_admin_only: false,
-      price: "0.00",
-    })).toBe(true);
-    expect(isPublicComplimentaryWalkInPlan(freeInternalPlan)).toBe(false);
-    expect(isPublicComplimentaryWalkInPlan({
-      plan_kind: "internal",
-      is_admin_only: false,
-      price: 100,
-    })).toBe(false);
   });
 
   it("no usa planes internos como antecedente para exentar inscripción", () => {

@@ -31,6 +31,7 @@ export interface ClassItem {
   branchName?: string;
   branchAddress?: string | null;
   program?: StudioProgram;
+  isWalkIn?: boolean;
 }
 
 interface Props {
@@ -144,10 +145,19 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
             </div>
 
             <div className="rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[11px] text-[#B5832F] leading-relaxed">
-              <p className="font-semibold mb-0.5">Política de cancelación</p>
-              <p>
-                Cancela con al menos <strong>{cancellationConfig.min_hours} horas de anticipación</strong> para recuperar tu crédito. También puedes reagendar con al menos <strong>{cancellationConfig.reschedule_hours} horas</strong> antes de la clase.
-              </p>
+              {classData.isWalkIn ? (
+                <>
+                  <p className="font-semibold mb-0.5">Clase walk-in · no usa crédito</p>
+                  <p>Para reservar necesitas tener pagada tu inscripción de {classData.program ? programLabel(classData.program) : "la disciplina"} en {classData.branchName ?? "esta sucursal"}.</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-semibold mb-0.5">Política de cancelación</p>
+                  <p>
+                    Cancela con al menos <strong>{cancellationConfig.min_hours} horas de anticipación</strong> para recuperar tu crédito. También puedes reagendar con al menos <strong>{cancellationConfig.reschedule_hours} horas</strong> antes de la clase.
+                  </p>
+                </>
+              )}
             </div>
 
             {!user && (
@@ -172,7 +182,7 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
               {loading
                 ? <><Loader2 size={14} className="animate-spin mr-2" />Reservando…</>
                 : user
-                  ? classData.spots === 0 ? "Unirme a lista de espera" : "Confirmar reserva"
+                  ? classData.spots === 0 ? "Unirme a lista de espera" : classData.isWalkIn ? "Reservar walk-in" : "Confirmar reserva"
                   : "Iniciar sesión para reservar"
               }
             </Button>

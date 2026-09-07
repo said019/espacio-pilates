@@ -33,4 +33,10 @@ describe("startup migrations", () => {
       'path.join(__dirname, "../supabase/migrations/202608300002_correct_pozos_location.sql")',
     );
   });
+
+  it("adds calendar walk-in support during startup", () => {
+    expect(serverSource).toContain(
+      'path.join(__dirname, "../supabase/migrations/202609060001_class_walk_in.sql")',
+    );
+  });
 });

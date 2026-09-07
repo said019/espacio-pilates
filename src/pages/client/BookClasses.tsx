@@ -305,9 +305,10 @@ const BookClasses = () => {
                             ? cls.class_type_name
                             : "Pilates";
                           const classProgram = getEntityProgram(cls);
+                          const isWalkIn = Boolean(cls.isWalkIn ?? cls.is_walk_in);
                           const isPrenatalClass = classProgram === "prenatal";
                           const hasProgramAccess = memberships.some((item) => membershipSupports(item, classProgram));
-                          const accessMismatch = hasActive && !hasProgramAccess;
+                          const accessMismatch = !isWalkIn && hasActive && !hasProgramAccess;
 
                           // Availability — disciplina única, cupo 8.
                           const rawCurrent = cls.current_bookings;
@@ -381,6 +382,12 @@ const BookClasses = () => {
                                 {branch.name}
                               </p>
 
+                              {isWalkIn && (
+                                <span className="mt-1.5 inline-flex rounded-full bg-[#F4EAD6] px-2 py-0.5 text-[0.56rem] font-semibold uppercase tracking-[0.08em] text-[#8A672C] ring-1 ring-[#E5CF9F]">
+                                  Walk-in · sin crédito
+                                </span>
+                              )}
+
                               {/* Apparatus — Reformer (default) / Tower (lavender·gold accent) */}
                               <span
                                 className={cn(
@@ -443,6 +450,10 @@ const BookClasses = () => {
             <span className="inline-flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-valiance-lavender/30" />
               Lleno · lista de espera
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#E5CF9F]" />
+              Walk-in · no usa crédito
             </span>
             <span className="ml-auto text-valiance-mauve/70 hidden sm:inline">Sucursal {branch.name}</span>
           </div>

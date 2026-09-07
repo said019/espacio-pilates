@@ -37,6 +37,7 @@ const BookClassConfirm = () => {
   const classBranchCode = getEntityBranchCode(cls);
   const classBranch = branches.find((item) => item.code === classBranchCode) ?? branch;
   const classProgram = getEntityProgram(cls);
+  const isWalkIn = Boolean(cls?.isWalkIn ?? cls?.is_walk_in);
 
   useEffect(() => {
     if (classBranchCode) setBranchCode(classBranchCode);
@@ -93,6 +94,7 @@ const BookClassConfirm = () => {
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline" className="w-fit">{cls.level ?? "Todos los niveles"}</Badge>
                   <Badge variant="secondary" className="w-fit">{programLabel(classProgram)}</Badge>
+                  {isWalkIn && <Badge className="w-fit bg-[#F4EAD6] text-[#8A672C] hover:bg-[#F4EAD6]">Walk-in</Badge>}
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -104,6 +106,11 @@ const BookClassConfirm = () => {
                   <Calendar size={14} className="text-muted-foreground" />
                   {cls.start_time ? format(safeParse(cls.start_time), "EEEE d 'de' MMMM yyyy", { locale: es }) : "—"}
                 </div>
+                {isWalkIn && (
+                  <div className="rounded-xl border border-[#E5CF9F] bg-[#F4EAD6]/60 px-3 py-2 text-xs text-[#8A672C]">
+                    Esta reserva no descontará créditos. Necesitas tener pagada tu inscripción de {programLabel(classProgram)} en {classBranch.name}.
+                  </div>
+                )}
                 <div className="flex items-center gap-2 text-sm">
                   <Clock size={14} className="text-muted-foreground" />
                   {cls.start_time ? format(safeParse(cls.start_time), "HH:mm") : "—"} – {cls.end_time ? format(safeParse(cls.end_time), "HH:mm") : "—"}
@@ -130,7 +137,7 @@ const BookClassConfirm = () => {
                     ? "Reservando..."
                     : (cls.current_bookings ?? 0) >= (cls.max_capacity ?? 0)
                       ? "Unirme a la lista de espera"
-                      : "Confirmar reserva"}
+                      : isWalkIn ? "Reservar walk-in" : "Confirmar reserva"}
                 </Button>
               </CardContent>
             </Card>
