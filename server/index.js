@@ -11736,58 +11736,14 @@ app.post("/api/homepage-video-cards/:id/thumbnail", adminMiddleware, upload.sing
     if (!req.file) return res.status(400).json({ message: "No se envió archivo" });
     const cardId = req.params.id;
 
-    // Upload image to Google Drive (reuse existing OAuth setup)
-    const isDriveConfigured = Boolean(
-      process.env.GOOGLE_DRIVE_FOLDER_ID &&
-      process.env.GOOGLE_CLIENT_ID &&
-      process.env.GOOGLE_CLIENT_SECRET &&
-      process.env.GOOGLE_REFRESH_TOKEN
-    );
-
+    // Photos use their own Drive account; video credentials remain separate.
+    const isDriveConfigured = isGoogleDriveConfigured();
     let thumbnailUrl;
     if (isDriveConfigured) {
-      // Get access token
-      const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          client_id: process.env.GOOGLE_CLIENT_ID,
-          client_secret: process.env.GOOGLE_CLIENT_SECRET,
-          refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
-          grant_type: "refresh_token",
-        }),
-      });
-      const { access_token } = await tokenResp.json();
-
-      // Upload to Drive
-      const boundary = "thumbnail_boundary_" + Date.now();
-      const metadata = JSON.stringify({
-        name: `thumbnail_card_${cardId}_${Date.now()}.${req.file.originalname.split(".").pop()}`,
-        parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
-      });
-      const body = Buffer.concat([
-        Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${req.file.mimetype}\r\n\r\n`),
-        req.file.buffer,
-        Buffer.from(`\r\n--${boundary}--`),
-      ]);
-
-      const uploadResp = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${access_token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
-        body,
-      });
-      const uploadJson = await uploadResp.json();
-      if (!uploadJson.id) throw new Error("Error al subir imagen a Drive");
-
-      // Make public
-      await fetch(`https://www.googleapis.com/drive/v3/files/${uploadJson.id}/permissions`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ role: "reader", type: "anyone" }),
-      });
-
-      // Use proxy URL for consistency
-      thumbnailUrl = `/api/drive/image/${uploadJson.id}`;
+      const { fileId } = await uploadBufferToGoogleDrive(
+        req.file.buffer, `thumbnail_card_${cardId}_${Date.now()}`, req.file.mimetype,
+      );
+      thumbnailUrl = `https://lh3.googleusercontent.com/d/${fileId}=w1600`;
     } else {
       // Fallback: store as base64 data URI (small images only)
       thumbnailUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
