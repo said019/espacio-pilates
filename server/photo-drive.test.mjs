@@ -12,5 +12,8 @@ test('photo upload uses isolated credentials and folder; rejects permission fail
  assert.equal(calls[0][1].body.get('client_id'),'photo');
  assert.match(calls[1][1].body.toString(),/photo-folder/);
  assert.equal(env.GOOGLE_CLIENT_ID,'video');
+ assert.equal(await context.storePhotoReference('https://example.invalid/photo.png'),'https://example.invalid/photo.png');
+ await assert.rejects(context.storePhotoReference('data:image/svg+xml;base64,PHN2Zy8+'),/Formato/);
  env.PHOTOS_DRIVE_REFRESH_TOKEN='';assert.equal(context.isGoogleDriveConfigured(),false);
+ await assert.rejects(context.storePhotoReference('data:image/png;base64,cGhvdG8='),/no disponible/);
 });
