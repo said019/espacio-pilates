@@ -15,6 +15,7 @@ describe('consent signing screen', () => {
     vi.mocked(api.post).mockResolvedValue({data:{}});
     render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter><Consent /></MemoryRouter></QueryClientProvider>);
     await screen.findByText('Texto del consentimiento', {}, {timeout:10000});
+    expect(screen.getByRole('heading', {name:'Actualización de consentimiento'})).toBeInTheDocument();
     const save = screen.getByRole('button',{name:'Aceptar y guardar firma'});
     expect(save).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox'));

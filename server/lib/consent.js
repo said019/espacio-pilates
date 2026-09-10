@@ -28,7 +28,7 @@ export function consentGuard(pool, getUserId) {
       const result = userId ? await pool.query(
         'SELECT id FROM signed_consents WHERE user_id=$1 AND version=$2 LIMIT 1', [userId, consentVersion]
       ) : { rows: [] };
-      if (!result.rows.length) return res.status(403).json({ code: 'CONSENT_REQUIRED', message: 'La clienta debe ingresar a su cuenta, aceptar y firmar el consentimiento antes de reservar (también walk-in).', consentUrl: '/app/consent' });
+      if (!result.rows.length) return res.status(403).json({ code: 'CONSENT_REQUIRED', message: 'Actualización de consentimiento: la clienta debe ingresar a su cuenta, aceptar y firmar antes de reservar (también walk-in).', consentUrl: '/app/consent' });
       return next();
     } catch (err) {
       console.error('Consent verification failed:', err.message);

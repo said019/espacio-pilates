@@ -35,8 +35,8 @@ export default function Consent() {
     finally { setSaving(false); }
   };
   return <ClientLayout><div className="max-w-3xl mx-auto p-4 space-y-5">
-    <h1 className="text-2xl font-semibold">Consentimiento informado</h1>
-    <p>Es obligatorio aceptarlo y firmarlo antes de reservar, también para clases walk-in. Aplica en Villa Magna y Pozos.</p>
+    <h1 className="text-2xl font-semibold">{query.data?.signed ? 'Consentimiento firmado' : 'Actualización de consentimiento'}</h1>
+    <p>Antes de reservar, lee el consentimiento, acepta su contenido y firma para continuar. Es obligatorio también para clases walk-in y aplica en Villa Magna y Pozos.</p>
     {!user ? <Link to="/auth/login?returnUrl=/app/consent">Inicia sesión para firmar</Link> : query.isLoading ? <p>Cargando documento…</p> : query.isError ? <div role="alert">No se pudo cargar. <button onClick={() => query.refetch()}>Reintentar</button></div> : query.data?.signed ? <><ConsentRecord record={query.data.signed} /><Link to="/app/classes">Continuar a clases</Link></> : query.data && <>
       <div className="max-h-[50vh] overflow-y-auto border rounded-xl p-4 whitespace-pre-wrap text-sm" tabIndex={0}>{query.data.text}</div>
       <label className="block">Nombre completo de quien firma<input className="block w-full border rounded p-3 mt-1" maxLength={200} value={name} onChange={e => setName(e.target.value)} disabled={saving} autoComplete="name" /></label>
