@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { clientBranchPredicate } from "./lib/clientBranchScope.js";
 import express from "express";
 import cors from "cors";
 import { Pool } from "pg";
@@ -12161,6 +12162,13 @@ app.get("/api/users", adminMiddleware, async (req, res) => {
     let q = `SELECT id, display_name, email, phone, role, created_at FROM users WHERE COALESCE(is_hidden, false) = false`;
     const params = [];
     if (role) { params.push(role); q += ` AND role = $${params.length}`; }
+    const branchReference = requestBranchReference(req);
+    if (branchReference && branchReference !== "all") {
+      const branch = await resolveRequestBranch(req);
+      if (!branch) return res.status(400).json({ message: "Sucursal no válida" });
+      params.push(branch.id);
+      q += ` AND ${clientBranchPredicate(`$${params.length}`)}`;
+    }
     const searchValue = String(search ?? "").trim();
     if (searchValue) {
       params.push(`%${searchValue}%`);

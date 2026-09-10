@@ -10,6 +10,7 @@ import { AuthGuard } from "@/components/admin/AuthGuard";
 import AdminLayout from "@/components/admin/AdminLayout";
 import {
   BranchRequiredNotice,
+  BranchSelector,
   branchQueryParams,
   useAdminBranchScope,
 } from "@/components/admin/BranchScope";
@@ -89,7 +90,7 @@ const ClientsList = () => {
   const debouncedSearch = useDebounce(search, 300);
 
   // Clients list
-  const { data, isLoading } = useQuery<{ data: Client[] }>({
+  const { data, isLoading, isError } = useQuery<{ data: Client[] }>({
     queryKey: ["clients", debouncedSearch, branchScope.branchScope],
     queryFn: async () => (await api.get("/users", {
       params: { role: "client", search: debouncedSearch, ...branchQueryParams(branchScope.branchScope) },
@@ -197,7 +198,7 @@ const ClientsList = () => {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-7">
             <div>
               <h1 className="text-3xl font-bold text-[#1A1A1A] mb-1">Clientas</h1>
-              <p className="text-sm text-[#1A1A1A]/35">{clients.length} clientas registradas</p>
+              <p className="text-sm text-[#1A1A1A]/35">{clients.length} clientas · {branchScope.selectedBranch?.name ?? "Todas las sucursales"}</p>
             </div>
             <button
               onClick={() => {
@@ -212,6 +213,14 @@ const ClientsList = () => {
           </div>
 
           {!branchScope.branchId && <BranchRequiredNotice action="registrar una clienta manualmente" />}
+          <div className="mb-5 space-y-2">
+            <BranchSelector />
+            <p className="text-xs text-muted-foreground">
+              Se filtra por membresías, inscripciones, compras y reservas. Una clienta puede aparecer en ambas sucursales.
+              Las cuentas sin actividad identificable aparecen en Todas las sucursales.
+            </p>
+            {isError && <p role="alert" className="text-sm text-destructive">No se pudo cargar la lista de clientas. Intenta de nuevo.</p>}
+          </div>
 
           {/* Search */}
           <div className="relative mb-5 max-w-sm">
