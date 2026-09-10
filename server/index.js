@@ -16350,10 +16350,10 @@ app.post("/api/events", adminMiddleware, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        RETURNING *`,
       [
-        type, title, description, instructor_name, instructor_photo || null,
+        type, title, description, instructor_name, await storePhotoReference(instructor_photo) || null,
         date, start_time, end_time, location, capacity, price,
         early_bird_price || null, early_bird_deadline || null, member_discount,
-        image || null, requirements,
+        await storePhotoReference(image) || null, requirements,
         JSON.stringify(Array.isArray(includes) ? includes.filter(Boolean) : []),
         JSON.stringify(Array.isArray(tags) ? tags.filter(Boolean) : []),
         status, req.userId,
@@ -16379,7 +16379,7 @@ app.put("/api/events/:id", adminMiddleware, async (req, res) => {
     const vals = [];
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
-        vals.push(["includes", "tags"].includes(key) ? JSON.stringify(req.body[key]) : req.body[key]);
+        vals.push(["includes", "tags"].includes(key) ? JSON.stringify(req.body[key]) : ["image", "instructor_photo"].includes(key) ? await storePhotoReference(req.body[key]) : req.body[key]);
         sets.push(`${key} = $${vals.length}`);
       }
     }
