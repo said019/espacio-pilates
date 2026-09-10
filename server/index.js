@@ -333,23 +333,30 @@ function mergeSettingsWithDefaults(key, rawValue) {
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ─── Google Drive helper (used by instructor and user photo uploads) ────────
+function photoDriveConfig() {
+  const dedicated = Boolean(process.env.PHOTOS_DRIVE_CLIENT_ID || process.env.PHOTOS_DRIVE_CLIENT_SECRET || process.env.PHOTOS_DRIVE_REFRESH_TOKEN);
+  const prefix = dedicated ? "PHOTOS_DRIVE_" : "GOOGLE_";
+  return { clientId: process.env[prefix + "CLIENT_ID"], clientSecret: process.env[prefix + "CLIENT_SECRET"], refreshToken: process.env[prefix + "REFRESH_TOKEN"], folderId: dedicated ? process.env.PHOTOS_DRIVE_FOLDER_ID : process.env.GOOGLE_DRIVE_FOLDER_ID };
+}
+
 function isGoogleDriveConfigured() {
   return Boolean(
-    process.env.GOOGLE_DRIVE_FOLDER_ID &&
-    process.env.GOOGLE_CLIENT_ID &&
-    process.env.GOOGLE_CLIENT_SECRET &&
-    process.env.GOOGLE_REFRESH_TOKEN
+    photoDriveConfig().folderId &&
+    photoDriveConfig().clientId &&
+    photoDriveConfig().clientSecret &&
+    photoDriveConfig().refreshToken
   );
 }
 
 async function uploadBufferToGoogleDrive(buffer, filename, mimeType) {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType)) throw new Error("Formato de imagen no permitido");
   const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      client_secret: process.env.GOOGLE_CLIENT_SECRET,
-      refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+      client_id: photoDriveConfig().clientId,
+      client_secret: photoDriveConfig().clientSecret,
+      refresh_token: photoDriveConfig().refreshToken,
       grant_type: "refresh_token",
     }),
   });
@@ -362,7 +369,7 @@ async function uploadBufferToGoogleDrive(buffer, filename, mimeType) {
   const boundary = "drive_upload_" + Date.now();
   const metadata = JSON.stringify({
     name: filename,
-    parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
+    parents: [photoDriveConfig().folderId],
   });
   const body = Buffer.concat([
     Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`),
@@ -378,12 +385,13 @@ async function uploadBufferToGoogleDrive(buffer, filename, mimeType) {
   const uploadJson = await uploadResp.json();
   if (!uploadJson.id) throw new Error(`Drive upload failed: ${JSON.stringify(uploadJson)}`);
 
-  await fetch(`https://www.googleapis.com/drive/v3/files/${uploadJson.id}/permissions`, {
+  const permission = await fetch(`https://www.googleapis.com/drive/v3/files/${uploadJson.id}/permissions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({ role: "reader", type: "anyone" }),
   });
 
+  if (!permission.ok) throw new Error("No se pudo publicar la foto");
   return { fileId: uploadJson.id };
 }
 
@@ -15477,7 +15485,7 @@ app.post("/api/users/:id/photo", authMiddleware, upload.single("photo"), async (
           `profile_${targetId}_${Date.now()}.${ext}`,
           req.file.mimetype
         );
-        photoUrl = `/api/drive/image/${fileId}`;
+        photoUrl = `https://lh3.googleusercontent.com/d/${fileId}=w1600`;
       } catch (driveErr) {
         console.warn("[user photo] Drive upload failed, falling back to base64:", driveErr.message);
       }
@@ -15543,7 +15551,7 @@ app.post("/api/instructors/:id/photo", adminMiddleware, upload.single("photo"), 
         `instructor_${instructorId}_${Date.now()}.${ext}`,
         req.file.mimetype
       );
-      photoUrl = `/api/drive/image/${fileId}`;
+      photoUrl = `https://lh3.googleusercontent.com/d/${fileId}=w1600`;
     } else {
       photoUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
     }
