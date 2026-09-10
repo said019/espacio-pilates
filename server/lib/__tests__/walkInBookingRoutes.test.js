@@ -35,7 +35,8 @@ async function book(path, { walkIn = true, requiresInscription = false, paid = f
   expect(start).toBeGreaterThan(-1);
   const end = source.indexOf('\n});', start) + '\n});'.length;
   vm.runInNewContext(source.slice(start, end), {
-    app: { post: (_path, _auth, fn) => { handler = fn; } },
+    app: { post: (_path, ...handlers) => { handler = handlers.at(-1); } },
+    consentGuard: () => () => {},
     authMiddleware() {}, adminMiddleware() {}, console,
     pool: { connect: async () => client, query: async () => ({ rows: [] }) },
     isWalkInClass, walkInRequiresInscription, shouldConsumeCredit,

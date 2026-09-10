@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { consentGuard, registerConsentRoutes } from "./lib/consent.js";
 import { clientBranchPredicate } from "./lib/clientBranchScope.js";
 import express from "express";
 import cors from "cors";
@@ -784,6 +785,7 @@ async function ensureSchema() {
         console.log("✅ Base de datos inicializada (schema_complete.sql)");
       }
     }
+    await pool.query(fs.readFileSync(path.join(__dirname, "../supabase/migrations/202609100001_signed_consents.sql"), "utf8"));
     // No migration runner is invoked by start.sh. Execute the idempotent
     // multi-branch migration here as well so live and fresh databases converge
     // before any legacy seed/generator touches branch-scoped data.
@@ -4236,7 +4238,8 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
 });
 
 // POST /api/bookings
-app.post("/api/bookings", authMiddleware, async (req, res) => {
+registerConsentRoutes(app, pool, authMiddleware, adminMiddleware);
+app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId), async (req, res) => {
   const { classId } = req.body;
   if (!classId) return res.status(400).json({ message: "classId requerido" });
   const client = await pool.connect();
@@ -4697,7 +4700,7 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
 
 // PUT /api/bookings/:id/reschedule
 // Moves a CONFIRMED booking to a different future class WITHOUT changing credit.
-app.put("/api/bookings/:id/reschedule", authMiddleware, async (req, res) => {
+app.put("/api/bookings/:id/reschedule", authMiddleware, consentGuard(pool, req => req.userId), async (req, res) => {
   try {
     const bookingId = req.params.id;
     const newClassId = req.body?.new_class_id ?? req.body?.newClassId;
@@ -13313,7 +13316,7 @@ app.get("/api/admin/clients/:id/reschedules", adminMiddleware, async (req, res) 
 });
 
 // POST /api/admin/bookings/assign — admin assigns a class booking to a specific member
-app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
+app.post("/api/admin/bookings/assign", adminMiddleware, consentGuard(pool, req => req.body?.userId), async (req, res) => {
   const { classId, userId } = req.body;
   if (!classId || !userId) return res.status(400).json({ message: "classId y userId requeridos" });
   const client = await pool.connect();
@@ -13519,7 +13522,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, async (req, res) => {
 // Match por atributo (class_type + hora + día de semana), NO por FK schedule_id
 // (que puede venir inconsistente en classes generadas fuera del flujo normal).
 // No filtra por instructor: los instructores rotan semana a semana.
-app.post("/api/admin/bookings/bulk-month", adminMiddleware, async (req, res) => {
+app.post("/api/admin/bookings/bulk-month", adminMiddleware, consentGuard(pool, req => req.body?.userId), async (req, res) => {
   const { userId, scheduleSlotId, selectedDates } = req.body || {};
   if (!userId || !scheduleSlotId) {
     return res.status(400).json({ message: "userId y scheduleSlotId requeridos" });
@@ -14037,7 +14040,7 @@ app.get("/api/classes/:id/roster", adminMiddleware, async (req, res) => {
 });
 
 // POST /api/admin/classes/:id/walkin — bloquea un lugar + registra cobro de walk-in
-app.post("/api/admin/classes/:id/walkin", adminMiddleware, async (req, res) => {
+app.post("/api/admin/classes/:id/walkin", adminMiddleware, consentGuard(pool, () => null), async (req, res) => {
   const classId = req.params.id;
   const { name, phone, planId, paymentMethod: rawPM, amount } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ message: "Se requiere el nombre del invitado" });

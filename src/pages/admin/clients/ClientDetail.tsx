@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ClientConsent from "@/components/admin/ClientConsent";
 import { useParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
@@ -513,6 +514,7 @@ const ClientDetail = () => {
     <AuthGuard>
       <AdminLayout>
         <div className="admin-page max-w-5xl">
+          {id && <ClientConsent userId={id} />}
           {/* ── Header ── */}
           {isLoading ? (
             <div className="mb-6 flex items-center gap-4">

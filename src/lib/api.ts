@@ -15,6 +15,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (r) => r,
   (err) => {
+    if (err.response?.data?.code === "CONSENT_REQUIRED" && !window.location.pathname.startsWith("/admin")) {
+      const returnTo = window.location.pathname + window.location.search;
+      window.location.href = `/app/consent?returnTo=${encodeURIComponent(returnTo)}`;
+    }
     if (err.response?.status === 401) {
       localStorage.removeItem("auth_token");
       const path = window.location.pathname;

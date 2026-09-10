@@ -21,6 +21,7 @@ const ForgotPassword = lazyWithRetry(() => import("./pages/auth/ForgotPassword")
 const ResetPassword = lazyWithRetry(() => import("./pages/auth/ResetPassword"));
 
 const Dashboard = lazyWithRetry(() => import("./pages/client/Dashboard"));
+const Consent = lazyWithRetry(() => import("./pages/client/Consent"));
 const BookClasses = lazyWithRetry(() => import("./pages/client/BookClasses"));
 const BookClassConfirm = lazyWithRetry(() => import("./pages/client/BookClassConfirm"));
 const MyBookings = lazyWithRetry(() => import("./pages/client/MyBookings"));
@@ -98,6 +99,7 @@ const App = () => (
           <Route path="/app/profile/edit" element={<ProfileEdit />} />
           <Route path="/app/profile/preferences" element={<ProfilePreferences />} />
           <Route path="/app/orders" element={<MyOrders />} />
+          <Route path="/app/consent" element={<Consent />} />
           <Route path="/app/pay/:orderId" element={<CardPayment />} />
           <Route path="/app/notifications" element={<Notifications />} />
 

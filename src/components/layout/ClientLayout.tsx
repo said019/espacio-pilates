@@ -18,6 +18,7 @@ const NAV_GROUPS = [
       { to: "/app/classes",  label: "Reservar clase", icon: Calendar },
       { to: "/app/bookings", label: "Mis reservas",  icon: ClipboardList },
       { to: "/app/orders",   label: "Mis órdenes",   icon: CreditCard },
+      { to: "/app/consent", label: "Consentimiento", icon: ClipboardList },
     ],
   },
 ];
