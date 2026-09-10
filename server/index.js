@@ -350,6 +350,15 @@ function isGoogleDriveConfigured() {
   );
 }
 
+async function storePhotoReference(value) {
+  if (typeof value !== "string" || !value.startsWith("data:")) return value;
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(value);
+  if (!match) throw new Error("Formato de imagen no permitido");
+  if (!isGoogleDriveConfigured()) throw new Error("Almacenamiento de fotos no disponible");
+  const { fileId } = await uploadBufferToGoogleDrive(Buffer.from(match[2], "base64"), `studio_${Date.now()}`, match[1]);
+  return `https://lh3.googleusercontent.com/d/${fileId}=w1600`;
+}
+
 async function uploadBufferToGoogleDrive(buffer, filename, mimeType) {
   if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType)) throw new Error("Formato de imagen no permitido");
   const tokenResp = await fetch("https://oauth2.googleapis.com/token", {
@@ -10884,6 +10893,7 @@ app.put("/api/settings/:key", adminMiddleware, async (req, res) => {
       return res.status(400).json({ message: "Falta `value` en el body" });
     }
     const merged = mergeSettingsWithDefaults(req.params.key, value);
+    if (req.params.key === "general_settings" && typeof merged.venue_media_url === "string" && merged.venue_media_url.startsWith("data:image/")) merged.venue_media_url = await storePhotoReference(merged.venue_media_url);
     await pool.query(
       "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=NOW()",
       [req.params.key, JSON.stringify(merged)]
@@ -11581,14 +11591,10 @@ app.post("/api/videos/upload", adminMiddleware, uploadVideo.fields([{ name: "vid
     let thumbnailDriveId = "";
     if (thumbnailFile) {
       const thumbBuffer = fs.readFileSync(thumbnailFile.path);
-      const thumbResult = await uploadBufferToDrive(
-        thumbBuffer,
-        thumbnailFile.originalname,
-        thumbnailFile.mimetype,
-        accessToken
-      );
+      const { fileId } = await uploadBufferToGoogleDrive(thumbBuffer, thumbnailFile.originalname, thumbnailFile.mimetype);
+      const thumbResult = { id: fileId };
       fs.unlink(thumbnailFile.path, () => { });
-      await makeGoogleDriveFilePublic(thumbResult.id, accessToken);
+
       thumbnailUrl = `https://drive.google.com/thumbnail?id=${thumbResult.id}&sz=w640`;
       thumbnailDriveId = thumbResult.id;
     }
@@ -11633,7 +11639,7 @@ app.post("/api/videos", adminMiddleware, async (req, res) => {
        RETURNING *`,
       [
         title, description || null, subtitle || null, tagline || null, days || null, brand_color || null,
-        drive_file_id || null, cloudinary_id || drive_file_id || null, thumbnail_url || null, thumbnail_drive_id || null,
+        drive_file_id || null, cloudinary_id || drive_file_id || null, await storePhotoReference(thumbnail_url) || null, thumbnail_drive_id || null,
         class_type_id || category_id || null, instructor_id || null, duration_seconds || 0,
         access_type, is_published, is_featured, sort_order,
         sales_enabled, sales_unlocks_video, sales_price_mxn || null, sales_class_credits || null, sales_cta_text || null,
@@ -11677,7 +11683,7 @@ app.put("/api/videos/:id", adminMiddleware, async (req, res) => {
       [
         title, description || null, subtitle || null, tagline || null, days || null, brand_color || null,
         drive_file_id || null, cloudinary_id || drive_file_id || null,
-        thumbnail_url || null, thumbnail_drive_id || null,
+        await storePhotoReference(thumbnail_url) || null, thumbnail_drive_id || null,
         class_type_id || category_id || null, instructor_id || null,
         duration_seconds ?? null,
         access_type || null, is_published ?? null, is_featured ?? null, sort_order ?? null,
@@ -11727,7 +11733,7 @@ app.put("/api/homepage-video-cards/:id", adminMiddleware, async (req, res) => {
       `UPDATE homepage_video_cards
        SET title=$1, description=$2, emoji=$3, thumbnail_url=COALESCE($4, thumbnail_url), updated_at=NOW()
        WHERE id=$5 RETURNING *`,
-      [title.trim(), description.trim(), (emoji || "🎬").trim(), thumbnail_url || null, req.params.id]
+      [title.trim(), description.trim(), (emoji || "🎬").trim(), await storePhotoReference(thumbnail_url) || null, req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Tarjeta no encontrada" });
     return res.json({ data: r.rows[0] });
@@ -15454,7 +15460,7 @@ app.post("/api/users/:id/photo", authMiddleware, upload.single("photo"), async (
         );
         photoUrl = `https://lh3.googleusercontent.com/d/${fileId}=w1600`;
       } catch (driveErr) {
-        console.warn("[user photo] Drive upload failed, falling back to base64:", driveErr.message);
+        throw driveErr;
       }
     }
 
@@ -15502,6 +15508,16 @@ app.delete("/api/users/:id/photo", authMiddleware, async (req, res) => {
     console.error("[DELETE /users/:id/photo]", err);
     return res.status(500).json({ message: "Error al eliminar foto" });
   }
+});
+
+// Public studio photos use separate credentials from videos and documents.
+app.post("/api/photos/upload", adminMiddleware, upload.single("photo"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ message: "Debes adjuntar una imagen" });
+    if (!isGoogleDriveConfigured()) return res.status(503).json({ message: "Almacenamiento de fotos no disponible" });
+    const { fileId } = await uploadBufferToGoogleDrive(req.file.buffer, `studio_${Date.now()}`, req.file.mimetype);
+    return res.json({ fileId, url: `https://lh3.googleusercontent.com/d/${fileId}=w1600` });
+  } catch (error) { return res.status(503).json({ message: "No se pudo guardar la foto. Intenta de nuevo." }); }
 });
 
 // POST /api/instructors/:id/photo — upload instructor photo to Google Drive
@@ -15928,7 +15944,7 @@ app.post("/api/admin/videos", adminMiddleware, async (req, res) => {
     const r = await pool.query(
       `INSERT INTO videos (title, description, video_url, thumbnail_url, class_type_id, instructor_id, duration_minutes, access_type, is_published, is_featured, sort_order)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [title, description || null, videoUrl, thumbnailUrl || null, classTypeId || null, instructorId || null, durationMinutes || null, accessType, isPublished, isFeatured, sortOrder]
+      [title, description || null, videoUrl, await storePhotoReference(thumbnailUrl) || null, classTypeId || null, instructorId || null, durationMinutes || null, accessType, isPublished, isFeatured, sortOrder]
     );
     return res.status(201).json({ data: r.rows[0] });
   } catch (err) {
@@ -15944,7 +15960,7 @@ app.put("/api/admin/videos/:id", adminMiddleware, async (req, res) => {
       `UPDATE videos SET title=$1, description=$2, video_url=$3, thumbnail_url=$4, class_type_id=$5,
        instructor_id=$6, duration_minutes=$7, access_type=$8, is_published=$9, is_featured=$10, sort_order=$11, updated_at=NOW()
        WHERE id=$12 RETURNING *`,
-      [title, description || null, videoUrl, thumbnailUrl || null, classTypeId || null, instructorId || null, durationMinutes || null, accessType || "membership", isPublished !== false, isFeatured === true, sortOrder || 0, req.params.id]
+      [title, description || null, videoUrl, await storePhotoReference(thumbnailUrl) || null, classTypeId || null, instructorId || null, durationMinutes || null, accessType || "membership", isPublished !== false, isFeatured === true, sortOrder || 0, req.params.id]
     );
     if (!r.rows.length) return res.status(404).json({ message: "Video no encontrado" });
     return res.json({ data: r.rows[0] });

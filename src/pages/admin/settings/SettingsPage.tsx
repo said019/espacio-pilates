@@ -443,6 +443,10 @@ const VenueMediaSettings = () => {
       toast({ title: "Solo se permiten archivos de imagen o video.", variant: "destructive" });
       return;
     }
+    if (isImage && file.size > 10 * 1024 * 1024) {
+      toast({ title: "La foto debe pesar menos de 10 MB.", variant: "destructive" });
+      return;
+    }
     if (file.size > VENUE_MEDIA_MAX_MB * 1024 * 1024) {
       toast({ title: `El archivo excede ${VENUE_MEDIA_MAX_MB} MB.`, variant: "destructive" });
       return;
@@ -451,6 +455,20 @@ const VenueMediaSettings = () => {
     setIsUploading(true);
     setUploadProgress(0);
     try {
+      if (isImage) {
+        const form = new FormData();
+        form.append("photo", file);
+        const response = await api.post("/photos/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
+        const photo = response.data;
+        await api.put("/settings/general_settings", { value: { ...generalSettings,
+          venue_media_url: photo.url, venue_media_type: "image", venue_media_drive_id: photo.fileId,
+          venue_media_name: file.name, venue_media_updated_at: new Date().toISOString(),
+        } });
+        setUploadProgress(100);
+        qc.invalidateQueries({ queryKey: ["settings", "general_settings"] });
+        toast({ title: "Foto guardada correctamente" });
+        return;
+      }
       const initResp = await api.post("/drive/init-upload", {
         fileName: `venue_media_${Date.now()}_${file.name}`,
         mimeType: file.type || (isVideo ? "video/mp4" : "image/jpeg"),
