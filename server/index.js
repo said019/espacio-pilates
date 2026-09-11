@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { consentGuard, registerConsentRoutes } from "./lib/consent.js";
+import { consentGuard, registerConsentRoutes, consentVersion } from "./lib/consent.js";
 import { clientBranchPredicate } from "./lib/clientBranchScope.js";
 import express from "express";
 import cors from "cors";
@@ -4247,7 +4247,7 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
 });
 
 // POST /api/bookings
-registerConsentRoutes(app, pool, authMiddleware, adminMiddleware);
+registerConsentRoutes(app, pool, authMiddleware, adminMiddleware, sendPushToAdmins);
 app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId), async (req, res) => {
   const { classId } = req.body;
   if (!classId) return res.status(400).json({ message: "classId requerido" });
@@ -12154,7 +12154,15 @@ app.get("/api/users", adminMiddleware, async (req, res) => {
       }
       q += ` AND (display_name ILIKE $${textIdx} OR email ILIKE $${textIdx}${phoneClause})`;
     }
-    q += " ORDER BY display_name ASC LIMIT 200";
+    const consentStatus = req.query.consentStatus;
+    if (consentStatus !== undefined) {
+      if (!["all", "pending", "signed"].includes(consentStatus)) return res.status(400).json({ message: "Filtro de consentimiento no válido" });
+      params.push(consentVersion);
+      const signatureQuery = `SELECT sc.signed_at FROM signed_consents sc WHERE sc.user_id=users.id AND sc.version=$${params.length}`;
+      q = q.replace("created_at FROM users", `created_at, (${signatureQuery}) AS consent_signed_at FROM users`);
+      if (consentStatus !== "all") q += ` AND ${consentStatus === "pending" ? "NOT " : ""}EXISTS (${signatureQuery})`;
+    }
+    q += ` ORDER BY display_name ASC${consentStatus === undefined ? " LIMIT 200" : ""}`;
     const r = await pool.query(q, params);
     return res.json({ data: camelRows(r.rows) });
   } catch (err) {

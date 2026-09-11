@@ -37,7 +37,7 @@ export function consentGuard(pool, getUserId) {
   };
 }
 
-export function registerConsentRoutes(app, pool, authMiddleware, adminMiddleware) {
+export function registerConsentRoutes(app, pool, authMiddleware, adminMiddleware, notifyAdmins) {
   app.get('/api/consent', authMiddleware, async (req, res) => {
     try {
       const r = await pool.query('SELECT * FROM signed_consents WHERE user_id=$1 AND version=$2', [req.userId, consentVersion]);
@@ -53,9 +53,18 @@ export function registerConsentRoutes(app, pool, authMiddleware, adminMiddleware
     }
     try {
       // Immutable, one signature per user/document version. Retries preserve the first evidence.
-      await pool.query(`INSERT INTO signed_consents (user_id,version,document_text,signer_name,signer_role,signature)
-        VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id,version) DO NOTHING`,
+      const inserted = await pool.query(`INSERT INTO signed_consents (user_id,version,document_text,signer_name,signer_role,signature)
+        VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (user_id,version) DO NOTHING RETURNING id`,
       [req.userId, consentVersion, consentText, signerName.trim(), signerRole, JSON.stringify(signature)]);
+      if (inserted.rows.length && notifyAdmins) {
+        // Notify only for a newly persisted signature. Delivery failure must not
+        // make the client think their already-saved signature was rejected.
+        Promise.resolve().then(async () => {
+          const client = await pool.query('SELECT display_name FROM users WHERE id=$1', [req.userId]);
+          await notifyAdmins({ title: 'Consentimiento firmado', body: `${client.rows[0]?.display_name || 'Una clienta'} acaba de firmar su consentimiento.`,
+            url: `/admin/clients/${req.userId}`, tag: `consent_signed_${inserted.rows[0].id}` });
+        }).catch(err => console.error('Consent notification failed:', err.message));
+      }
       return res.status(201).json({ message: 'Consentimiento firmado y guardado.' });
     } catch { return res.status(503).json({ message: 'No se pudo guardar la firma. Intenta nuevamente.' }); }
   });

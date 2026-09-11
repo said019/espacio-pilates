@@ -62,6 +62,7 @@ type ManualFormData = z.infer<typeof manualSchema>;
 interface Client extends EditFormData {
   id: string;
   role: string;
+  consentSignedAt?: string | null;
 }
 
 interface Plan { id: string; name: string; price: number; category: string; classLimit?: number; class_limit?: number; planKind?: string; plan_kind?: string; }
@@ -87,14 +88,16 @@ const ClientsList = () => {
   const [manualOpen, setManualOpen] = useState(false);
 
   const [search, setSearch] = useState("");
+  const [consentStatus, setConsentStatus] = useState("all");
   const debouncedSearch = useDebounce(search, 300);
 
   // Clients list
   const { data, isLoading, isError } = useQuery<{ data: Client[] }>({
-    queryKey: ["clients", debouncedSearch, branchScope.branchScope],
+    queryKey: ["clients", debouncedSearch, branchScope.branchScope, consentStatus],
     queryFn: async () => (await api.get("/users", {
-      params: { role: "client", search: debouncedSearch, ...branchQueryParams(branchScope.branchScope) },
+      params: { role: "client", search: debouncedSearch, consentStatus, ...branchQueryParams(branchScope.branchScope) },
     })).data,
+    refetchInterval: 30000,
   });
   const clients = Array.isArray(data?.data) ? data.data : [];
 
@@ -215,6 +218,13 @@ const ClientsList = () => {
           {!branchScope.branchId && <BranchRequiredNotice action="registrar una clienta manualmente" />}
           <div className="mb-5 space-y-2">
             <BranchSelector />
+            <label className="block text-sm">Consentimiento
+              <select className="block rounded-lg border p-2 mt-1 bg-white" value={consentStatus} onChange={e => setConsentStatus(e.target.value)}>
+                <option value="all">Todas las clientas</option>
+                <option value="pending">Pendientes de firmar</option>
+                <option value="signed">Ya firmaron</option>
+              </select>
+            </label>
             <p className="text-xs text-muted-foreground">
               Se filtra por membresías, inscripciones, compras y reservas. Una clienta puede aparecer en ambas sucursales.
               Las cuentas sin actividad identificable aparecen en Todas las sucursales.
@@ -241,6 +251,7 @@ const ClientsList = () => {
                   <TableHead className="text-[#1A1A1A]/40 font-semibold text-xs uppercase tracking-wider">Nombre</TableHead>
                   <TableHead className="text-[#1A1A1A]/40 font-semibold text-xs uppercase tracking-wider">Email</TableHead>
                   <TableHead className="text-[#1A1A1A]/40 font-semibold text-xs uppercase tracking-wider">Teléfono</TableHead>
+                  <TableHead>Consentimiento</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
@@ -248,7 +259,7 @@ const ClientsList = () => {
                 {isLoading
                   ? Array(5).fill(0).map((_, i) => (
                     <TableRow key={i} className="border-[#8C6B6F]/12">
-                      {Array(4).fill(0).map((_, j) => (
+                      {Array(5).fill(0).map((_, j) => (
                         <TableCell key={j}><Skeleton className="h-4 w-full bg-stone-50" /></TableCell>
                       ))}
                     </TableRow>
@@ -258,6 +269,11 @@ const ClientsList = () => {
                       <TableCell className="font-semibold text-[#1A1A1A]/85">{c.displayName}</TableCell>
                       <TableCell className="text-sm text-[#1A1A1A]/45">{c.email}</TableCell>
                       <TableCell className="text-sm text-[#1A1A1A]/45">{c.phone ?? "—"}</TableCell>
+                      <TableCell>
+                        <button className="text-left text-sm underline" onClick={() => navigate(`/admin/clients/${c.id}`)}>
+                          {c.consentSignedAt ? `Firmado · ${format(new Date(c.consentSignedAt), "dd/MM/yyyy")}` : "Pendiente de firma"}
+                        </button>
+                      </TableCell>
                       <TableCell>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -289,6 +305,7 @@ const ClientsList = () => {
                       </TableCell>
                     </TableRow>
                   ))}
+                {!isLoading && !isError && clients.length === 0 && <TableRow><TableCell colSpan={5}>No hay clientas con estos filtros.</TableCell></TableRow>}
               </TableBody>
             </Table>
           </div>

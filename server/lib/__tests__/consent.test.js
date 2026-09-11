@@ -5,24 +5,39 @@ import { consentGuard, registerConsentRoutes, consentVersion, consentText, valid
 
 const signature = [[[0.1,0.2],[0.5,0.8],[0.8,0.1]]];
 const response = () => ({ code: 200, status(code) { this.code=code; return this; }, json(body) { this.body=body; return this; } });
-function harness() {
+function harness(notifyAdmins = vi.fn().mockResolvedValue({sent:1})) {
   const rows = [];
   const pool = { query: vi.fn(async (sql,args) => {
     if (sql.startsWith('INSERT')) {
-      if (!rows.some(r => r.user_id===args[0] && r.version===args[1])) rows.push({ id:'signed', user_id:args[0], version:args[1], document_text:args[2], signer_name:args[3], signer_role:args[4], signature:JSON.parse(args[5]) });
+      if (!rows.some(r => r.user_id===args[0] && r.version===args[1])) {
+        rows.push({ id:'signed', user_id:args[0], version:args[1], document_text:args[2], signer_name:args[3], signer_role:args[4], signature:JSON.parse(args[5]) });
+        return {rows:[{id:'signed'}]};
+      }
       return { rows:[] };
     }
+    if (sql.startsWith('SELECT display_name')) return {rows:[{display_name:'Clienta Prueba'}]};
     return { rows: rows.filter(r => r.user_id===args[0] && (!args[1] || r.version===args[1])) };
   }) };
   const routes = {};
   const auth = () => {}, admin = () => {};
   const app = Object.fromEntries(['get','post'].map(method => [method,(path,...handlers) => { routes[`${method} ${path}`] = handlers; }]));
-  registerConsentRoutes(app,pool,auth,admin);
+  registerConsentRoutes(app,pool,auth,admin,notifyAdmins);
   const post = async (body,userId='client') => { const res=response(); await routes['post /api/consent'].at(-1)({ userId,body },res); return res; };
-  return { pool, rows, routes, post, auth, admin };
+  return { pool, rows, routes, post, auth, admin, notifyAdmins };
 }
 const payload = { accepted:true,version:consentVersion,signerName:'Clienta Prueba',signerRole:'adult',signature };
 describe('mandatory consent', () => {
+  it('notifies admins once for the first signature, not on retries', async () => {
+    const h=harness(); await h.post(payload); await h.post(payload);
+    await vi.waitFor(()=>expect(h.notifyAdmins).toHaveBeenCalledOnce());
+    expect(h.notifyAdmins).toHaveBeenCalledWith(expect.objectContaining({title:'Consentimiento firmado',body:'Clienta Prueba acaba de firmar su consentimiento.',url:'/admin/clients/client'}));
+  });
+  it('notification failure does not reject or remove the saved signature', async () => {
+    const h=harness(vi.fn().mockRejectedValue(new Error('push unavailable')));
+    expect((await h.post(payload)).code).toBe(201);
+    await vi.waitFor(()=>expect(h.notifyAdmins).toHaveBeenCalledOnce());
+    expect(h.rows).toHaveLength(1);
+  });
   it.each([undefined, [], [[[0,0]]], [[[0,0],[0,0]]], [[[0,0],[2,1]]], [[[0,0],['0.5',0.5]]]])('rejects blank/invalid signature %j', value => expect(validSignature(value)).toBe(false));
   it('accepts bounded strokes', () => expect(validSignature(signature)).toBe(true));
   it.each([{accepted:false}, {signature:[]}, {signerName:''}, {signerRole:'other'}, {version:'old'}])('rejects invalid submission %j', async bad => {

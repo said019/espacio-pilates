@@ -11,7 +11,7 @@ async function list(query) {
   const start = source.indexOf('app.get("/api/users",');
   vm.runInNewContext(source.slice(start, source.indexOf('\n});', start) + 4), {
     app: { get: (_path, _auth, fn) => { handler = fn; } }, adminMiddleware() {},
-    pool: { query: db }, console, camelRows: rows => rows, clientBranchPredicate,
+    pool: { query: db }, console, camelRows: rows => rows, clientBranchPredicate, consentVersion: 'current-version',
     requestBranchReference: req => req.query.branchId,
     resolveRequestBranch: async req => req.query.branchId === 'invalid' ? null : { id: req.query.branchId },
   });
@@ -20,6 +20,20 @@ async function list(query) {
   return { res, db };
 }
 describe('client branch route', () => {
+  it.each(['all','pending','signed'])('supports consent status %s together with branch', async consentStatus => {
+    const {res,db}=await list({role:'client',branchId:'pozos',consentStatus});
+    expect(res.code).toBe(200);
+    const [sql,args]=db.mock.calls[0];
+    expect(args).toEqual(['client','pozos','current-version']);
+    expect(sql).toContain('AS consent_signed_at');
+    expect(sql).toContain('sc.version=$3');
+    expect(sql).not.toContain('LIMIT 200');
+    if (consentStatus==='pending') expect(sql).toContain('AND NOT EXISTS (SELECT sc.signed_at');
+    if (consentStatus==='signed') expect(sql).toContain('AND EXISTS (SELECT sc.signed_at');
+  });
+  it('rejects invalid consent filter', async () => {
+    const {res,db}=await list({consentStatus:'invalid'}); expect(res.code).toBe(400); expect(db).not.toHaveBeenCalled();
+  });
   it.each([undefined, 'all'])('leaves all clients visible when branch=%s', async branchId => {
     const { res, db } = await list({ role: 'client', branchId });
     expect(res.code).toBe(200);
