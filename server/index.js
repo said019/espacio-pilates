@@ -14054,7 +14054,9 @@ app.get("/api/classes/:id/roster", adminMiddleware, async (req, res) => {
 });
 
 // POST /api/admin/classes/:id/walkin — bloquea un lugar + registra cobro de walk-in
-app.post("/api/admin/classes/:id/walkin", adminMiddleware, consentGuard(pool, () => null), async (req, res) => {
+// Admin-only guest holds do not have an account that can sign. Keep consent
+// enforcement on account-based booking routes, not this manual guest workflow.
+app.post("/api/admin/classes/:id/walkin", adminMiddleware, async (req, res) => {
   const classId = req.params.id;
   const { name, phone, planId, paymentMethod: rawPM, amount } = req.body;
   if (!name || !String(name).trim()) return res.status(400).json({ message: "Se requiere el nombre del invitado" });
