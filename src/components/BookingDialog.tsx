@@ -149,7 +149,7 @@ export const BookingDialog = ({ classData, open, onOpenChange, onSuccess }: Prop
               {classData.isWalkIn ? (
                 <>
                   <p className="font-semibold mb-0.5">{classData.walkInRequiresInscription === false ? "Clase walk-in gratis" : "Clase walk-in · no usa crédito"}</p>
-                  {classData.walkInRequiresInscription === false && <p>Solo una clase gratis por usuaria entre ambas sucursales. Cancelar no reinicia el beneficio.</p>}
+                  {classData.walkInRequiresInscription === false && <p>Solo una clase gratis por usuaria entre ambas sucursales. Para volver a tomar clase, compra una visita o adquiere una membresía. ¡Te esperamos! Cancelar no reinicia el beneficio.</p>}
                   <p>{classData.walkInRequiresInscription === false
                     ? "No descuenta créditos ni requiere inscripción."
                     : <>Para reservar necesitas tener pagada tu inscripción de {classData.program ? programLabel(classData.program) : "la disciplina"} en {classData.branchName ?? "esta sucursal"}.</>}</p>

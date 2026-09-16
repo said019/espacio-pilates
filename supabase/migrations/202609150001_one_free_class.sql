@@ -37,7 +37,7 @@ BEGIN
     WHERE b.user_id=NEW.user_id AND b.id<>NEW.id
       AND c.is_walk_in=true AND c.walk_in_requires_inscription=false
   ) THEN
-    RAISE EXCEPTION USING ERRCODE='PFC01', MESSAGE='Ya utilizaste tu clase gratis. Solo se permite una por usuaria entre ambas sucursales.';
+    RAISE EXCEPTION USING ERRCODE='PFC01', MESSAGE='Ya utilizaste tu clase gratis. Para volver a tomar clase, compra una visita o adquiere una membresía. ¡Te esperamos!';
   END IF;
 
   -- The unique user key serializes even simultaneous reservations in different
@@ -46,7 +46,7 @@ BEGIN
   ON CONFLICT (user_id) DO NOTHING;
   SELECT booking_id INTO claimed_booking FROM free_class_claims WHERE user_id=NEW.user_id;
   IF claimed_booking<>NEW.id THEN
-    RAISE EXCEPTION USING ERRCODE='PFC01', MESSAGE='Ya utilizaste tu clase gratis. Solo se permite una por usuaria entre ambas sucursales.';
+    RAISE EXCEPTION USING ERRCODE='PFC01', MESSAGE='Ya utilizaste tu clase gratis. Para volver a tomar clase, compra una visita o adquiere una membresía. ¡Te esperamos!';
   END IF;
   RETURN NEW;
 END;

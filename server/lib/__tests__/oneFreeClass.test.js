@@ -30,7 +30,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('one lifetime free class (Postgr
       await expect(book(users[0],villa)).rejects.toMatchObject({code:'PFC01'});
 
       const first=(await book(users[1],villa)).rows[0].id;
-      await expect(book(users[1],pozos)).rejects.toMatchObject({code:'PFC01'});
+      await expect(book(users[1],pozos)).rejects.toMatchObject({code:'PFC01', message:'Ya utilizaste tu clase gratis. Para volver a tomar clase, compra una visita o adquiere una membresía. ¡Te esperamos!'});
       await db.query('UPDATE bookings SET class_id=$1 WHERE id=$2',[pozos,first]);
       await db.query("UPDATE bookings SET status='cancelled' WHERE id=$1",[first]);
       await expect(book(users[1],villa)).rejects.toMatchObject({code:'PFC01'});
