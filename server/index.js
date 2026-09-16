@@ -841,6 +841,7 @@ async function ensureSchema() {
       await pool.query(classWalkInSql);
       console.log("✅ Clases walk-in listas");
     }
+    await pool.query(fs.readFileSync(path.join(__dirname, "../supabase/migrations/202609150001_one_free_class.sql"), "utf8"));
     {
       const adminPaymentRegistrationSql = fs.readFileSync(
         path.join(__dirname, "../supabase/migrations/202608270003_admin_payment_registration.sql"),
@@ -4477,6 +4478,7 @@ app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId),
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) { }
     console.error("POST bookings error:", err);
+    if (err.code === "PFC01") return res.status(403).json({ code: "FREE_CLASS_ALREADY_USED", message: err.message });
     return res.status(500).json({ message: "Error interno" });
   } finally {
     client.release();
@@ -5017,6 +5019,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, consentGuard(pool, req =
     return res.json({ data: { id: bookingId, class_id: newClassId, status: "confirmed" } });
   } catch (err) {
     console.error("PUT bookings reschedule error:", err.message, err.stack);
+    if (err.code === "PFC01") return res.status(403).json({ code: "FREE_CLASS_ALREADY_USED", message: err.message });
     return res.status(500).json({ message: "Error interno", detail: err.message });
   }
 });
@@ -13514,6 +13517,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, consentGuard(pool, req =
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) { }
     console.error("POST /admin/bookings/assign error:", err?.stack || err?.message || err);
+    if (err.code === "PFC01") return res.status(403).json({ code: "FREE_CLASS_ALREADY_USED", message: err.message });
     // Unique constraint violation — e.g. re-booking a user who already has
     // (or had) a booking for this class. Return a 409 with a clear message
     // instead of the generic 500.
@@ -13804,6 +13808,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, consentGuard(pool, r
   } catch (err) {
     try { await client.query("ROLLBACK"); } catch (_) { }
     console.error("POST /admin/bookings/bulk-month error:", err);
+    if (err.code === "PFC01") return res.status(403).json({ code: "FREE_CLASS_ALREADY_USED", message: err.message });
     return res.status(500).json({ message: "Error interno" });
   } finally {
     client.release();

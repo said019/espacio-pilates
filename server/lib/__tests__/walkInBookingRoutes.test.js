@@ -6,7 +6,7 @@ import { isWalkInClass, walkInRequiresInscription, shouldConsumeCredit } from '.
 // Execute the production handlers without booting the server or contacting
 // production. Only database/auth/notification boundaries are substituted.
 const source = readFileSync('server/index.js', 'utf8');
-async function book(path, { walkIn = true, requiresInscription = false, paid = false, full = false } = {}) {
+async function book(path, { walkIn = true, requiresInscription = false, paid = false, full = false, alreadyUsed = false } = {}) {
   let handler;
   const bookings = [];
   let occupied = full ? 6 : 0;
@@ -19,6 +19,7 @@ async function book(path, { walkIn = true, requiresInscription = false, paid = f
     }] };
     if (sql.startsWith('SELECT id FROM bookings')) return { rows: [] };
     if (sql.includes('INSERT INTO bookings')) {
+      if (alreadyUsed) throw Object.assign(new Error('Ya utilizaste tu clase gratis.'), {code:'PFC01'});
       const booking = { id: 'booking', class_id: args[0], user_id: args[1], membership_id: args[2], status: args[3] };
       bookings.push(booking);
       return { rows: [booking] };
@@ -51,6 +52,15 @@ async function book(path, { walkIn = true, requiresInscription = false, paid = f
 }
 
 describe.each(['/api/bookings', '/api/admin/bookings/assign'])('%s walk-in access', path => {
+  it('returns a clear rejection and rolls back when the lifetime free class was used', async () => {
+    const result=await book(path,{alreadyUsed:true});
+    expect(result.res.code).toBe(403);
+    expect(result.res.body.code).toBe('FREE_CLASS_ALREADY_USED');
+    expect(result.bookings).toHaveLength(0);
+    expect(result.occupied).toBe(0);
+    expect(result.query).toHaveBeenCalledWith('ROLLBACK');
+    expect(result.query).not.toHaveBeenCalledWith('COMMIT');
+  });
   it.each([false, true])('free walk-in books without membership or enrollment (full=%s)', async full => {
     const result = await book(path, { full });
     expect(result.res.code).toBe(201);
