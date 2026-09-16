@@ -6,7 +6,33 @@ import { isWalkInClass, walkInRequiresInscription, shouldConsumeCredit } from '.
 // Execute the production handlers without booting the server or contacting
 // production. Only database/auth/notification boundaries are substituted.
 const source = readFileSync('server/index.js', 'utf8');
-async function book(path, { walkIn = true, requiresInscription = false, paid = false, full = false, alreadyUsed = false } = {}) {
+
+describe('soft class waitlist promotion', () => {
+  it.each(['free', 'member', 'expired'])('revalidates and charges the correct booking mode: %s', async mode => {
+    const consumeMembershipCredit = vi.fn();
+    const query = vi.fn(async sql => {
+      if (sql.includes('FROM classes c')) return { rows: [{ id:'class', is_walk_in:true, walk_in_requires_inscription:false, current_bookings:0, max_capacity:6, class_category:'pilates' }] };
+      if (sql.includes('FROM bookings')) return { rows: [{ id:'booking', user_id:'user', membership_id:mode === 'free' ? null : 'member' }] };
+      if (sql.includes('FROM memberships')) return { rows: [{ id:'member' }] };
+      return { rows: [] };
+    });
+    const start = source.indexOf('async function promoteWaitlist(classId)');
+    const end = source.indexOf('\nasync function areEmailNotificationsEnabled', start);
+    const promote = vm.runInNewContext(source.slice(start,end) + '\npromoteWaitlist;', {
+      getCancellationConfig: async () => ({waitlist_cutoff_hours:0}),
+      pool: {connect: async () => ({query, release() {}})}, console,
+      normalizeClassCategory: value => value, isWalkInClass, walkInRequiresInscription,
+      membershipIsEligibleForClass: () => mode !== 'expired',
+      checkPlanTimeRestriction: () => ({allowed:true}), consumeMembershipCredit,
+    });
+    const result = await promote('class');
+    expect(Boolean(result)).toBe(mode !== 'expired');
+    expect(consumeMembershipCredit).toHaveBeenCalledTimes(mode === 'member' ? 1 : 0);
+    if (mode === 'member') expect(query.mock.calls.some(([sql]) => sql.includes('membership_id = NULL'))).toBe(false);
+  });
+});
+
+async function book(path, { walkIn = true, requiresInscription = false, paid = false, full = false, alreadyUsed = false, member = null, compatible = true } = {}) {
   let handler;
   const bookings = [];
   let occupied = full ? 6 : 0;
@@ -18,8 +44,9 @@ async function book(path, { walkIn = true, requiresInscription = false, paid = f
       is_walk_in: walkIn, walk_in_requires_inscription: requiresInscription,
     }] };
     if (sql.startsWith('SELECT id FROM bookings')) return { rows: [] };
+    if (sql.includes('FROM memberships')) return { rows: member ? [member] : [] };
     if (sql.includes('INSERT INTO bookings')) {
-      if (alreadyUsed) throw Object.assign(new Error('Ya utilizaste tu clase gratis.'), {code:'PFC01'});
+      if (alreadyUsed && !args[2]) throw Object.assign(new Error('Ya utilizaste tu clase gratis.'), {code:'PFC01'});
       const booking = { id: 'booking', class_id: args[0], user_id: args[1], membership_id: args[2], status: args[3] };
       bookings.push(booking);
       return { rows: [booking] };
@@ -29,7 +56,7 @@ async function book(path, { walkIn = true, requiresInscription = false, paid = f
     throw new Error(`Unexpected query: ${sql}`);
   });
   const client = { query, release: vi.fn() };
-  const selectMembershipForClass = vi.fn().mockResolvedValue(null);
+  const selectMembershipForClass = vi.fn().mockResolvedValue(member);
   const clientHasPaidWalkInInscription = vi.fn().mockResolvedValue(paid);
   const consumeMembershipCredit = vi.fn();
   const start = source.indexOf(`app.post("${path}",`);
@@ -43,6 +70,9 @@ async function book(path, { walkIn = true, requiresInscription = false, paid = f
     isWalkInClass, walkInRequiresInscription, shouldConsumeCredit,
     normalizeClassCategory: value => value, programForClassCategory: value => value,
     selectMembershipForClass, clientHasPaidWalkInInscription, consumeMembershipCredit,
+    membershipCanBookClass: () => compatible, isTrialPlan: () => false,
+    checkPlanTimeRestriction: () => ({ allowed: true }),
+    isUnlimitedClasses: value => value == null || value >= 9999,
     getCancellationConfig: async () => ({}), triggerWalletPassSync() {},
   });
   const res = { code: 200, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
@@ -52,6 +82,24 @@ async function book(path, { walkIn = true, requiresInscription = false, paid = f
 }
 
 describe.each(['/api/bookings', '/api/admin/bookings/assign'])('%s walk-in access', path => {
+  it.each([false, true])('uses membership after the free visit, charging only confirmed seats (full=%s)', async full => {
+    const result = await book(path, { full, alreadyUsed: true, member: { id: 'member', classes_remaining: 5 } });
+    expect(result.res.code).toBe(201);
+    expect(result.bookings[0].membership_id).toBe('member');
+    expect(result.consumeMembershipCredit).toHaveBeenCalledTimes(full ? 0 : 1);
+    expect(result.selectMembershipForClass).toHaveBeenCalledWith(expect.objectContaining({branchId:'pozos',classCategory:'pilates'}));
+  });
+  it('rejects an incompatible membership even for a soft class', async () => {
+    const result = await book(path, { member: { id: 'member', classes_remaining: 5 }, compatible: false });
+    expect(result.res.code).toBe(403);
+    expect(result.res.body.code).toBe('MEMBERSHIP_CLASS_MISMATCH');
+    expect(result.bookings).toHaveLength(0);
+  });
+  it('rejects credits exhausted between selection and locking', async () => {
+    const result = await book(path, { member: { id: 'member', classes_remaining: 0 } });
+    expect(result.res.code).toBe(403);
+    expect(result.bookings).toHaveLength(0);
+  });
   it('returns a clear rejection and rolls back when the lifetime free class was used', async () => {
     const result=await book(path,{alreadyUsed:true});
     expect(result.res.code).toBe(403);
@@ -66,7 +114,7 @@ describe.each(['/api/bookings', '/api/admin/bookings/assign'])('%s walk-in acces
     expect(result.res.code).toBe(201);
     expect(result.bookings).toEqual([expect.objectContaining({ membership_id: null, status: full ? 'waitlist' : 'confirmed' })]);
     expect(result.occupied).toBe(full ? 6 : 1);
-    expect(result.selectMembershipForClass).not.toHaveBeenCalled();
+    expect(result.selectMembershipForClass).toHaveBeenCalledOnce();
     expect(result.clientHasPaidWalkInInscription).not.toHaveBeenCalled();
     expect(result.consumeMembershipCredit).not.toHaveBeenCalled();
     expect(result.query).toHaveBeenCalledWith('COMMIT');

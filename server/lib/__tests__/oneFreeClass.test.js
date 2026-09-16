@@ -15,7 +15,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('one lifetime free class (Postgr
       for(const client of [db,other]) await client.query(`SET search_path TO ${schema}, public`);
       await db.query(`CREATE TABLE users(id uuid PRIMARY KEY);
         CREATE TABLE classes(id uuid PRIMARY KEY, branch text, is_walk_in boolean, walk_in_requires_inscription boolean);
-        CREATE TABLE bookings(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, class_id uuid,
+        CREATE TABLE bookings(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid, class_id uuid, membership_id uuid,
           status text DEFAULT 'confirmed', created_at timestamptz DEFAULT now());`);
       const [villa,pozos,paid,enrollment]=Array.from({length:4},randomUUID);
       await db.query(`INSERT INTO classes VALUES ($1,'villa',true,false),($2,'pozos',true,false),($3,'villa',false,true),($4,'pozos',true,true)`,[villa,pozos,paid,enrollment]);
@@ -28,6 +28,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('one lifetime free class (Postgr
       await db.query(migration); await db.query(migration);
       expect((await db.query('SELECT count(*)::int AS n FROM bookings WHERE user_id=$1',[users[0]])).rows[0].n).toBe(2);
       await expect(book(users[0],villa)).rejects.toMatchObject({code:'PFC01'});
+      // Membership-backed visits may repeat even after the free benefit is spent.
+      for (const cls of [villa, pozos, villa]) {
+        await db.query('INSERT INTO bookings(user_id,class_id,membership_id) VALUES ($1,$2,$3)', [users[0],cls,randomUUID()]);
+      }
+      // Paid visits do not consume a new user's free entitlement.
+      await db.query('INSERT INTO bookings(user_id,class_id,membership_id) VALUES ($1,$2,$3)', [users[1],villa,randomUUID()]);
+      await db.query(migration);
+      expect((await db.query('SELECT * FROM free_class_claims WHERE user_id=$1',[users[1]])).rows).toHaveLength(0);
 
       const first=(await book(users[1],villa)).rows[0].id;
       await expect(book(users[1],pozos)).rejects.toMatchObject({code:'PFC01', message:'Ya utilizaste tu clase gratis. Para volver a tomar clase, compra una visita o adquiere una membresía. ¡Te esperamos!'});

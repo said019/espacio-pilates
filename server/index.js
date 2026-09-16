@@ -4278,8 +4278,10 @@ app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId),
     }
 
     const clsCategory = normalizeClassCategory(cls.class_category, "all");
-    const walkInClass = isWalkInClass(cls);
-    let membership = null;
+    let membership = isWalkInClass(cls) && !walkInRequiresInscription(cls)
+      ? await selectMembershipForClass({ userId: req.userId, branchId: cls.branch_id, classCategory: clsCategory, classDate: cls.date, classStartTime: cls.start_time, client })
+      : null;
+    const walkInClass = isWalkInClass(cls) && !membership;
     let lockedMembership = null;
 
     if (walkInClass && walkInRequiresInscription(cls)) {
@@ -4296,7 +4298,7 @@ app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId),
         });
       }
     } else if (!walkInClass) {
-      membership = await selectMembershipForClass({
+      membership = membership || await selectMembershipForClass({
         userId: req.userId,
         branchId: cls.branch_id,
         classCategory: clsCategory,
@@ -4672,7 +4674,7 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
             time: booking.start_time ? String(booking.start_time).slice(0, 5) : "",
             creditRestored: shouldRefund ? "Sí" : "No",
           },
-          fallbackMessage: isWalkInClass(booking)
+          fallbackMessage: isWalkInClass(booking) && !booking.membership_id
             ? `Hola ${u.display_name || "Alumna"}, cancelaste tu reserva walk-in de ${booking.class_type_name || "tu clase"}. No se usó ningún crédito.`
             : shouldRefund
             ? `Hola ${u.display_name || "Alumna"}, cancelaste tu reserva de ${booking.class_type_name || "tu clase"}. Tu crédito fue devuelto.`
@@ -4696,7 +4698,7 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
 
     triggerWalletPassSync(req.userId, "booking_cancelled");
     return res.json({
-      message: isWalkInClass(booking)
+      message: isWalkInClass(booking) && !booking.membership_id
         ? "Reserva walk-in cancelada. No se descontó ni devolvió ningún crédito."
         : shouldRefund
         ? "Reserva cancelada. Se devolvió el crédito a tu paquete."
@@ -4822,8 +4824,8 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, consentGuard(pool, req =
         return res.status(400).json({ message: "No puedes reagendar a una clase que ya pasó." });
       }
 
-      const oldWalkIn = isWalkInClass({ is_walk_in: booking.old_is_walk_in });
-      const newWalkIn = isWalkInClass(newCls);
+      const oldWalkIn = isWalkInClass({ is_walk_in: booking.old_is_walk_in }) && !booking.membership_id;
+      const newWalkIn = isWalkInClass(newCls) && (!booking.membership_id || walkInRequiresInscription(newCls));
       if (oldWalkIn !== newWalkIn) {
         await client.query("ROLLBACK");
         return res.status(400).json({
@@ -11282,7 +11284,7 @@ async function promoteWaitlist(classId) {
     );
     let promoted = null;
     for (const wl of wlRes.rows) {
-      if (isWalkInClass(cls)) {
+      if (isWalkInClass(cls) && !wl.membership_id) {
         if (walkInRequiresInscription(cls)) {
           const eligible = await clientHasPaidWalkInInscription(wl.user_id, {
             branchId: cls.branch_id,
@@ -13364,8 +13366,10 @@ app.post("/api/admin/bookings/assign", adminMiddleware, consentGuard(pool, req =
     }
 
     const clsCategory = normalizeClassCategory(cls.class_category, "all");
-    const walkInClass = isWalkInClass(cls);
-    let membership = null;
+    let membership = isWalkInClass(cls) && !walkInRequiresInscription(cls)
+      ? await selectMembershipForClass({ userId, branchId: cls.branch_id, classCategory: clsCategory, classDate: cls.date, classStartTime: cls.start_time, client })
+      : null;
+    const walkInClass = isWalkInClass(cls) && !membership;
     let lockedMembership = null;
     if (walkInClass && walkInRequiresInscription(cls)) {
       const hasPaidInscription = await clientHasPaidWalkInInscription(userId, {
@@ -13381,7 +13385,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, consentGuard(pool, req =
         });
       }
     } else if (!walkInClass) {
-      membership = await selectMembershipForClass({
+      membership = membership || await selectMembershipForClass({
         userId,
         branchId: cls.branch_id,
         classCategory: clsCategory,
@@ -13664,6 +13668,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, consentGuard(pool, r
     // Si classes_remaining es NULL/ilimitada, toma esa. Si no, debe tener >= bookable.length.
     const walkInBookable = bookable.filter((item) => isWalkInClass(item));
     const needed = bookable.length - walkInBookable.length;
+    const membershipCredits = bookable.filter((item) => !isWalkInClass(item) || !walkInRequiresInscription(item)).length;
     if (walkInBookable.some((item) => walkInRequiresInscription(item))) {
       const hasPaidInscription = await clientHasPaidWalkInInscription(userId, {
         branchId: slot.branch_id,
@@ -13682,7 +13687,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, consentGuard(pool, r
     const scopedDates = bookable.map((item) => toDbDateString(new Date(item.date))).sort();
     const firstScopedDate = scopedDates[0];
     const lastScopedDate = scopedDates[scopedDates.length - 1];
-    const memRes = needed > 0 ? await client.query(
+    const memRes = membershipCredits > 0 ? await client.query(
       `SELECT m.id, m.user_id, m.branch_id, m.status, m.classes_remaining,
               m.start_date, m.end_date,
               COALESCE(p.class_category, 'all') AS class_category,
@@ -13712,11 +13717,12 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, consentGuard(pool, r
         LIMIT 1
         FOR UPDATE OF m`,
       [
-        userId, clsCategory, needed, compatibleCategories, slot.branch_id,
+        userId, clsCategory, membershipCredits, compatibleCategories, slot.branch_id,
         clsProgram, firstScopedDate, lastScopedDate,
       ]
     ) : { rows: [] };
     const membership = memRes.rows[0] || null;
+    const usesMembership = (cls) => Boolean(membership) && (!isWalkInClass(cls) || !walkInRequiresInscription(cls));
     if (membership && !membershipCanBookClass(membership, {
       branch_id: slot.branch_id,
       program: clsProgram,
@@ -13735,7 +13741,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, consentGuard(pool, r
     if (membership?.time_restriction) {
       const stillBookable = [];
       for (const cls of bookable) {
-        if (isWalkInClass(cls)) {
+        if (!usesMembership(cls)) {
           stillBookable.push(cls);
           continue;
         }
@@ -13762,7 +13768,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, consentGuard(pool, r
       const ins = await client.query(
         `INSERT INTO bookings (class_id, user_id, membership_id, status)
          VALUES ($1, $2, $3, 'confirmed') RETURNING id`,
-        [cls.id, userId, isWalkInClass(cls) ? null : membership.id]
+        [cls.id, userId, usesMembership(cls) ? membership.id : null]
       );
       createdBookings.push({ bookingId: ins.rows[0].id, classId: cls.id, date: toDbDateString(new Date(cls.date)) });
       await client.query(
@@ -13773,7 +13779,7 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, consentGuard(pool, r
 
     const creditsUsed = createdBookings.filter((booking) => {
       const cls = bookable.find((item) => item.id === booking.classId);
-      return cls && !isWalkInClass(cls);
+      return cls && usesMembership(cls);
     }).length;
     if (!unlimited && creditsUsed > 0) {
       await client.query(

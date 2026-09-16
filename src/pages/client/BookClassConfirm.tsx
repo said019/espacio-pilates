@@ -111,7 +111,7 @@ const BookClassConfirm = () => {
                   <div className="rounded-xl border border-[#E5CF9F] bg-[#F4EAD6]/60 px-3 py-2 text-xs text-[#8A672C]">
                     {walkInRequiresInscription
                       ? `Esta reserva no descontará créditos. Necesitas tener pagada tu inscripción de ${programLabel(classProgram)} en ${classBranch.name}.`
-                      : "Esta clase es walk-in gratis: no descuenta créditos ni requiere inscripción. Solo una clase gratis por usuaria entre ambas sucursales. Para volver a tomar clase, compra una visita o adquiere una membresía. ¡Te esperamos! Cancelar no reinicia el beneficio."}
+                      : "Si tienes una membresía válida para esta sucursal y clase, tu reserva usa tu paquete. Sin membresía, puedes usar una sola clase gratis entre ambas sucursales, sin inscripción. Para repetir, compra una visita o adquiere una membresía. Cancelar no reinicia el beneficio."}
                   </div>
                 )}
                 <div className="flex items-center gap-2 text-sm">
