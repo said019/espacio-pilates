@@ -39,6 +39,13 @@ const BookClassConfirm = () => {
   const classProgram = getEntityProgram(cls);
   const isWalkIn = Boolean(cls?.isWalkIn ?? cls?.is_walk_in);
   const walkInRequiresInscription = (cls?.walkInRequiresInscription ?? cls?.walk_in_requires_inscription) !== false;
+  const accessQuery = useQuery({
+    queryKey: ["booking-eligibility", classId],
+    queryFn: async () => (await api.get("/bookings/eligibility", { params: { classId } })).data,
+    enabled: Boolean(cls && classId),
+    staleTime: 0,
+  });
+  const membership = accessQuery.data?.membership;
 
   useEffect(() => {
     if (classBranchCode) setBranchCode(classBranchCode);
@@ -47,6 +54,7 @@ const BookClassConfirm = () => {
   const bookMutation = useMutation({
     mutationFn: () => api.post("/bookings", {
       classId,
+      membershipId: membership?.id,
       branchId: classBranch.id,
       branch_id: classBranch.id,
       program: classProgram,
@@ -70,6 +78,7 @@ const BookClassConfirm = () => {
       navigate("/app/bookings");
     },
     onError: (err: any) => {
+      accessQuery.refetch();
       toast({
         title: "No se pudo reservar",
         description: err.response?.data?.message ?? "Inténtalo de nuevo",
@@ -95,7 +104,7 @@ const BookClassConfirm = () => {
                 <div className="flex flex-wrap gap-2">
                   <Badge variant="outline" className="w-fit">{cls.level ?? "Todos los niveles"}</Badge>
                   <Badge variant="secondary" className="w-fit">{programLabel(classProgram)}</Badge>
-                  {isWalkIn && <Badge className="w-fit bg-[#F4EAD6] text-[#8A672C] hover:bg-[#F4EAD6]">Walk-in</Badge>}
+                  {membership ? <Badge variant="secondary">Con membresía</Badge> : isWalkIn && <Badge className="w-fit bg-[#F4EAD6] text-[#8A672C] hover:bg-[#F4EAD6]">Walk-in</Badge>}
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -107,7 +116,16 @@ const BookClassConfirm = () => {
                   <Calendar size={14} className="text-muted-foreground" />
                   {cls.start_time ? format(safeParse(cls.start_time), "EEEE d 'de' MMMM yyyy", { locale: es }) : "—"}
                 </div>
-                {isWalkIn && (
+                {membership && (
+                  <div className="rounded-xl border border-valiance-mauve/30 px-3 py-3 text-sm" aria-live="polite">
+                    <p className="font-semibold">Tu membresía: {membership.name}</p>
+                    <p>{membership.classesRemaining === null ? "Clases ilimitadas" : `${membership.classesRemaining} clases disponibles`}</p>
+                    <p className="mt-1 text-xs">{membership.classesRemaining === null
+                      ? "Esta reserva está incluida en tu membresía."
+                      : "Se descontará 1 clase de tu paquete al confirmar tu lugar. Si entras a lista de espera, se descontará cuando obtengas lugar."}</p>
+                  </div>
+                )}
+                {isWalkIn && !membership && accessQuery.isSuccess && (
                   <div className="rounded-xl border border-[#E5CF9F] bg-[#F4EAD6]/60 px-3 py-2 text-xs text-[#8A672C]">
                     {walkInRequiresInscription
                       ? `Esta reserva no descontará créditos. Necesitas tener pagada tu inscripción de ${programLabel(classProgram)} en ${classBranch.name}.`
@@ -134,14 +152,19 @@ const BookClassConfirm = () => {
                 <Button
                   className="w-full mt-4"
                   onClick={() => bookMutation.mutate()}
-                  disabled={bookMutation.isPending}
+                  disabled={bookMutation.isPending || !accessQuery.isSuccess}
                 >
                   {bookMutation.isPending
                     ? "Reservando..."
+                    : accessQuery.isPending ? "Consultando tu membresía..."
                     : (cls.current_bookings ?? 0) >= (cls.max_capacity ?? 0)
                       ? "Unirme a la lista de espera"
-                      : isWalkIn ? "Reservar walk-in" : "Confirmar reserva"}
+                      : membership ? "Reservar con mi membresía" : isWalkIn ? "Reservar walk-in" : "Confirmar reserva"}
                 </Button>
+                {accessQuery.isError && <div role="alert" className="text-sm">
+                  No pudimos consultar tu membresía.
+                  <Button variant="link" onClick={() => accessQuery.refetch()}>Volver a intentar</Button>
+                </div>}
               </CardContent>
             </Card>
           ) : (

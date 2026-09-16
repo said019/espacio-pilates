@@ -7,6 +7,27 @@ import { isWalkInClass, walkInRequiresInscription, shouldConsumeCredit } from '.
 // production. Only database/auth/notification boundaries are substituted.
 const source = readFileSync('server/index.js', 'utf8');
 
+describe('membership preview', () => {
+  it.each([true, false])('returns only the eligible account package (eligible=%s)', async eligible => {
+    let handler;
+    const start = source.indexOf('app.get("/api/bookings/eligibility",');
+    const end = source.indexOf('\n});', start) + '\n});'.length;
+    const select = vi.fn(async () => ({id:'member',plan_name:'Paquete 9 Clases',classes_remaining:5}));
+    vm.runInNewContext(source.slice(start,end), {
+      app:{get:(_path,...handlers)=>{handler=handlers.at(-1);}}, authMiddleware(){}, console,
+      pool:{query:async()=>({rows:[{id:'class',branch_id:'pozos',class_category:'reformer',date:'2026-09-18',start_time:'07:00',is_walk_in:true,walk_in_requires_inscription:false}]})},
+      isWalkInClass,walkInRequiresInscription,selectMembershipForClass:select,
+      membershipCanBookClass:()=>eligible,checkPlanTimeRestriction:()=>({allowed:true}),
+      isTrialPlan:()=>false,isUnlimitedClasses:()=>false,
+    });
+    const res={set:vi.fn(),json:vi.fn(),status(){return this;}};
+    await handler({userId:'gloria',query:{classId:'class'}},res);
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({userId:'gloria',branchId:'pozos',classCategory:'reformer'}));
+    expect(res.json).toHaveBeenCalledWith({membership:eligible?{id:'member',name:'Paquete 9 Clases',classesRemaining:5}:null});
+    expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');
+  });
+});
+
 describe('soft class waitlist promotion', () => {
   it.each(['free', 'member', 'expired'])('revalidates and charges the correct booking mode: %s', async mode => {
     const consumeMembershipCredit = vi.fn();
@@ -32,7 +53,7 @@ describe('soft class waitlist promotion', () => {
   });
 });
 
-async function book(path, { walkIn = true, requiresInscription = false, paid = false, full = false, alreadyUsed = false, member = null, compatible = true } = {}) {
+async function book(path, { walkIn = true, requiresInscription = false, paid = false, full = false, alreadyUsed = false, member = null, compatible = true, requestedMembershipId } = {}) {
   let handler;
   const bookings = [];
   let occupied = full ? 6 : 0;
@@ -76,10 +97,24 @@ async function book(path, { walkIn = true, requiresInscription = false, paid = f
     getCancellationConfig: async () => ({}), triggerWalletPassSync() {},
   });
   const res = { code: 200, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
-  await handler({ body: { classId: 'class', userId: 'user-without-membership' }, userId: 'user-without-membership' }, res);
+  await handler({ body: { classId: 'class', userId: 'user-without-membership', membershipId: requestedMembershipId }, userId: 'user-without-membership' }, res);
   expect(client.release).toHaveBeenCalledOnce();
   return { res, bookings, occupied, query, selectMembershipForClass, clientHasPaidWalkInInscription, consumeMembershipCredit };
 }
+
+describe('explicit membership confirmation', () => {
+  it('does not fall back to free when the selected package is unavailable', async () => {
+    const result = await book('/api/bookings', {requestedMembershipId:'missing'});
+    expect(result.res.body.code).toBe('MEMBERSHIP_UNAVAILABLE');
+    expect(result.bookings).toHaveLength(0);
+  });
+  it('uses the previewed membership despite a previous free visit', async () => {
+    const result = await book('/api/bookings', {requestedMembershipId:'member',member:{id:'member',classes_remaining:5},alreadyUsed:true});
+    expect(result.res.code).toBe(201);
+    expect(result.bookings[0].membership_id).toBe('member');
+    expect(result.consumeMembershipCredit).toHaveBeenCalledOnce();
+  });
+});
 
 describe.each(['/api/bookings', '/api/admin/bookings/assign'])('%s walk-in access', path => {
   it.each([false, true])('uses membership after the free visit, charging only confirmed seats (full=%s)', async full => {

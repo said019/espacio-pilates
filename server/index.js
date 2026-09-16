@@ -4247,10 +4247,40 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
   }
 });
 
+// Preview uses exactly the same membership selector as confirmation. Never
+// infer booking access from the currently selected branch in the browser.
+app.get("/api/bookings/eligibility", authMiddleware, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT c.id, c.branch_id, c.date, c.start_time, c.is_walk_in,
+              c.walk_in_requires_inscription, ct.category AS class_category
+         FROM classes c JOIN class_types ct ON ct.id = c.class_type_id WHERE c.id = $1`,
+      [req.query.classId],
+    );
+    const cls = result.rows[0];
+    if (!cls) return res.status(404).json({ message: "Clase no encontrada" });
+    const membership = !isWalkInClass(cls) || !walkInRequiresInscription(cls)
+      ? await selectMembershipForClass({ userId: req.userId, branchId: cls.branch_id,
+          classCategory: cls.class_category, classDate: cls.date, classStartTime: cls.start_time })
+      : null;
+    const usable = membership && membershipCanBookClass(membership, cls)
+      && checkPlanTimeRestriction(membership, cls.date, cls.start_time).allowed
+      && (!isTrialPlan(membership) || isClassAllowedForTrial(cls.date, cls.start_time));
+    res.set("Cache-Control", "no-store");
+    return res.json({ membership: usable ? {
+      id: membership.id, name: membership.plan_name,
+      classesRemaining: isUnlimitedClasses(membership.classes_remaining) ? null : membership.classes_remaining,
+    } : null });
+  } catch (err) {
+    console.error("Booking eligibility error:", err.message);
+    return res.status(500).json({ message: "No pudimos consultar tu membresía. Vuelve a intentarlo." });
+  }
+});
+
 // POST /api/bookings
 registerConsentRoutes(app, pool, authMiddleware, adminMiddleware, sendPushToAdmins);
 app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId), async (req, res) => {
-  const { classId } = req.body;
+  const { classId, membershipId: requestedMembershipId } = req.body;
   if (!classId) return res.status(400).json({ message: "classId requerido" });
   const client = await pool.connect();
   try {
@@ -4284,6 +4314,12 @@ app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId),
     const walkInClass = isWalkInClass(cls) && !membership;
     let lockedMembership = null;
 
+    // An explicit membership reservation must never silently become a free visit.
+    if (requestedMembershipId && (!membership || membership.id !== requestedMembershipId) && isWalkInClass(cls)) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ code: "MEMBERSHIP_UNAVAILABLE", message: "Tu paquete cambió o ya no está disponible para esta clase. Actualiza la página para consultar tu membresía." });
+    }
+
     if (walkInClass && walkInRequiresInscription(cls)) {
       const hasPaidInscription = await clientHasPaidWalkInInscription(req.userId, {
         branchId: cls.branch_id,
@@ -4311,6 +4347,11 @@ app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId),
         return res.status(403).json({
           message: "No tienes membresía activa con créditos para esta clase.",
         });
+      }
+
+      if (requestedMembershipId && membership.id !== requestedMembershipId) {
+        await client.query("ROLLBACK");
+        return res.status(403).json({ code: "MEMBERSHIP_UNAVAILABLE", message: "Tu paquete cambió. Actualiza la página para consultar tu membresía." });
       }
 
       // Lock selected membership row to prevent double consumption.
