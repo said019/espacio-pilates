@@ -5249,7 +5249,7 @@ app.get("/api/notifications", authMiddleware, async (req, res) => {
 
     // 1) Orders — approved, rejected, pending
     const orders = await pool.query(
-      `SELECT o.id, o.status, o.total, o.created_at, o.updated_at, o.order_number,
+      `SELECT o.id, o.status, o.total_amount AS total, o.created_at, o.updated_at, o.order_number,
               p.name AS plan_name, br.name AS branch_name
        FROM orders o
        JOIN plans p ON o.plan_id = p.id
@@ -5260,7 +5260,7 @@ app.get("/api/notifications", authMiddleware, async (req, res) => {
       [req.userId]
     );
     for (const o of orders.rows) {
-      if (o.status === "paid") {
+      if (o.status === "paid" || o.status === "approved") {
         notifications.push({
           id: `order-paid-${o.id}`,
           title: "Pago aprobado",
@@ -8985,10 +8985,10 @@ app.post("/api/wallet/v1/devices/:deviceId/registrations/:passTypeId/:serial", a
 
 // GET /api/wallet/v1/devices/:deviceId/registrations/:passTypeId
 app.get("/api/wallet/v1/devices/:deviceId/registrations/:passTypeId", async (req, res) => {
-  const authHeader = req.headers.authorization || "";
-  if (!authHeader.startsWith("ApplePass ") || authHeader.replace("ApplePass ", "") !== APPLE_AUTH_TOKEN) {
-    return res.status(401).send("Unauthorized");
-  }
+  // Apple's list-updates request has no per-pass authentication token.
+  // Return only serials registered to this device AND pass type. Registration,
+  // pass download and deletion still require ApplePass authentication.
+  res.set("Cache-Control", "no-store");
   const { deviceId, passTypeId } = req.params;
   const effectivePassTypeId = passTypeId || APPLE_PASS_TYPE_ID;
   const rawSince = String(req.query?.passesUpdatedSince || "").trim();
