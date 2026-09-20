@@ -7,6 +7,7 @@ import ClientLayout from "@/components/layout/ClientLayout";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { isRegistrationPlan, registrationBlockReason } from "@/lib/registrationPlan";
 import {
   Check, Loader2, CreditCard, Copy, Building2,
   Tag, ChevronRight, ArrowLeft, Upload, CheckCircle, Sparkles, X, Plus, Minus,
@@ -81,8 +82,8 @@ function flag(value: unknown): boolean {
 
 // ── Plan card ─────────────────────────────────────────────────────────────────
 const PlanCard = ({
-  plan, selected, onSelect, branchName, program,
-}: { plan: any; selected: boolean; onSelect: () => void; branchName: string; program: StudioProgram }) => {
+  plan, selected, onSelect, branchName, program, disabledReason,
+}: { plan: any; selected: boolean; onSelect: () => void; branchName: string; program: StudioProgram; disabledReason?: string }) => {
   const classLimit = plan.classLimit ?? plan.class_limit ?? null;
   const durationDays = Number(plan.durationDays ?? plan.duration_days ?? 0);
   const nonTransferable = flag(plan.isNonTransferable ?? plan.is_non_transferable);
@@ -96,6 +97,7 @@ const PlanCard = ({
     <button
       type="button"
       onClick={onSelect}
+      disabled={Boolean(disabledReason)}
       className={cn(
         "relative w-full text-left rounded-2xl border p-4 transition-all duration-200 overflow-hidden",
         selected
@@ -145,12 +147,14 @@ const PlanCard = ({
         <span className="text-[10px] text-[#6B4F53] bg-[#D9B5BA]/15 border border-[#D9B5BA]/25 rounded-full px-2 py-0.5">
           {programLabel(program)} en {branchName}
         </span>
-        {durationDays > 0 && durationDays < 365 && (
+        {isRegistrationPlan(plan) && <span className="text-xs text-[#6B4F53]">Pago único · No incluye clases</span>}
+        {disabledReason && <span className="text-xs text-[#6B4F53]">{disabledReason}</span>}
+        {!isRegistrationPlan(plan) && durationDays > 0 && durationDays < 365 && (
           <span className="text-[10px] text-[#6B4F53] bg-[#D9B5BA]/15 border border-[#D9B5BA]/25 rounded-full px-2 py-0.5">
             {Number(classLimit) >= 2 ? "Vence fin de mes" : `${durationDays} días`}
           </span>
         )}
-        {Number(classLimit) > 0 && (
+        {!isRegistrationPlan(plan) && Number(classLimit) > 0 && (
           <span className="text-[10px] text-[#3D3A3A] bg-[#8C6B6F]/12 border border-[#8C6B6F]/20 rounded-full px-2 py-0.5">
             {classLimit} clases
           </span>
@@ -306,8 +310,8 @@ const Checkout = () => {
   const canBuyClaseExtra: boolean = inscriptionInfo?.canBuyClaseExtra
     ?? inscriptionInfo?.can_buy_clase_extra
     ?? !needsInscription;
-  // Mostrar la tarjeta de "Inscripción" solo si realmente necesita inscribirse y
-  // no tiene ya un paquete pendiente que se la esté cobrando (evita doble pago).
+  // Mostrar inscripción independiente; bloquear compras cuando ya está pagada
+  // o incluida en un paquete pendiente del mismo programa y sucursal.
   const rawPlans: any[] = Array.isArray(plansData?.data) ? plansData.data : Array.isArray(plansData) ? plansData : [];
   const branchPlans = rawPlans
     .filter((p) => (p.isActive ?? p.is_active) !== false)
@@ -333,12 +337,13 @@ const Checkout = () => {
 
   const trialPlan = allPlans.find((p) => (p.name ?? "").toLowerCase().includes("muestra"));
   const plans = allPlans
-    .filter((p) => p !== trialPlan)
-    .filter((p) => !/inscrip/i.test(String(p.name ?? "")));
+    .filter((p) => p !== trialPlan);
+  const inscriptionBlocked = registrationBlockReason(hasScopedQuote, inscriptionInfo);
 
   // ── Carrito: helpers ───────────────────────────────────────────────────────
-  const planNonRepeatable = (p: any) => flag(p?.isNonRepeatable ?? p?.is_non_repeatable);
+  const planNonRepeatable = (p: any) => isRegistrationPlan(p) || flag(p?.isNonRepeatable ?? p?.is_non_repeatable);
   const planIsPackage = (p: any) => {
+    if (isRegistrationPlan(p)) return false;
     const name = String(p?.name ?? "").toLowerCase();
     const explicit = p?.isPackage ?? p?.is_package;
     if (explicit !== undefined) return flag(explicit);
@@ -349,6 +354,7 @@ const Checkout = () => {
   const inCart = (id: string) => cart.find((c) => c.plan.id === id);
 
   const addToCart = (plan: any) => {
+    if (isRegistrationPlan(plan) && inscriptionBlocked) return;
     if (getEntityProgram(plan) !== program || !matchesBranch(plan, branch, program === "pilates" ? "universal" : "villa-magna")) {
       toast({
         title: "Ese plan no corresponde a tu selección",
@@ -402,7 +408,7 @@ const Checkout = () => {
   const itemsSubtotal = round2(lineRows.reduce((a, l) => a + l.lineTotal, 0));
   const codeDiscount = discountResult ? Number(discountResult.discount_amount ?? 0) : 0;
   const hasPackage = cart.some((c) => planIsPackage(c.plan));
-  const cartHasInscription = cart.some((c) => /inscrip/i.test(String(c.plan.name ?? "")));
+  const cartHasInscription = cart.some((c) => isRegistrationPlan(c.plan));
   // No mostrar el cargo de inscripción auto si ya va la Inscripción como renglón.
   const showInscription = hasPackage && needsInscription && !cartHasInscription;
   const inscriptionAmount = showInscription ? inscriptionPrice : 0;
@@ -626,7 +632,7 @@ const Checkout = () => {
                   {/* Plan cards */}
                   <div>
                     <p className="text-[11px] font-semibold uppercase tracking-wider mb-2 text-[#8C6B6F]/70">
-                      Paquetes de clases
+                      Paquetes e inscripción
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {plans.map((plan) => (
@@ -637,6 +643,7 @@ const Checkout = () => {
                           onSelect={() => addToCart(plan)}
                           branchName={branch.name}
                           program={program}
+                          disabledReason={isRegistrationPlan(plan) ? inscriptionBlocked : undefined}
                         />
                       ))}
                     </div>
