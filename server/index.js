@@ -14067,7 +14067,8 @@ app.get("/api/classes/:id/roster", adminMiddleware, async (req, res) => {
   try {
     const r = await pool.query(
       `SELECT b.id AS booking_id, b.status, b.checked_in_at, b.guest_name,
-              u.id AS user_id, u.display_name, u.email, u.phone,
+              u.id AS user_id, u.display_name, u.email,
+              COALESCE(NULLIF(u.phone, ''), NULLIF(b.guest_phone, '')) AS phone,
               COALESCE(m.plan_id, walkin_plan.id) AS plan_id,
               COALESCE(p.name, walkin_plan.name) AS plan_name,
               m.classes_remaining

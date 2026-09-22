@@ -31,6 +31,7 @@ import { TimePicker } from "@/components/ui/time-picker";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { manualClassTypesForBranch } from "./classTypeOptions";
 import { summarizeRoster } from "./rosterSummary";
+import { RosterPhone } from "./RosterPhone";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Palette, Zap, MoreHorizontal, Loader2, UserCheck, Sparkles, Calendar, Users, X, CheckCircle2, UserX, Ban, Search } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -525,6 +526,7 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
                 <div className="min-w-0 flex items-center gap-1.5">
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{name}</p>
+                    <RosterPhone phone={r.phone} />
                     <p className="text-[11px] text-muted-foreground truncate">
                       {isWalkIn ? "Walk-in / Sin cuenta" : (r.planName ?? r.plan_name ?? "")}
                     </p>
