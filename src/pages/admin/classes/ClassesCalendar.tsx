@@ -268,6 +268,11 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
   });
   const userOptions = Array.isArray(usersData?.data) ? usersData.data : [];
 
+  const moveRosterMutation = useMutation({
+    mutationFn: ({ id, targetStatus }: { id: string; targetStatus: string }) => api.put(`/bookings/${id}/check-in`, { targetStatus }),
+    onSuccess: () => { invalidateRoster(); toast({ title: "Reserva actualizada" }); },
+    onError: (error: any) => toast({ title: "No se pudo mover la reserva", description: error.response?.data?.message, variant: "destructive" }),
+  });
   const walkInMutation = useMutation({
     mutationFn: (body: any) => api.post(`/admin/classes/${classId}/walkin`, { ...body, branchId }),
     onSuccess: () => {
@@ -517,16 +522,30 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
             const name = r.displayName ?? r.display_name ?? r.guestName ?? r.guest_name ?? "—";
             const bookingId = r.bookingId ?? r.booking_id;
             const status = r.status;
-            const canCheckin = !isWalkIn && (status === "confirmed" || status === "waitlist");
+            const canCheckin = !isWalkIn && status === "confirmed";
             const canNoShow  = !isWalkIn && status === "confirmed";
             const canCancelMember = !isWalkIn && (status === "confirmed" || status === "waitlist");
-            const anyMutating = checkinMutation.isPending || noShowMutation.isPending || cancelMemberMutation.isPending;
+            const anyMutating = checkinMutation.isPending || noShowMutation.isPending || cancelMemberMutation.isPending || moveRosterMutation.isPending;
             return (
               <div key={bookingId} className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-1.5">
                 <div className="min-w-0 flex items-center gap-1.5">
                   <div className="min-w-0">
                     <p className="text-sm font-medium truncate">{name}</p>
                     <RosterPhone phone={r.phone} />
+                    {!isWalkIn && (status === "waitlist" || status === "confirmed") && (
+                      <Button variant="outline" size="sm" className="my-1 h-auto whitespace-normal text-xs"
+                        disabled={anyMutating}
+                        onClick={() => {
+                          const targetStatus = status === "waitlist" ? "confirmed" : "waitlist";
+                          if (window.confirm(targetStatus === "confirmed"
+                            ? `¿Confirmar el lugar de ${name}? Se usará un crédito cuando corresponda y se enviará el aviso.`
+                            : `¿Mover a ${name} a lista de espera? Se libera su lugar y se devuelve el crédito cuando corresponda.`)) {
+                            moveRosterMutation.mutate({ id: bookingId, targetStatus });
+                          }
+                        }}>
+                        {status === "waitlist" ? "Promover a confirmada" : "Mover a espera"}
+                      </Button>
+                    )}
                     <p className="text-[11px] text-muted-foreground truncate">
                       {isWalkIn ? "Walk-in / Sin cuenta" : (r.planName ?? r.plan_name ?? "")}
                     </p>

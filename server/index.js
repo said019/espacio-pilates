@@ -4998,6 +4998,11 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, consentGuard(pool, req =
     }
 
     // ── Audit (best-effort; a logging failure must never break the reschedule) ─
+    const promoted = await promoteWaitlist(oldClassId);
+    if (promoted) {
+      triggerWalletPassSync(promoted.userId, "booking_promoted_from_waitlist");
+      await notifyWaitlistPromotion(promoted.userId, oldClassId);
+    }
     try {
       pool.query(
         "INSERT INTO booking_reschedules (booking_id, user_id, from_class_id, to_class_id) VALUES ($1,$2,$3,$4)",
@@ -13864,6 +13869,8 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, consentGuard(pool, r
 
 // PUT /api/bookings/:id/check-in
 app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
+  const targetStatus = req.body?.targetStatus ?? "checked_in";
+  if (!["checked_in", "confirmed", "waitlist"].includes(targetStatus)) return res.status(400).json({ message: "Estado inválido" });
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -13876,12 +13883,20 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
     const before = previous.rows[0];
     const reject = async (code, message) => { await client.query("ROLLBACK"); return res.status(code).json({ message }); };
     if (!before || !cls) return await reject(404, "Reserva no encontrada");
-    if (before.status === "checked_in") {
+    if (before.status === targetStatus) {
       await client.query("COMMIT");
       return res.json({ data: before });
     }
     if (cls.status === "cancelled" || !["confirmed", "waitlist"].includes(before.status)) {
       return await reject(409, "Solo puedes marcar asistencia de reservas confirmadas o en espera.");
+    }
+    if (targetStatus === "waitlist") {
+      if (before.membership_id) await refundMembershipCredit(client, before.membership_id, normalizeClassCategory(cls.class_category, "all"));
+      const moved = await client.query("UPDATE bookings SET status='waitlist', checked_in_at=NULL WHERE id=$1 RETURNING *", [before.id]);
+      await client.query(`UPDATE classes SET current_bookings=(SELECT COUNT(*) FROM bookings WHERE class_id=$1 AND status IN ('confirmed','checked_in')) WHERE id=$1`, [cls.id]);
+      await client.query("COMMIT");
+      triggerWalletPassSync(before.user_id, "booking_moved_to_waitlist");
+      return res.json({ data: moved.rows[0] });
     }
     const promoted = before.status === "waitlist";
     if (promoted) {
@@ -13905,8 +13920,8 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
       }
     }
     const r = await client.query(
-      "UPDATE bookings SET status = 'checked_in', checked_in_at = NOW() WHERE id = $1 RETURNING *",
-      [req.params.id]
+      "UPDATE bookings SET status = $2, checked_in_at = CASE WHEN $2='checked_in' THEN NOW() ELSE NULL END WHERE id = $1 RETURNING *",
+      [req.params.id, targetStatus]
     );
     await client.query(`UPDATE classes SET current_bookings=(SELECT COUNT(*) FROM bookings
       WHERE class_id=$1 AND status IN ('confirmed','checked_in')) WHERE id=$1`, [cls.id]);
@@ -13914,7 +13929,7 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
     const booking = r.rows[0];
     if (promoted) await notifyWaitlistPromotion(booking.user_id, booking.class_id);
     // Award loyalty points for attending a class
-    if (booking.user_id) {
+    if (booking.user_id && targetStatus === "checked_in") {
       try {
         const cfgRes = await pool.query("SELECT value FROM settings WHERE key='loyalty_config' LIMIT 1");
         const cfg = cfgRes.rows.length ? cfgRes.rows[0].value : {};

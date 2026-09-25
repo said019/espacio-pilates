@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { expect, it, vi } from 'vitest';
 
-async function run({ status = 'waitlist', occupied = 7, eligible = true } = {}) {
+async function run({ status = 'waitlist', occupied = 7, eligible = true, targetStatus } = {}) {
   const source = readFileSync('server/index.js', 'utf8');
   const start = source.indexOf('app.put("/api/bookings/:id/check-in",');
   const booking = { id: 'b', user_id: 'u', class_id: 'c', membership_id: 'm', status };
@@ -16,17 +16,17 @@ async function run({ status = 'waitlist', occupied = 7, eligible = true } = {}) 
     return { rows: [] };
   });
   let handler;
-  const notify = vi.fn(async () => {}), consume = vi.fn(async () => {});
+  const notify = vi.fn(async () => {}), consume = vi.fn(async () => {}), refund = vi.fn(async () => {});
   vm.runInNewContext(source.slice(start, source.indexOf('\n});', start) + 4), {
     app: { put: (_path, _auth, fn) => { handler = fn; } }, adminMiddleware() {}, console,
     pool: { connect: async () => ({ query, release() {} }), query },
     normalizeClassCategory: () => 'pilates', isWalkInClass: () => false,
     membershipIsEligibleForClass: () => eligible, checkPlanTimeRestriction: () => ({ allowed: true }),
-    consumeMembershipCredit: consume, notifyWaitlistPromotion: notify, triggerWalletPassSync() {},
+    consumeMembershipCredit: consume, refundMembershipCredit: refund, notifyWaitlistPromotion: notify, triggerWalletPassSync() {},
   });
   const res = { code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } };
-  await handler({ params: { id: 'b' } }, res);
-  return { res, query, notify, consume };
+  await handler({ params: { id: 'b' }, body: { targetStatus } }, res);
+  return { res, query, notify, consume, refund };
 }
 it('promotes, charges once, reconciles occupied seats and notifies after commit', async () => {
   const r = await run();
@@ -46,6 +46,20 @@ it.each([{ occupied: 8 }, { eligible: false }, { status: 'cancelled' }])('reject
 it.each(['checked_in', 'confirmed'])('does not charge or send promotion for %s', async (status) => {
   const r = await run({ status });
   expect(r.res.code).toBe(200);
+  expect(r.consume).not.toHaveBeenCalled();
+  expect(r.notify).not.toHaveBeenCalled();
+});
+it('allows confirmation without recording attendance', async () => {
+  const r = await run({ targetStatus: 'confirmed' });
+  expect(r.res.code).toBe(200);
+  expect(r.query.mock.calls.find(([sql]) => sql.startsWith('UPDATE bookings'))[1]).toEqual(['b', 'confirmed']);
+  expect(r.consume).toHaveBeenCalledTimes(1);
+  expect(r.notify).toHaveBeenCalledTimes(1);
+});
+it('returns the credit and reconciles seats when moving a confirmed member to waitlist', async () => {
+  const r = await run({ status: 'confirmed', targetStatus: 'waitlist' });
+  expect(r.res.code).toBe(200);
+  expect(r.refund).toHaveBeenCalledTimes(1);
   expect(r.consume).not.toHaveBeenCalled();
   expect(r.notify).not.toHaveBeenCalled();
 });
