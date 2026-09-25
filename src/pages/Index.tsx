@@ -70,13 +70,14 @@ const FALLBACK_CLASS_TYPES: ClassTypeRow[] = [
 ];
 
 /* Paquetes mensuales — no acumulables, vencen al fin del mes de compra */
-const PAQUETES = [
+type DisplayPackage = { id: string; name: string; plan?: string; classes: number | null; price: number; hint: string; popular?: boolean; best?: boolean };
+const PAQUETES: readonly DisplayPackage[] = [
   { id: "p1", name: "7 clases", plan: "Paquete 7 Clases", classes: 7, price: 880, hint: "1 a 2 por semana" },
   { id: "p2", name: "9 clases", plan: "Paquete 9 Clases", classes: 9, price: 1050, hint: "2 por semana", popular: true },
   { id: "p3", name: "14 clases", plan: "Paquete 14 Clases", classes: 14, price: 1400, hint: "3+ por semana", best: true },
 ] as const;
 
-const PAQUETES_FUNCIONAL = [
+const PAQUETES_FUNCIONAL: readonly DisplayPackage[] = [
   { id: "f1", name: "7 clases", classes: 7, price: 780, hint: "Paquete mensual" },
   { id: "f2", name: "9 clases", classes: 9, price: 890, hint: "Paquete mensual", popular: true },
   { id: "f3", name: "Ilimitado", classes: null, price: 1050, hint: "Acceso mensual", best: true },

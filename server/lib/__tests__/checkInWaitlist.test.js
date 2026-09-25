@@ -7,7 +7,8 @@ it.skipIf(!process.env.TEST_DATABASE_URL)('PostgreSQL accepts the actual attenda
   const client = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
   await client.connect();
   try {
-    await client.query('BEGIN READ ONLY');
+    await client.query('BEGIN');
+    await client.query('CREATE TEMP TABLE bookings (id uuid, status varchar(20), checked_in_at timestamptz) ON COMMIT DROP');
     const source = readFileSync('server/index.js', 'utf8');
     const sql = source.match(/"(UPDATE bookings SET status = \$2, checked_in_at = CASE[^"\n]+)"/)[1];
     for (const status of ['confirmed', 'checked_in']) {

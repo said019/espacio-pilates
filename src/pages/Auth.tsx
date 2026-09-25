@@ -15,7 +15,7 @@ const Auth = () => {
     setLoading(true);
     setError("");
     try {
-      await login({ email, password });
+      await login({ identifier: email, password });
       navigate("/admin/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Credenciales inválidas");

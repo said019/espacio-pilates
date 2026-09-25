@@ -1,0 +1,40 @@
+name: Regression tests with PostgreSQL
+permissions:
+  contents: read
+
+on:
+  pull_request:
+  push:
+    branches: [main, codex/pozos-multibranch]
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: qa
+          POSTGRES_PASSWORD: local_test_only
+          POSTGRES_DB: pilates_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U qa -d pilates_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://qa:local_test_only@localhost:5432/pilates_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run --maxWorkers=2
+      - run: node --check server/index.js
+      - run: npx tsc --noEmit -p tsconfig.app.json
+      - run: npm run lint
+      - run: npm run build
