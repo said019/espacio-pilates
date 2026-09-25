@@ -1,6 +1,24 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import pg from 'pg';
 import { expect, it, vi } from 'vitest';
+
+it.skipIf(!process.env.TEST_DATABASE_URL)('PostgreSQL accepts the actual attendance query parameter types', async () => {
+  const client = new pg.Client({ connectionString: process.env.TEST_DATABASE_URL });
+  await client.connect();
+  try {
+    await client.query('BEGIN READ ONLY');
+    const source = readFileSync('server/index.js', 'utf8');
+    const sql = source.match(/"(UPDATE bookings SET status = \$2, checked_in_at = CASE[^"\n]+)"/)[1];
+    for (const status of ['confirmed', 'checked_in']) {
+      // EXPLAIN without ANALYZE parses/plans the real query but never updates rows.
+      await client.query('EXPLAIN ' + sql, ['00000000-0000-0000-0000-000000000000', status, status === 'checked_in']);
+    }
+  } finally {
+    await client.query('ROLLBACK');
+    await client.end();
+  }
+});
 
 async function run({ status = 'waitlist', occupied = 7, eligible = true, targetStatus } = {}) {
   const source = readFileSync('server/index.js', 'utf8');
@@ -52,7 +70,7 @@ it.each(['checked_in', 'confirmed'])('does not charge or send promotion for %s',
 it('allows confirmation without recording attendance', async () => {
   const r = await run({ targetStatus: 'confirmed' });
   expect(r.res.code).toBe(200);
-  expect(r.query.mock.calls.find(([sql]) => sql.startsWith('UPDATE bookings'))[1]).toEqual(['b', 'confirmed']);
+  expect(r.query.mock.calls.find(([sql]) => sql.startsWith('UPDATE bookings'))[1]).toEqual(['b', 'confirmed', false]);
   expect(r.consume).toHaveBeenCalledTimes(1);
   expect(r.notify).toHaveBeenCalledTimes(1);
 });

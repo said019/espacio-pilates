@@ -13920,8 +13920,8 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
       }
     }
     const r = await client.query(
-      "UPDATE bookings SET status = $2, checked_in_at = CASE WHEN $2='checked_in' THEN NOW() ELSE NULL END WHERE id = $1 RETURNING *",
-      [req.params.id, targetStatus]
+      "UPDATE bookings SET status = $2, checked_in_at = CASE WHEN $3::boolean THEN NOW() ELSE NULL END WHERE id = $1 RETURNING *",
+      [req.params.id, targetStatus, targetStatus === "checked_in"]
     );
     await client.query(`UPDATE classes SET current_bookings=(SELECT COUNT(*) FROM bookings
       WHERE class_id=$1 AND status IN ('confirmed','checked_in')) WHERE id=$1`, [cls.id]);
