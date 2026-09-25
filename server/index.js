@@ -3202,6 +3202,7 @@ async function clientNeedsInscription(userId, { branchId = DEFAULT_BRANCH_ID, pr
       `SELECT 1
          FROM enrollments e
         WHERE e.user_id = $1 AND e.branch_id = $2 AND e.program = $3
+          AND e.paid_at IS NOT NULL
           AND GREATEST(e.paid_at, e.last_activity_at) >= NOW() - INTERVAL '6 months'
        UNION ALL
        SELECT 1
@@ -3209,10 +3210,9 @@ async function clientNeedsInscription(userId, { branchId = DEFAULT_BRANCH_ID, pr
          LEFT JOIN plans p ON p.id = m.plan_id
         WHERE m.user_id = $1 AND m.branch_id = $2
           AND (CASE WHEN COALESCE(p.program, 'pilates') = 'prenatal' THEN 'pilates' ELSE COALESCE(p.program, 'pilates') END) = $3
-          -- Registration and internal walk-ins do not establish paid
-          -- enrollment. A complimentary visit must never waive the fee due on
-          -- the client's first real package.
-          AND COALESCE(p.plan_kind, 'single') NOT IN ('registration', 'internal')
+          -- Legacy packages preserve enrollment; single visits, trials and
+          -- internal passes never establish paid enrollment.
+          AND p.plan_kind = 'package'
           AND m.end_date IS NOT NULL
           AND m.end_date >= CURRENT_DATE - INTERVAL '6 months'
         LIMIT 1`,
@@ -3220,10 +3220,9 @@ async function clientNeedsInscription(userId, { branchId = DEFAULT_BRANCH_ID, pr
     );
     return r.rows.length === 0;
   } catch (err) {
-    // Money-path safety: never block checkout on a query failure. Default to
-    // NOT charging inscription (false) and log a warning for visibility.
-    console.warn("[inscription] clientNeedsInscription query failed, defaulting to false:", err?.message || err);
-    return false;
+    // Do not silently waive a fee (or charge one) when eligibility is unknown.
+    console.error("[inscription] eligibility query failed:", err?.message || err);
+    throw err;
   }
 }
 
@@ -3247,7 +3246,7 @@ async function clientHasPaidWalkInInscription(userId, { branchId = DEFAULT_BRANC
          JOIN plans p ON p.id = m.plan_id
         WHERE m.user_id = $1 AND m.branch_id = $2
           AND (CASE WHEN COALESCE(p.program, 'pilates') = 'prenatal' THEN 'pilates' ELSE COALESCE(p.program, 'pilates') END) = $3
-          AND COALESCE(p.plan_kind, 'single') NOT IN ('registration', 'internal')
+          AND p.plan_kind = 'package'
           AND m.end_date IS NOT NULL
           AND m.end_date >= CURRENT_DATE - INTERVAL '6 months'
         LIMIT 1`,

@@ -39,6 +39,6 @@ describe("walk-in gratuito", () => {
   });
 
   it("no usa planes internos como antecedente para exentar inscripción", () => {
-    expect(serverSource).toContain("NOT IN ('registration', 'internal')");
+    expect(serverSource).toContain("AND p.plan_kind = 'package'");
   });
 });
