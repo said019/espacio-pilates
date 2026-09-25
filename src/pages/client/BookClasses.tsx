@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronLeft, ChevronRight, Check, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { parseDateOnly } from "@/lib/dateOnly";
 import type { BookingClient } from "@/types/booking";
 import {
   getEntityProgram,
@@ -80,7 +81,7 @@ const MembershipBanner = ({ membership, branchName }: { membership: Record<strin
         {endDate && (
           <div className="text-right border-l border-valiance-lavender/30 pl-6">
             <div className="text-[0.82rem] font-medium text-valiance-charcoal/80 tabular-nums">
-              {new Date(endDate).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
+              {(parseDateOnly(endDate) ?? new Date(endDate)).toLocaleDateString("es-MX", { day: "2-digit", month: "short" })}
             </div>
             <div className="text-[0.6rem] tracking-[0.18em] uppercase text-valiance-mauve mt-1">vence</div>
           </div>

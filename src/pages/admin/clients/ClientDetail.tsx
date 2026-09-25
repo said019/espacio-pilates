@@ -31,6 +31,7 @@ import {
   useAdminBranchScope,
 } from "@/components/admin/BranchScope";
 import { cn } from "@/lib/utils";
+import { parseDateOnly } from "@/lib/dateOnly";
 import { creditAdjustment, type CreditAdjustment } from "@/lib/creditAdjustment";
 
 /* ──────────────────────────────────────────────────────────────
@@ -56,8 +57,11 @@ const fmtDateTime = (v: any) =>
       })
     : "—";
 
-const fmtDate = (v: any) =>
-  v ? new Date(v).toLocaleDateString("es-MX", { year: "numeric", month: "short", day: "numeric" }) : "—";
+// Solo para columnas DATE (vigencia, cumpleaños, fecha de clase): sin corrimiento de zona.
+const fmtDate = (v: any) => {
+  const d = parseDateOnly(v);
+  return d ? d.toLocaleDateString("es-MX", { year: "numeric", month: "short", day: "numeric" }) : "—";
+};
 
 // Booking status → label + on-brand tone.
 const bookingStatus = (s?: string): { label: string; cls: string } => {

@@ -8,6 +8,7 @@ import { format, differenceInCalendarDays } from "date-fns";
 import { es } from "date-fns/locale";
 import { Infinity as InfinityIcon, CalendarDays } from "lucide-react";
 import { safeParse } from "@/lib/utils";
+import { parseDateOnly } from "@/lib/dateOnly";
 import type { ClientMembership } from "@/types/membership";
 import imgPilates    from "@/assets/pilates_2320695.png";
 
@@ -232,8 +233,9 @@ export function MembershipCard({ membership }: MembershipCardProps) {
 
   const used          = classLimit !== null && classesRemaining !== null ? classLimit - classesRemaining : 0;
   const hasStampIcons = !isUnlimited && classLimit !== null && classLimit <= 20;
-  const daysRemaining = endDate
-    ? Math.max(differenceInCalendarDays(safeParse(endDate), new Date()), 0)
+  const endDay        = endDate ? parseDateOnly(endDate) ?? safeParse(endDate) : null;
+  const daysRemaining = endDay
+    ? Math.max(differenceInCalendarDays(endDay, new Date()), 0)
     : null;
 
   return (
@@ -370,7 +372,7 @@ export function MembershipCard({ membership }: MembershipCardProps) {
               <span className="font-alilato text-[11px] text-[#1A1A1A]/40">
                 Vence el{" "}
                 <span className="text-[#1A1A1A]/65 font-medium">
-                  {format(safeParse(endDate), "d 'de' MMMM yyyy", { locale: es })}
+                  {format(endDay ?? safeParse(endDate), "d 'de' MMMM yyyy", { locale: es })}
                 </span>
                 {daysRemaining !== null && (
                   <span
