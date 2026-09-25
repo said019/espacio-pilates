@@ -31,6 +31,7 @@ import {
   useAdminBranchScope,
 } from "@/components/admin/BranchScope";
 import { cn } from "@/lib/utils";
+import { creditAdjustment, type CreditAdjustment } from "@/lib/creditAdjustment";
 
 /* ──────────────────────────────────────────────────────────────
    Helpers — defensive parsing + es-MX formatting + brand labels
@@ -183,8 +184,12 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
   });
 
   const updateMem = useMutation({
-    mutationFn: ({ memId, classesRemaining, branchId }: { memId: string; classesRemaining: number; branchId: string }) =>
-      api.put(`/memberships/${memId}`, { classesRemaining, branchId }),
+    mutationFn: ({ memId, adjustment, branchId }: { memId: string; adjustment: CreditAdjustment; branchId: string }) =>
+      api.put(`/memberships/${memId}/credits`, {
+        ...adjustment,
+        reason: "Corrección desde el detalle de clienta",
+        branchId,
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client-memberships", userId] });
       toast({ title: "Créditos actualizados" });
@@ -344,11 +349,16 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingMem(null)}>Cancelar</Button>
             <Button
-              onClick={() => editingMem && updateMem.mutate({
-                memId: editingMem.id,
-                classesRemaining: credits,
-                branchId: editingMem.branchId ?? editingMem.branch_id,
-              })}
+              onClick={() => {
+                if (!editingMem) return;
+                const adjustment = creditAdjustment(editingMem.classesRemaining, credits);
+                if (!adjustment) { setEditingMem(null); return; }
+                updateMem.mutate({
+                  memId: editingMem.id,
+                  adjustment,
+                  branchId: editingMem.branchId ?? editingMem.branch_id,
+                });
+              }}
               disabled={updateMem.isPending || !(editingMem?.branchId ?? editingMem?.branch_id)}
             >
               {updateMem.isPending ? <Loader2 className="animate-spin mr-1" size={14} /> : null}
