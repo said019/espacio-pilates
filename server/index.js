@@ -13864,13 +13864,55 @@ app.post("/api/admin/bookings/bulk-month", adminMiddleware, consentGuard(pool, r
 
 // PUT /api/bookings/:id/check-in
 app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
+  const client = await pool.connect();
   try {
-    const r = await pool.query(
+    await client.query("BEGIN");
+    // Lock class before booking, matching automatic waitlist promotion.
+    const clsRes = await client.query(`SELECT c.*, ct.category AS class_category
+      FROM classes c JOIN class_types ct ON ct.id=c.class_type_id
+      WHERE c.id=(SELECT class_id FROM bookings WHERE id=$1) FOR UPDATE OF c`, [req.params.id]);
+    const cls = clsRes.rows[0];
+    const previous = await client.query("SELECT * FROM bookings WHERE id=$1 FOR UPDATE", [req.params.id]);
+    const before = previous.rows[0];
+    const reject = async (code, message) => { await client.query("ROLLBACK"); return res.status(code).json({ message }); };
+    if (!before || !cls) return await reject(404, "Reserva no encontrada");
+    if (before.status === "checked_in") {
+      await client.query("COMMIT");
+      return res.json({ data: before });
+    }
+    if (cls.status === "cancelled" || !["confirmed", "waitlist"].includes(before.status)) {
+      return await reject(409, "Solo puedes marcar asistencia de reservas confirmadas o en espera.");
+    }
+    const promoted = before.status === "waitlist";
+    if (promoted) {
+      const occupied = await client.query("SELECT COUNT(*)::int AS count FROM bookings WHERE class_id=$1 AND status IN ('confirmed','checked_in')", [cls.id]);
+      if (Number(occupied.rows[0].count) >= Number(cls.max_capacity)) return await reject(409, "La clase está llena. Libera un lugar antes de mover a la clienta.");
+      const category = normalizeClassCategory(cls.class_category, "all");
+      if (isWalkInClass(cls) && !before.membership_id) {
+        if (walkInRequiresInscription(cls) && !await clientHasPaidWalkInInscription(before.user_id, { branchId: cls.branch_id, program: programForClassCategory(category), client })) {
+          return await reject(409, "La clienta necesita inscripción para esta clase.");
+        }
+      } else {
+        const membershipResult = await client.query(`SELECT m.*, COALESCE(p.class_category,'all') AS class_category,
+          p.program, p.plan_kind, p.repeat_key, p.name AS plan_name, p.time_restriction
+          FROM memberships m LEFT JOIN plans p ON p.id=m.plan_id WHERE m.id=$1 FOR UPDATE OF m`, [before.membership_id]);
+        const membership = membershipResult.rows[0];
+        if (!membership || !membershipIsEligibleForClass(membership, cls, before.user_id)
+          || !checkPlanTimeRestriction(membership, cls.date, cls.start_time).allowed) {
+          return await reject(409, "La clienta no tiene una membresía válida con créditos para esta clase y sucursal.");
+        }
+        await consumeMembershipCredit(client, before.membership_id, category);
+      }
+    }
+    const r = await client.query(
       "UPDATE bookings SET status = 'checked_in', checked_in_at = NOW() WHERE id = $1 RETURNING *",
       [req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ message: "Reserva no encontrada" });
+    await client.query(`UPDATE classes SET current_bookings=(SELECT COUNT(*) FROM bookings
+      WHERE class_id=$1 AND status IN ('confirmed','checked_in')) WHERE id=$1`, [cls.id]);
+    await client.query("COMMIT");
     const booking = r.rows[0];
+    if (promoted) await notifyWaitlistPromotion(booking.user_id, booking.class_id);
     // Award loyalty points for attending a class
     if (booking.user_id) {
       try {
@@ -13888,7 +13930,11 @@ app.put("/api/bookings/:id/check-in", adminMiddleware, async (req, res) => {
     triggerWalletPassSync(booking.user_id, "booking_checked_in");
     return res.json({ data: r.rows[0] });
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[check-in]", err.message);
     return res.status(500).json({ message: "Error interno" });
+  } finally {
+    client.release();
   }
 });
 
