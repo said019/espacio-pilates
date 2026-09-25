@@ -1843,6 +1843,8 @@ async function ensureSchema() {
     await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS guest_name TEXT`).catch(() => { });
     await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS guest_phone TEXT`).catch(() => { });
     await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS order_id UUID REFERENCES orders(id) ON DELETE SET NULL`).catch(() => { });
+    // Reserva oculta del historial de la clienta en el admin (reversible: poner NULL).
+    await pool.query(`ALTER TABLE bookings ADD COLUMN IF NOT EXISTS hidden_at TIMESTAMP WITH TIME ZONE`).catch(() => { });
     // ── orders: walk-in support (nullable user_id was set earlier; add guest fields) ─
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_name TEXT`).catch(() => { });
     await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS guest_phone TEXT`).catch(() => { });
@@ -13326,7 +13328,9 @@ app.get("/api/bookings", adminMiddleware, async (req, res) => {
              LEFT JOIN class_types ct ON c.class_type_id = ct.id
              WHERE ($1::uuid IS NULL OR c.branch_id = $1)`;
     const params = [branch?.id || null];
-    if (userId) { params.push(userId); q += ` AND b.user_id = $${params.length}`; }
+    // En el historial de la clienta se omiten las reservas ocultas (hidden_at);
+    // la lista de alumnas de una clase (classId) las sigue mostrando.
+    if (userId) { params.push(userId); q += ` AND b.user_id = $${params.length} AND b.hidden_at IS NULL`; }
     if (status) { params.push(status); q += ` AND b.status = $${params.length}`; }
     if (classId) { params.push(classId); q += ` AND b.class_id = $${params.length}`; }
     // Orden "más cercanas a hoy primero": clases futuras ascendente (hoy → mañana → …),
