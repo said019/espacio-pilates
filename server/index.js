@@ -254,6 +254,10 @@ const DEFAULT_NOTIFICATION_TEMPLATES = {
     subject: "Reserva cancelada",
     body: "Hola {name}, tu reserva de {class} del {date} fue cancelada. Crédito devuelto: {creditRestored}.",
   },
+  class_cancelled: {
+    subject: "Tu clase fue cancelada",
+    body: "Hola {name} 💜 El estudio canceló tu clase {class} del {date} a las {time}. {credit} Lamentamos el inconveniente 🤍",
+  },
   membership_activated: {
     subject: "Membresía activada",
     body: "Hola {name}, tu membresía {plan} ya está activa. Vigencia: {startDate} al {endDate}.",
@@ -2557,10 +2561,11 @@ async function consumeMembershipCredit(client, membershipId, classCategory) {
   );
 }
 
-// Inverse: refund a credit on cancellation / waitlist demotion.
+// Inverse: refund a credit on cancellation / waitlist demotion. Devuelve 1 si
+// regresó un crédito y 0 si no aplica (membresía ilimitada o inexistente).
 async function refundMembershipCredit(client, membershipId, classCategory) {
   const key = classCategoryToDisciplineKey(classCategory);
-  await (client || pool).query(
+  const result = await (client || pool).query(
     `UPDATE memberships
         SET classes_remaining = COALESCE(classes_remaining, 0) + 1,
             discipline_credits = CASE
@@ -2580,6 +2585,7 @@ async function refundMembershipCredit(client, membershipId, classCategory) {
         AND classes_remaining < 9999`,
     [membershipId, key]
   );
+  return result.rowCount ?? 0;
 }
 
 // ── Clase Muestra (trial) schedule restriction ──────────────────────────────
@@ -10119,12 +10125,70 @@ app.post("/api/classes", adminMiddleware, async (req, res) => {
 });
 
 // PUT /api/classes/:id/cancel
+// PUT /api/classes/:id/cancel — el estudio cancela la clase (no se da). Cancela
+// TODAS sus reservas (confirmadas, con asistencia y lista de espera), devuelve el
+// crédito a quien lo pagó con su paquete —sin ventana de horas ni contar como
+// cancelación de la alumna— y le avisa por push. Idempotente: una clase ya
+// cancelada no vuelve a devolver ni a avisar.
 app.put("/api/classes/:id/cancel", adminMiddleware, async (req, res) => {
+  const client = await pool.connect();
   try {
-    const r = await pool.query("UPDATE classes SET status='cancelled', updated_at=NOW() WHERE id=$1 RETURNING *", [req.params.id]);
-    if (!r.rows.length) return res.status(404).json({ message: "Clase no encontrada" });
-    return res.json({ data: r.rows[0] });
-  } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+    await client.query("BEGIN");
+    const clsRes = await client.query(
+      `SELECT c.id, c.status, ct.category AS class_category
+         FROM classes c JOIN class_types ct ON ct.id = c.class_type_id
+        WHERE c.id = $1
+        FOR UPDATE OF c`,
+      [req.params.id]
+    );
+    const cls = clsRes.rows[0];
+    if (!cls) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Clase no encontrada" });
+    }
+    if (cls.status === "cancelled") {
+      await client.query("ROLLBACK");
+      return res.json({ data: cls, cancelledBookings: 0, refundedCredits: 0 });
+    }
+    const affected = (await client.query(
+      `SELECT id, user_id, membership_id, status
+         FROM bookings
+        WHERE class_id = $1 AND status IN ('confirmed','checked_in','waitlist')
+        FOR UPDATE`,
+      [cls.id]
+    )).rows;
+    const category = normalizeClassCategory(cls.class_category, "all");
+    const refunded = new Set();
+    for (const b of affected) {
+      // La lista de espera nunca pagó crédito; los walk-in no tienen paquete.
+      if (!b.membership_id || b.status === "waitlist") continue;
+      if (await refundMembershipCredit(client, b.membership_id, category)) refunded.add(b.id);
+    }
+    await client.query(
+      `UPDATE bookings
+          SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = 'admin',
+              cancellation_reason = 'Clase cancelada por el estudio'
+        WHERE class_id = $1 AND status IN ('confirmed','checked_in','waitlist')`,
+      [cls.id]
+    );
+    const r = await client.query(
+      "UPDATE classes SET status='cancelled', current_bookings=0, updated_at=NOW() WHERE id=$1 RETURNING *",
+      [cls.id]
+    );
+    await client.query("COMMIT");
+    for (const b of affected) {
+      if (!b.user_id) continue; // invitada sin cuenta
+      triggerWalletPassSync(b.user_id, "class_cancelled_by_studio");
+      notifyClassCancelled(b.user_id, cls.id, { creditRestored: refunded.has(b.id) });
+    }
+    return res.json({ data: r.rows[0], cancelledBookings: affected.length, refundedCredits: refunded.size });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("PUT /classes/:id/cancel error:", err.message);
+    return res.status(500).json({ message: "Error interno" });
+  } finally {
+    client.release();
+  }
 });
 
 // DELETE /api/classes/week — clear classes in date range
@@ -11123,6 +11187,7 @@ const PUSH_TEMPLATE_URLS = {
   booking_waitlist: "/app/bookings",
   booking_waitlist_promoted: "/app/bookings",
   booking_cancelled: "/app/bookings",
+  class_cancelled: "/app/bookings",
   membership_activated: "/app",
   transfer_rejected: "/app/orders",
   last_class_reminder: "/app",
@@ -11282,6 +11347,36 @@ async function notifyWaitlistPromotion(userId, classId) {
     }).catch((e) => console.error("[Push] waitlist promoted:", e.message));
   } catch (e) {
     console.error("[notifyWaitlistPromotion]", e.message);
+  }
+}
+
+// Avisa a una alumna que el estudio canceló su clase (y si su crédito regresó).
+// Solo push: WhatsApp queda fuera por la whitelist anti-bloqueo de Evolution.
+async function notifyClassCancelled(userId, classId, { creditRestored = false } = {}) {
+  try {
+    const uRes = await pool.query("SELECT display_name FROM users WHERE id = $1", [userId]);
+    const cRes = await pool.query(
+      `SELECT c.date, c.start_time, ct.name AS class_type_name
+         FROM classes c JOIN class_types ct ON c.class_type_id = ct.id
+        WHERE c.id = $1`,
+      [classId]
+    );
+    const u = uRes.rows[0];
+    const cl = cRes.rows[0];
+    if (!u || !cl) return;
+    await sendConfiguredPushTemplate({
+      templateKey: "class_cancelled",
+      userId,
+      vars: {
+        name: u.display_name || "Alumna",
+        class: cl.class_type_name || "tu clase",
+        date: cl.date ? new Date(cl.date).toLocaleDateString("es-MX", { timeZone: "UTC" }) : "",
+        time: cl.start_time ? String(cl.start_time).slice(0, 5) : "",
+        credit: creditRestored ? "Tu crédito ya regresó a tu paquete." : "",
+      },
+    });
+  } catch (e) {
+    console.error("[notifyClassCancelled]", e.message);
   }
 }
 

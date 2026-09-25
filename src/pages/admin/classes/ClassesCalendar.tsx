@@ -21,6 +21,10 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -696,6 +700,7 @@ function CalendarTab({
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedClass, setSelectedClass] = useState<ClassInstance | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [walkInSelectionMode, setWalkInSelectionMode] = useState(false);
   const [selectedWalkInIds, setSelectedWalkInIds] = useState<Set<string>>(new Set());
@@ -754,10 +759,23 @@ function CalendarTab({
   const cancelMutation = useMutation({
     mutationFn: ({ id, branchId }: { id: string; branchId?: string }) =>
       api.put("/classes/" + id + "/cancel", { branchId }),
-    onSuccess: () => {
+    onSuccess: (res: any, { id }) => {
       qc.invalidateQueries({ queryKey: ["classes"] });
-      toast({ title: "Clase cancelada" });
+      qc.invalidateQueries({ queryKey: ["roster", id] });
+      qc.invalidateQueries({ queryKey: ["class-roster-mini", id] });
+      const cancelled = Number(res?.data?.cancelledBookings ?? 0);
+      const refunded = Number(res?.data?.refundedCredits ?? 0);
+      toast({
+        title: "Clase cancelada",
+        description: cancelled
+          ? `${cancelled} reserva${cancelled === 1 ? "" : "s"} cancelada${cancelled === 1 ? "" : "s"} · ${refunded} crédito${refunded === 1 ? "" : "s"} devuelto${refunded === 1 ? "" : "s"}. Se avisó a las alumnas.`
+          : "No tenía reservas.",
+      });
+      setConfirmCancelOpen(false);
       setSheetOpen(false);
+    },
+    onError: (error: any) => {
+      toast({ title: error?.response?.data?.message ?? "No se pudo cancelar la clase", variant: "destructive" });
     },
   });
 
@@ -1277,7 +1295,7 @@ function CalendarTab({
                   </>
                 )}
                 {!selectedClass.isCancelled && (
-                  <Button variant="destructive" onClick={() => cancelMutation.mutate({ id: selectedClass.id, branchId: selectedClass.branchId })} disabled={cancelMutation.isPending || !selectedClass.branchId}>
+                  <Button variant="destructive" onClick={() => setConfirmCancelOpen(true)} disabled={cancelMutation.isPending || !selectedClass.branchId}>
                     Cancelar clase
                   </Button>
                 )}
@@ -1287,6 +1305,36 @@ function CalendarTab({
           )}
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Cancelar esta clase?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                const booked = selectedClass?.bookedCount ?? selectedClass?.currentBookings ?? 0;
+                return booked > 0
+                  ? `Se cancelarán las ${booked} reserva${booked === 1 ? "" : "s"} (y la lista de espera), se devolverá el crédito a quien pagó con su paquete y se les avisará por notificación.`
+                  : "Se cancelarán también las entradas de la lista de espera y se les avisará.";
+              })()}{" "}
+              No se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={cancelMutation.isPending}>Volver</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={cancelMutation.isPending || !selectedClass?.branchId}
+              onClick={(e) => {
+                e.preventDefault(); // cerrar solo al terminar
+                if (selectedClass) cancelMutation.mutate({ id: selectedClass.id, branchId: selectedClass.branchId });
+              }}
+            >
+              {cancelMutation.isPending ? "Cancelando…" : "Sí, cancelar clase"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
