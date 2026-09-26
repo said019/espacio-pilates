@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import {
   Pencil, Save, X, Minus, Plus, MoreHorizontal, Loader2, CalendarDays,
   Mail, Phone, User2, Cake, HeartPulse, ShieldAlert, ArrowRight,
-  CreditCard, Banknote, Smartphone, Store, BadgeCheck, CalendarClock,
+  CreditCard, Banknote, Smartphone, Store, BadgeCheck, CalendarClock, History,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -178,6 +178,7 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
   const branchScope = useAdminBranchScope();
   const [editingMem, setEditingMem] = useState<any>(null);
   const [credits, setCredits] = useState(0);
+  const [creditReason, setCreditReason] = useState("");
 
   const { data: memberships } = useQuery({
     queryKey: ["client-memberships", userId, branchScope.branchScope],
@@ -188,14 +189,15 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
   });
 
   const updateMem = useMutation({
-    mutationFn: ({ memId, adjustment, branchId }: { memId: string; adjustment: CreditAdjustment; branchId: string }) =>
+    mutationFn: ({ memId, adjustment, reason, branchId }: { memId: string; adjustment: CreditAdjustment; reason: string; branchId: string }) =>
       api.put(`/memberships/${memId}/credits`, {
         ...adjustment,
-        reason: "Corrección desde el detalle de clienta",
+        reason: reason.trim() || "Corrección desde el detalle de clienta",
         branchId,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["client-memberships", userId] });
+      qc.invalidateQueries({ queryKey: ["client-credit-history", userId] });
       toast({ title: "Créditos actualizados" });
       setEditingMem(null);
     },
@@ -225,6 +227,7 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
 
   const openEdit = (m: any) => {
     setCredits(m.classesRemaining ?? 0);
+    setCreditReason("");
     setEditingMem(m);
   };
 
@@ -350,6 +353,16 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
               Cambio: {editingMem?.classesRemaining ?? "?"} → <strong className={credits < (editingMem?.classesRemaining ?? 0) ? "text-destructive" : "text-[#6E7F4F]"}>{credits}</strong>
             </p>
           )}
+          <div className="space-y-1.5">
+            <Label htmlFor="credit-reason" className="text-xs">Motivo</Label>
+            <Input
+              id="credit-reason"
+              placeholder="Ej. clase no impartida, cortesía…"
+              value={creditReason}
+              onChange={(e) => setCreditReason(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-foreground">Queda en el historial de créditos de la clienta.</p>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingMem(null)}>Cancelar</Button>
             <Button
@@ -360,6 +373,7 @@ const MembershipsTab = ({ userId }: { userId: string }) => {
                 updateMem.mutate({
                   memId: editingMem.id,
                   adjustment,
+                  reason: creditReason,
                   branchId: editingMem.branchId ?? editingMem.branch_id,
                 });
               }}
@@ -407,6 +421,14 @@ const ClientDetail = () => {
     queryKey: ["client-payments", id, branchScope.branchScope],
     queryFn: async () => (await api.get("/payments", {
       params: { userId: id, ...branchQueryParams(branchScope.branchScope) },
+    })).data,
+    enabled: !!id,
+  });
+
+  const { data: creditHistory } = useQuery({
+    queryKey: ["client-credit-history", id, branchScope.branchScope],
+    queryFn: async () => (await api.get(`/admin/clients/${id}/credit-history`, {
+      params: branchQueryParams(branchScope.branchScope),
     })).data,
     enabled: !!id,
   });
@@ -516,6 +538,7 @@ const ClientDetail = () => {
   const cancelledBookings = allBookings.filter((b) => (b.status ?? "").toLowerCase() === "cancelled");
   const visibleBookings = bookingFilter === "cancelled" ? cancelledBookings : allBookings;
 
+  const creditHistoryArr = asArray(creditHistory);
   const reschedulesArr = asArray(reschedules)
     .slice()
     .sort((a, b) => new Date(pick(b, "created_at", "createdAt") ?? 0).getTime() - new Date(pick(a, "created_at", "createdAt") ?? 0).getTime());
@@ -587,6 +610,7 @@ const ClientDetail = () => {
               <TabsTrigger value="memberships">Membresías</TabsTrigger>
               <TabsTrigger value="bookings">Reservas</TabsTrigger>
               <TabsTrigger value="reschedules">Reagendas</TabsTrigger>
+              <TabsTrigger value="credits">Créditos</TabsTrigger>
               <TabsTrigger value="payments">Pagos</TabsTrigger>
             </TabsList>
 
@@ -812,6 +836,58 @@ const ClientDetail = () => {
                             </div>
                           </div>
                           <p className="mt-2 text-xs text-valiance-mauve">Reagendada {fmtDateTime(when)}</p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </SectionCard>
+            </TabsContent>
+
+            {/* ── Historial de créditos (ajustes manuales del admin) ── */}
+            <TabsContent value="credits" className="mt-4">
+              <SectionCard title="Historial de créditos">
+                {creditHistoryArr.length === 0 ? (
+                  <EmptyState icon={History}>Sin ajustes manuales de créditos</EmptyState>
+                ) : (
+                  <ul className="space-y-2.5">
+                    {creditHistoryArr.map((h: any) => {
+                      const before = pick(h, "before_credits", "beforeCredits");
+                      const after = pick(h, "after_credits", "afterCredits");
+                      const delta = before === null || before === undefined || after === null || after === undefined
+                        ? null
+                        : Number(after) - Number(before);
+                      const fromNote = pick(h, "source") === "nota";
+                      return (
+                        <li key={h.id} className="rounded-xl border border-border/70 bg-card px-4 py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-medium text-valiance-charcoal">
+                                {pick(h, "plan_name", "planName") ?? "Membresía"}
+                                {pick(h, "branch_name", "branchName") ? (
+                                  <span className="font-normal text-valiance-mauve"> · {pick(h, "branch_name", "branchName")}</span>
+                                ) : null}
+                              </p>
+                              <p className="mt-0.5 text-sm text-valiance-charcoal/80">
+                                Clases {before ?? "—"} → <strong>{after ?? "—"}</strong>
+                              </p>
+                              {pick(h, "reason") ? (
+                                <p className="mt-0.5 text-sm text-valiance-charcoal/80">Motivo: {pick(h, "reason")}</p>
+                              ) : null}
+                              <p className="mt-1 text-xs text-valiance-mauve">
+                                {fmtDateTime(pick(h, "created_at", "createdAt"))} · {pick(h, "admin_name", "adminName") ?? "admin"}
+                                {fromNote ? " · recuperado de notas" : ""}
+                              </p>
+                            </div>
+                            {delta !== null && delta !== 0 && (
+                              <StatusPill className={cn(
+                                "shrink-0",
+                                delta > 0 ? "bg-[#ECEEDF] text-[#6E7F4F] border-[#CFD4B6]" : "bg-[#F3DEDA] text-[#A8473F] border-[#E8C2BC]",
+                              )}>
+                                {delta > 0 ? `+${delta}` : delta}
+                              </StatusPill>
+                            )}
+                          </div>
                         </li>
                       );
                     })}

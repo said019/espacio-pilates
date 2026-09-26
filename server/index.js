@@ -2149,6 +2149,25 @@ async function ensureSchema() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_booking_reschedules_user ON booking_reschedules(user_id)`).catch(() => { });
 
+    // ── membership_credit_log: historial permanente de ajustes manuales de créditos ──
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS membership_credit_log (
+        id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        membership_id  UUID REFERENCES memberships(id) ON DELETE SET NULL,
+        user_id        UUID,
+        branch_id      UUID,
+        plan_name      TEXT,
+        admin_id       UUID,
+        admin_name     TEXT,
+        before_credits INTEGER,
+        after_credits  INTEGER,
+        reason         TEXT,
+        source         TEXT NOT NULL DEFAULT 'admin',
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_membership_credit_log_user ON membership_credit_log(user_id, created_at DESC)`).catch(() => { });
+
     console.log("✅ Schema ensured");
   } catch (err) {
     console.error("Schema migration warning:", err.message);
@@ -2559,6 +2578,26 @@ async function consumeMembershipCredit(client, membershipId, classCategory) {
         AND classes_remaining < 9999`,
     [membershipId, key]
   );
+}
+
+// Historial PERMANENTE de ajustes manuales de créditos: quién, cuándo, antes →
+// después y motivo. Se escribe en la MISMA transacción que el cambio (si no se
+// puede registrar, el cambio no se aplica). No hay endpoint para editarlo ni
+// borrarlo, y plan/sucursal van en copia para sobrevivir a la membresía.
+// Devuelve el nombre del admin (para la nota de texto de la membresía).
+async function logCreditAdjustment(db, { membershipId, membership, adminId, before, after, reason, source }) {
+  const adminName = adminId
+    ? (await db.query("SELECT display_name FROM users WHERE id = $1", [adminId])).rows[0]?.display_name || "admin"
+    : "admin";
+  await db.query(
+    `INSERT INTO membership_credit_log
+       (membership_id, user_id, branch_id, plan_name, admin_id, admin_name,
+        before_credits, after_credits, reason, source)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+    [membershipId, membership.user_id, membership.branch_id, membership.plan_name,
+      adminId, adminName, before, after, reason || null, source]
+  );
+  return adminName;
 }
 
 // Inverse: refund a credit on cancellation / waitlist demotion. Devuelve 1 si
@@ -12895,94 +12934,110 @@ app.put("/api/memberships/:id/cancel", adminMiddleware, async (req, res) => {
 //   → fija discipline_credits y classes_remaining = sum del map.
 app.put("/api/memberships/:id/credits", adminMiddleware, async (req, res) => {
   const { mode = "set", value, reason, disciplineCredits } = req.body || {};
+  const isSplit = disciplineCredits && typeof disciplineCredits === "object" && !Array.isArray(disciplineCredits);
 
-  // Modo combo: disciplineCredits map → fija el desglose y la suma.
-  if (disciplineCredits && typeof disciplineCredits === "object" && !Array.isArray(disciplineCredits)) {
-    try {
-      const cur = await pool.query(
-        "SELECT classes_remaining, discipline_credits, user_id FROM memberships WHERE id = $1",
-        [req.params.id]
-      );
-      if (!cur.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
-      const cleanMap = {};
-      let total = 0;
-      for (const [k, val] of Object.entries(disciplineCredits)) {
-        const n = Number(val);
-        if (!Number.isFinite(n) || n < 0 || n > 9999) {
-          return res.status(400).json({ message: `Valor inválido para "${k}" (0–9999)` });
-        }
-        cleanMap[String(k).toLowerCase()] = Math.floor(n);
-        total += Math.floor(n);
+  // Validar antes de abrir la transacción.
+  let cleanMap = null;
+  let splitTotal = 0;
+  let v = null;
+  if (isSplit) {
+    // Modo combo: disciplineCredits map → fija el desglose y la suma.
+    cleanMap = {};
+    for (const [k, val] of Object.entries(disciplineCredits)) {
+      const n = Number(val);
+      if (!Number.isFinite(n) || n < 0 || n > 9999) {
+        return res.status(400).json({ message: `Valor inválido para "${k}" (0–9999)` });
       }
-      const before = cur.rows[0].classes_remaining;
-      const beforeMap = cur.rows[0].discipline_credits;
-      const r = await pool.query(
+      cleanMap[String(k).toLowerCase()] = Math.floor(n);
+      splitTotal += Math.floor(n);
+    }
+  } else {
+    // Modo simple
+    v = Number(value);
+    if (!Number.isFinite(v) || v < 0 || v > 9999) {
+      return res.status(400).json({ message: "value inválido (0–9999)" });
+    }
+    if (!["set", "add", "subtract"].includes(mode)) {
+      return res.status(400).json({ message: "mode debe ser set, add o subtract" });
+    }
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // FOR UPDATE: el "antes" del historial es exacto aunque la clienta esté
+    // reservando en ese momento (las reservas bloquean la misma fila).
+    const cur = await client.query(
+      `SELECT m.classes_remaining, m.discipline_credits, m.user_id, m.branch_id,
+              COALESCE(m.plan_name_override, p.name) AS plan_name
+         FROM memberships m LEFT JOIN plans p ON p.id = m.plan_id
+        WHERE m.id = $1
+        FOR UPDATE OF m`,
+      [req.params.id]
+    );
+    if (!cur.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Membresía no encontrada" });
+    }
+    const membership = cur.rows[0];
+    const before = membership.classes_remaining;
+    let next;
+    let r;
+    if (isSplit) {
+      next = splitTotal;
+      r = await client.query(
         `UPDATE memberships
             SET classes_remaining = $1,
                 discipline_credits = $2::jsonb,
                 updated_at = NOW()
           WHERE id = $3
         RETURNING *`,
-        [total, JSON.stringify(cleanMap), req.params.id]
+        [splitTotal, JSON.stringify(cleanMap), req.params.id]
       );
-      const adminId = req.userId || null;
-      const adminName = adminId
-        ? (await pool.query("SELECT display_name FROM users WHERE id = $1", [adminId])).rows[0]?.display_name || "admin"
-        : "admin";
-      const stamp = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
-      const note = `[${stamp}] ${adminName}: créditos por disciplina ${JSON.stringify(beforeMap ?? {})} → ${JSON.stringify(cleanMap)} (total ${before ?? "—"} → ${total})${reason ? ` (${reason})` : ""}`;
-      await pool.query(
-        `UPDATE memberships SET notes = COALESCE(notes || E'\n', '') || $1 WHERE id = $2`,
-        [note, req.params.id]
-      ).catch(() => {});
-      triggerWalletPassSync(cur.rows[0].user_id, "membership_credits_adjusted");
-      return res.json({ data: r.rows[0], before, after: total, disciplineCredits: cleanMap });
-    } catch (err) {
-      console.error("PUT /memberships/:id/credits (split)", err);
-      return res.status(500).json({ message: "Error interno", detail: err.message });
+    } else {
+      if (mode === "set") next = v;
+      else if (mode === "add") next = (before ?? 0) + v;
+      else next = Math.max(0, (before ?? 0) - v);
+      r = await client.query(
+        "UPDATE memberships SET classes_remaining = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
+        [next, req.params.id]
+      );
     }
-  }
 
-  // Modo simple
-  const v = Number(value);
-  if (!Number.isFinite(v) || v < 0 || v > 9999) {
-    return res.status(400).json({ message: "value inválido (0–9999)" });
-  }
-  if (!["set", "add", "subtract"].includes(mode)) {
-    return res.status(400).json({ message: "mode debe ser set, add o subtract" });
-  }
-  try {
-    const cur = await pool.query("SELECT classes_remaining, user_id FROM memberships WHERE id = $1", [req.params.id]);
-    if (!cur.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
+    const splitDetail = isSplit
+      ? `Por disciplina: ${Object.entries(cleanMap).map(([k, n]) => `${k} ${n}`).join(", ")}`
+      : null;
+    const adminName = await logCreditAdjustment(client, {
+      membershipId: req.params.id,
+      membership,
+      adminId: req.userId || null,
+      before,
+      after: next,
+      reason: [reason, splitDetail].filter(Boolean).join(" · ") || null,
+      source: "admin",
+    });
 
-    const before = cur.rows[0].classes_remaining;
-    let next;
-    if (mode === "set") next = v;
-    else if (mode === "add") next = (before ?? 0) + v;
-    else next = Math.max(0, (before ?? 0) - v);
-
-    const r = await pool.query(
-      "UPDATE memberships SET classes_remaining = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
-      [next, req.params.id]
-    );
-
-    // Audit note: append to existing notes
-    const adminId = req.userId || null;
-    const adminName = adminId
-      ? (await pool.query("SELECT display_name FROM users WHERE id = $1", [adminId])).rows[0]?.display_name || "admin"
-      : "admin";
+    // Nota en la membresía (formato anterior, se conserva por compatibilidad).
     const stamp = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
-    const note = `[${stamp}] ${adminName}: clases ${before ?? "—"} → ${next}${reason ? ` (${reason})` : ""}`;
-    await pool.query(
+    const note = isSplit
+      ? `[${stamp}] ${adminName}: créditos por disciplina ${JSON.stringify(membership.discipline_credits ?? {})} → ${JSON.stringify(cleanMap)} (total ${before ?? "—"} → ${splitTotal})${reason ? ` (${reason})` : ""}`
+      : `[${stamp}] ${adminName}: clases ${before ?? "—"} → ${next}${reason ? ` (${reason})` : ""}`;
+    await client.query(
       `UPDATE memberships SET notes = COALESCE(notes || E'\n', '') || $1 WHERE id = $2`,
       [note, req.params.id]
-    ).catch(() => {});
+    );
 
-    triggerWalletPassSync(cur.rows[0].user_id, "membership_credits_adjusted");
-    return res.json({ data: r.rows[0], before, after: next });
+    await client.query("COMMIT");
+    triggerWalletPassSync(membership.user_id, "membership_credits_adjusted");
+    return res.json(isSplit
+      ? { data: r.rows[0], before, after: splitTotal, disciplineCredits: cleanMap }
+      : { data: r.rows[0], before, after: next });
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
     console.error("PUT /memberships/:id/credits", err);
     return res.status(500).json({ message: "Error interno" });
+  } finally {
+    client.release();
   }
 });
 
@@ -13180,9 +13235,23 @@ app.put("/api/memberships/:id/extend", adminMiddleware, async (req, res) => {
 
 // PUT /api/memberships/:id — update any field
 app.put("/api/memberships/:id", adminMiddleware, async (req, res) => {
+  const { status, classesRemaining, endDate, paymentMethod, reason } = req.body;
+  const client = await pool.connect();
   try {
-    const { status, classesRemaining, endDate, paymentMethod } = req.body;
-    const r = await pool.query(
+    await client.query("BEGIN");
+    const cur = await client.query(
+      `SELECT m.classes_remaining, m.user_id, m.branch_id,
+              COALESCE(m.plan_name_override, p.name) AS plan_name
+         FROM memberships m LEFT JOIN plans p ON p.id = m.plan_id
+        WHERE m.id = $1
+        FOR UPDATE OF m`,
+      [req.params.id]
+    );
+    if (!cur.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: "Membresía no encontrada" });
+    }
+    const r = await client.query(
       `UPDATE memberships SET
          status = COALESCE($1, status),
          classes_remaining = COALESCE($2, classes_remaining),
@@ -13192,11 +13261,28 @@ app.put("/api/memberships/:id", adminMiddleware, async (req, res) => {
        WHERE id = $5 RETURNING *`,
       [status || null, classesRemaining ?? null, endDate || null, paymentMethod || null, req.params.id]
     );
-    if (!r.rows.length) return res.status(404).json({ message: "Membresía no encontrada" });
+    const before = cur.rows[0].classes_remaining;
+    const after = r.rows[0].classes_remaining;
+    if (classesRemaining !== undefined && classesRemaining !== null && before !== after) {
+      await logCreditAdjustment(client, {
+        membershipId: req.params.id,
+        membership: cur.rows[0],
+        adminId: req.userId || null,
+        before,
+        after,
+        reason: reason || null,
+        source: "admin",
+      });
+    }
+    await client.query("COMMIT");
     triggerWalletPassSync(r.rows[0].user_id, "membership_updated");
     return res.json({ data: r.rows[0] });
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("PUT /memberships/:id", err.message);
     return res.status(500).json({ message: "Error interno" });
+  } finally {
+    client.release();
   }
 });
 
@@ -13474,6 +13560,28 @@ app.get("/api/admin/clients/:id/reschedules", adminMiddleware, async (req, res) 
     return res.json({ data: r.rows });
   } catch (err) {
     console.error("GET /admin/clients/:id/reschedules error:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// GET /api/admin/clients/:id/credit-history — ajustes manuales de créditos (más reciente primero)
+app.get("/api/admin/clients/:id/credit-history", adminMiddleware, async (req, res) => {
+  try {
+    const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
+    const branch = allBranches ? null : await resolveRequestBranch(req);
+    if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
+    const r = await pool.query(
+      `SELECT l.id, l.created_at, l.plan_name, l.before_credits, l.after_credits,
+              l.admin_name, l.reason, l.source, br.name AS branch_name
+         FROM membership_credit_log l
+         LEFT JOIN branches br ON br.id = l.branch_id
+        WHERE l.user_id = $1 AND ($2::uuid IS NULL OR l.branch_id = $2)
+        ORDER BY l.created_at DESC`,
+      [req.params.id, branch?.id || null]
+    );
+    return res.json({ data: r.rows });
+  } catch (err) {
+    console.error("GET /admin/clients/:id/credit-history error:", err);
     return res.status(500).json({ message: "Error interno" });
   }
 });
