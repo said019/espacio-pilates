@@ -11,13 +11,13 @@ import {
   ArrowUpRight, Menu, X, Heart, Users, Star,
 } from "lucide-react";
 
-import heroCoachMirror from "@/assets/tu-espacio-studio/hero-coach-mirror.webp";
+import pozosPilatesHero from "@/assets/tu-espacio-studio/pozos-pilates-hero.webp";
 import coachGuidance from "@/assets/tu-espacio-studio/coach-guidance.webp";
 import studioMirrorLine from "@/assets/tu-espacio-studio/studio-mirror-line.webp";
 import reformerPlank from "@/assets/tu-espacio-studio/reformer-plank.webp";
-import towerInversion from "@/assets/tu-espacio-studio/tower-inversion.webp";
+import functionalStrength from "@/assets/tu-espacio-studio/pozos-functional-strength.webp";
 import towerControl from "@/assets/tu-espacio-studio/tower-control.webp";
-import heartMirrorDetail from "@/assets/tu-espacio-studio/heart-mirror-detail.webp";
+import functionalMat from "@/assets/tu-espacio-studio/pozos-functional-mat.webp";
 import reformerSideStretch from "@/assets/tu-espacio-studio/reformer-side-stretch.webp";
 import mirrorStrapDetail from "@/assets/tu-espacio-studio/mirror-strap-detail.webp";
 import markCream from "@/assets/tep-mark-cream.png"; // sello CREMA → fondos OSCUROS
@@ -395,8 +395,8 @@ const Index = () => {
       <section className="relative min-h-[100dvh] flex items-end overflow-hidden">
         <div className="absolute inset-0">
           <img
-            src={heroCoachMirror}
-            alt={`Clase en Tu Espacio, sucursal ${branch.name}`}
+            src={pozosPilatesHero}
+            alt="Alumnas practicando Pilates en Tu Espacio Pozos"
             className="w-full h-full object-cover"
             style={{ objectPosition: "center 42%", filter: "saturate(0.82) contrast(1.02)" }}
             loading="eager"
@@ -648,6 +648,17 @@ const Index = () => {
               );
             })}
           </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="funcional-mat-title" className="px-6 sm:px-10 pb-28 lg:pb-40">
+        <div className="max-w-[1200px] mx-auto rounded-[1.75rem] bg-valiance-nude p-8 sm:p-12 lg:p-16">
+          <h2 id="funcional-mat-title" className="max-w-[800px] font-display text-[clamp(2rem,4vw,3.4rem)] leading-[1.1] text-valiance-charcoal">
+            Funcional &amp; Pilates mat en un solo entrenamiento.
+          </h2>
+          <p className="mt-6 max-w-[60ch] font-body text-[1.02rem] leading-[1.8] text-valiance-charcoal/75">
+            Combina la fuerza del entrenamiento funcional con el control y la movilidad de Pilates mat. Disponible en nuestra sucursal Pozos.
+          </p>
         </div>
       </section>
 
@@ -949,7 +960,7 @@ const Index = () => {
             </figure>
 
             <figure className="col-span-6 lg:col-span-3 relative rounded-[1.75rem] overflow-hidden aspect-[3/4] group">
-              <img src={heartMirrorDetail} alt="Detalle del estudio con espejo y movimiento en reformer" loading="lazy" style={{ filter: "saturate(0.84)" }} className="absolute inset-0 w-full h-full object-cover object-[center_38%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <img src={functionalMat} alt="Alumnas entrenando sobre mat con mancuernas en Pozos" loading="lazy" className="absolute inset-0 w-full h-full object-cover object-center group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
             </figure>
 
             <figure className="col-span-6 lg:col-span-5 relative rounded-[1.75rem] overflow-hidden aspect-[16/10] group">
@@ -961,7 +972,7 @@ const Index = () => {
             </figure>
 
             <figure className="col-span-12 lg:col-span-4 relative rounded-[1.75rem] overflow-hidden aspect-[16/10] lg:aspect-[3/4] group">
-              <img src={towerInversion} alt="Trabajo de control en torre de pilates" loading="lazy" style={{ filter: "saturate(0.86)" }} className="absolute inset-0 w-full h-full object-cover object-[center_44%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
+              <img src={functionalStrength} alt="Entrenamiento funcional con mancuerna en Pozos" loading="lazy" className="absolute inset-0 w-full h-full object-cover object-[center_40%] group-hover:scale-[1.03] transition-transform duration-[1200ms]" />
             </figure>
 
             <figure className="col-span-6 lg:col-span-3 relative rounded-[1.75rem] overflow-hidden aspect-square group">
