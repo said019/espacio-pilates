@@ -101,7 +101,7 @@ const Dashboard = () => {
 
           <div className="stagger-in grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {metric("Clases de hoy", stats?.classesToday, <CalendarDays size={18} />, "", "#8C6B6F")}
-            {metric("Membresías activas", stats?.activeMembers, <Users size={18} />, "", "#B6968F")}
+            {metric("Membresías activas del mes", stats?.activeMembers, <Users size={18} />, "", "#B6968F")}
             {metric("Ingresos del mes", stats?.monthlyRevenue, <DollarSign size={18} />, "$", "#C08791")}
             {metric("Alertas pendientes", stats?.pendingAlerts, <AlertCircle size={18} />, "", "#A9787E")}
           </div>

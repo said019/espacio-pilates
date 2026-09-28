@@ -12295,7 +12295,12 @@ app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
 
     const [classesToday, activeMembers, monthlyRevenue, pendingAlerts] = await Promise.all([
       pool.query("SELECT COUNT(*) FROM classes WHERE date = $1 AND ($2::uuid IS NULL OR branch_id = $2)", [today, branch?.id || null]),
-      pool.query("SELECT COUNT(*) FROM memberships WHERE status = 'active' AND ($1::uuid IS NULL OR branch_id = $1)", [branch?.id || null]),
+      // Count active memberships whose validity overlaps the current Mexico City month.
+      pool.query(`SELECT COUNT(*) FROM memberships
+        WHERE status = 'active'
+          AND start_date < ($2::date + INTERVAL '1 month')
+          AND end_date >= $2::date
+          AND ($1::uuid IS NULL OR branch_id = $1)`, [branch?.id || null, monthStart]),
       pool.query("SELECT COALESCE(SUM(total_amount),0) AS total FROM orders WHERE status = 'approved' AND created_at >= $1 AND ($2::uuid IS NULL OR branch_id = $2)", [monthStart, branch?.id || null]),
       pool.query("SELECT COUNT(*) FROM orders WHERE status = 'pending_verification' AND ($1::uuid IS NULL OR branch_id = $1)", [branch?.id || null]),
     ]);
