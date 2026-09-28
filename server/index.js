@@ -1134,7 +1134,7 @@ async function ensureSchema() {
                 category = 'funcional', intensity = 'media', level = 'all',
                 duration_min = 55, capacity = 8, color = '#A8B7A2', emoji = '🏋️',
                 sort_order = 3, is_active = true
-          WHERE LOWER(name) IN ('functional','funcional')`,
+          WHERE category = 'funcional' OR LOWER(name) IN ('functional','funcional')`,
         [functionalDesc],
       ).catch(() => { });
       await pool.query(
@@ -1142,7 +1142,7 @@ async function ensureSchema() {
            (name, subtitle, description, category, intensity, level, duration_min, capacity, color, emoji, sort_order, is_active)
          SELECT 'Functional', 'Lunes, miércoles y viernes · 8:00 am', $1,
                 'funcional', 'media', 'all', 55, 8, '#A8B7A2', '🏋️', 3, true
-         WHERE NOT EXISTS (SELECT 1 FROM class_types WHERE LOWER(name) IN ('functional','funcional'))`,
+         WHERE NOT EXISTS (SELECT 1 FROM class_types WHERE category = 'funcional' OR LOWER(name) IN ('functional','funcional'))`,
         [functionalDesc],
       ).catch(() => { });
       console.log("✅ Ensured Tu Espacio class types Pilates, Prenatal and Functional");
