@@ -23,8 +23,14 @@ describe('canCancel', () => {
   it('entre 8 y 12h: cancela pero NO devuelve crédito (penalización)', () => {
     expect(canCancel({ nowMs: start - 9*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: false });
   });
-  it('<8h: no cancela', () => {
-    expect(canCancel({ nowMs: start - 7*H, classStartMs: start })).toEqual({ allowed: false, refundCredit: false });
+  it('<8h: cancela sin devolver crédito', () => {
+    expect(canCancel({ nowMs: start - 7*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: false });
+  });
+  it('usa las 8h configuradas solo para la devolución', () => {
+    for (const hours of [9, 8, 7, 0.01, 0, -1]) {
+      expect(canCancel({ nowMs: start - hours*H, classStartMs: start, cancelHours: 8 }))
+        .toEqual({ allowed: hours > 0, refundCredit: hours >= 8 });
+    }
   });
   it('exactamente 12h: devuelve crédito (>=)', () => {
     expect(canCancel({ nowMs: start - 12*H, classStartMs: start })).toEqual({ allowed: true, refundCredit: true });

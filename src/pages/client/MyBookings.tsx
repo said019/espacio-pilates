@@ -115,7 +115,7 @@ const BookingCard = ({
             <CalendarClock size={14} className="mr-1" />Reagendar
           </Button>
         )}
-        {booking.status === "confirmed" && !isPast && cancellationsEnabled && hoursUntil >= rescheduleHours && (
+        {booking.status === "confirmed" && !isPast && cancellationsEnabled && hoursUntil > 0 && (
           <Button variant="ghost" size="sm" className="text-destructive" onClick={() => onCancel(booking.id)}>
             Cancelar
           </Button>
@@ -392,9 +392,7 @@ const MyBookings = () => {
                     {cancelConfig.min_hours > 0 && (
                       <span className="block rounded-lg bg-[#F4EAD6] border border-[#E5CF9F] px-4 py-3 text-[#B5832F] text-xs leading-relaxed">
                         <strong>Importante:</strong>{" "}
-                        {cancelConfig.late_cancel_message
-                          ? cancelConfig.late_cancel_message.replace("{hours}", String(cancelConfig.min_hours))
-                          : `Las cancelaciones con menos de ${cancelConfig.min_hours}h de anticipación no devolverán el crédito.`}
+                        {`Puedes cancelar antes del inicio para liberar tu lugar. Con menos de ${cancelConfig.min_hours}h de anticipación no se devuelve el crédito.`}
                       </span>
                     )}
                     {!cancelConfig.refund_credit_on_cancel && (

@@ -4656,31 +4656,26 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
       ? (classStartUTC.getTime() - now.getTime()) / 60_000
       : 999; // if we can't determine, assume on-time
 
-    if (minutesUntilClass < 0) {
+    if (minutesUntilClass <= 0) {
       return res.status(400).json({
         code: "CLASS_ALREADY_STARTED",
         message: "Esta clase ya comenzó y no puede cancelarse.",
       });
     }
 
-    // Refund threshold = min_hours (default 12); no-cancel cutoff = reschedule_hours (default 8).
-    // - hoursLeft >= min_hours  → cancel allowed + credit refunded.
-    // - reschedule_hours <= hoursLeft < min_hours → cancel allowed, credit NOT refunded (penalty).
-    // - hoursLeft < reschedule_hours → cancel BLOCKED (student loses the spot).
+    // Cancellation is allowed until class start; the notice window only controls refunds.
     const refundHours = normalizedSettingHours(cancelConfig.min_hours, 12);
-    const noCancelHours = normalizedSettingHours(cancelConfig.reschedule_hours, 8);
     const cancelCheck = canCancel({
       nowMs: now.getTime(),
       classStartMs: classStartUTC ? classStartUTC.getTime() : now.getTime() + 999 * 60000,
       cancelHours: refundHours,
-      minHours: noCancelHours,
     });
 
-    // Block cancellation only when inside the no-cancel window (< reschedule_hours).
+    // Fail closed at/after class start (or for invalid timestamps).
     if (!cancelCheck.allowed) {
       return res.status(403).json({
         code: "CANCELLATION_TOO_LATE",
-        message: "Ya no puedes cancelar con menos de " + noCancelHours + " horas. Si no asistes perderás el lugar.",
+        message: "Esta clase ya comenzó y no puede cancelarse.",
       });
     }
 
@@ -4747,7 +4742,7 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
             date: booking.date,
             startTime: booking.start_time,
             creditRestored: shouldRefund,
-            isLate: false,
+            isLate: !cancelCheck.refundCredit,
             classesLeft: memAfter?.rows[0]?.classes_remaining ?? null,
             branchName: booking.branch_name,
           }).catch((e) => console.error("[Email] booking cancelled:", e.message));

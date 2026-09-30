@@ -23,11 +23,11 @@ export function mexicoCityDate(instant = new Date()) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
-export function canCancel({ nowMs, classStartMs, cancelHours = 12, minHours = 8 }) {
+export function canCancel({ nowMs, classStartMs, cancelHours = 12 }) {
   const hoursLeft = (classStartMs - nowMs) / 3600_000;
   return {
-    allowed: hoursLeft >= minHours,        // can cancel down to minHours before class
-    refundCredit: hoursLeft >= cancelHours // refund only when >= cancelHours
+    allowed: hoursLeft > 0,
+    refundCredit: hoursLeft > 0 && hoursLeft >= cancelHours
   };
 }
 
