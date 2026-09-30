@@ -30,8 +30,9 @@ describe("isRenewalReminderTime", () => {
   it("false otro día a las 12pm México", () => {
     expect(isRenewalReminderTime(utc(2026, 9, 15, 18))).toBe(false);
   });
-  it("false el 28 a otra hora (14:00 México)", () => {
-    expect(isRenewalReminderTime(utc(2026, 9, 28, 20))).toBe(false);
+  it("recupera envíos después del mediodía si el servidor se reinició", () => {
+    expect(isRenewalReminderTime(utc(2026, 9, 28, 20))).toBe(true);
+    expect(isRenewalReminderTime(utc(2026, 9, 28, 17))).toBe(false);
   });
 });
 

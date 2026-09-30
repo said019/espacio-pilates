@@ -18,6 +18,7 @@ const SITE_URL = String(process.env.SITE_URL || process.env.APP_URL || "https://
 const LOGO_URL = `${SITE_URL}/tep-mark-ink.png`;
 
 import { buildReceiptModel } from "./lib/receipt.js";
+import { RENEWAL_NUDGE_TITLE, RENEWAL_NUDGE_BODY } from "./lib/renewalReminder.js";
 
 // ─── Brand palette Tu Espacio Pilates VM (paleta del sitio) ──────────────────
 const B = {
@@ -221,6 +222,7 @@ async function sendEmail({ to, subject, html }) {
     });
     if (error) console.error("[Email] Resend error:", error);
     else console.log(`[Email] Sent "${subject}" → ${to} (id: ${data?.id})`);
+    return { accepted: !error && Boolean(data?.id), id: data?.id };
   } catch (err) {
     console.error("[Email] Exception sending email:", err.message);
   }
@@ -624,7 +626,22 @@ async function sendPaymentReceipt(opts) {
 }
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
+async function sendMonthlyRenewalReminder({ to, branchName = "Tu Espacio Pilates" }) {
+  return sendEmail({
+    to,
+    subject: RENEWAL_NUDGE_TITLE,
+    html: baseLayout({
+      preheader: "Renueva tu membresía y sigue entrenando.",
+      content: h1(RENEWAL_NUDGE_TITLE) + RENEWAL_NUDGE_BODY.split("\n\n").map((text) => p(text)).join(""),
+      ctaUrl: `${SITE_URL}/app/checkout`,
+      ctaText: "Renovar membresía",
+      branchName,
+    }),
+  });
+}
+
 export {
+  sendMonthlyRenewalReminder,
   sendMembershipActivated,
   sendBookingConfirmed,
   sendBookingCancelled,

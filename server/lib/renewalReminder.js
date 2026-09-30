@@ -26,7 +26,7 @@ export function mexicoDateParts(date) {
 // ¿Es momento de correr el recordatorio? Días 28 o 1, a las 12 (hora México).
 export function isRenewalReminderTime(date) {
   const { day, hour } = mexicoDateParts(date);
-  return (day === 28 || day === 1) && hour === 12;
+  return (day === 28 || day === 1) && hour >= 12;
 }
 
 // Clave de dedup por fecha: renew_YYYY_MM_DD (DD = 28 o 01).

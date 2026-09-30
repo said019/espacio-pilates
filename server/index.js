@@ -71,6 +71,7 @@ import {
   sendBookingCancelled,
   sendWeeklyReminder,
   sendRenewalReminder,
+  sendMonthlyRenewalReminder,
   sendPasswordResetEmail,
   sendClientWelcomeWithCredentials,
   sendPaymentReceipt,
@@ -17705,7 +17706,10 @@ async function runClassReminders() {
 // muerto runRenewalReminderCron (que es de "última clase"). Solo push; a las
 // pendientes de renovar = su membresía más reciente (no cancelada) vence en <=3
 // días o venció hace <=40 días, y no tienen otra más reciente (no renovaron).
+let monthlyRenewalRunning = false;
 async function runMonthlyRenewalReminders() {
+  if (monthlyRenewalRunning) return;
+  monthlyRenewalRunning = true;
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS renewal_reminders_sent (
@@ -17721,15 +17725,16 @@ async function runMonthlyRenewalReminders() {
     const res = await pool.query(`
       WITH latest AS (
         SELECT DISTINCT ON (m.user_id)
-               m.user_id, m.id AS membership_id, m.end_date
+               m.user_id, m.id AS membership_id, m.end_date, m.branch_id
         FROM memberships m
         WHERE m.status IN ('active','expired')
           AND m.end_date IS NOT NULL
         ORDER BY m.user_id, m.end_date DESC
       )
-      SELECT l.user_id, l.membership_id, COALESCE(u.display_name, 'Alumna') AS name
+      SELECT l.user_id, l.membership_id, u.email, br.name AS branch_name, COALESCE(u.display_name, 'Alumna') AS name
       FROM latest l
       JOIN users u ON u.id = l.user_id
+      JOIN branches br ON br.id = l.branch_id
       WHERE u.receive_reminders IS NOT FALSE
         AND l.end_date <= CURRENT_DATE + INTERVAL '3 days'
         AND l.end_date >= CURRENT_DATE - INTERVAL '40 days'
@@ -17737,6 +17742,23 @@ async function runMonthlyRenewalReminders() {
     console.log(`[Cron] Renovación — ${res.rows.length} pendientes de renovar`);
 
     const candidates = res.rows;
+    // Email has its own dedup key: a successful push must not suppress email.
+    const emailKey = `${dedupKey}_email`;
+    const emailSent = await pool.query(
+      "SELECT membership_id FROM renewal_reminders_sent WHERE dedup_key = $1", [emailKey],
+    );
+    const emailSentIds = new Set(emailSent.rows.map((row) => row.membership_id));
+    for (const row of candidates) {
+      if (!row.email || emailSentIds.has(row.membership_id)) continue;
+      const result = await sendMonthlyRenewalReminder({ to: row.email, branchName: row.branch_name });
+      if (result?.accepted) {
+        await pool.query(
+          `INSERT INTO renewal_reminders_sent (membership_id, dedup_key)
+           VALUES ($1, $2) ON CONFLICT DO NOTHING`, [row.membership_id, emailKey],
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
     let alreadySent = new Set();
     if (candidates.length) {
       const sentRes = await pool.query(
@@ -17766,6 +17788,8 @@ async function runMonthlyRenewalReminders() {
     }
   } catch (err) {
     console.error("[Cron] Renovación error:", err.message);
+  } finally {
+    monthlyRenewalRunning = false;
   }
 }
 
@@ -17792,7 +17816,7 @@ function scheduleEmailCrons() {
       console.log("[Cron] Triggering renovación reminder...");
       runMonthlyRenewalReminders();
     }
-  }, 60 * 60 * 1000);
+  }, 5 * 60 * 1000);
 }
 
 // ─── Start ───────────────────────────────────────────────────────────────────
