@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { formatEsMxDate, formatMexicoCityTimestamp, mexicoCityDateParts } from "./lib/dateFormatting.js";
 import { consentGuard, registerConsentRoutes, consentVersion } from "./lib/consent.js";
 import { clientBranchPredicate } from "./lib/clientBranchScope.js";
 import express from "express";
@@ -4534,7 +4535,7 @@ app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId),
         }
         const waName = u.display_name || "Alumna";
         const waClass = cl.class_type_name || "tu clase";
-        const waDate = cl.date ? new Date(cl.date).toLocaleDateString("es-MX") : "";
+        const waDate = cl.date ? formatEsMxDate(new Date(cl.date)) : "";
         const waTime = cl.start_time ? String(cl.start_time).slice(0, 5) : "";
         sendConfiguredWhatsAppTemplate({
           templateKey: isWaitlist ? "booking_waitlist" : "booking_confirmed",
@@ -4753,7 +4754,7 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
           vars: {
             name: u.display_name || "Alumna",
             class: booking.class_type_name || "tu clase",
-            date: booking.date ? new Date(booking.date).toLocaleDateString("es-MX") : "",
+            date: booking.date ? formatEsMxDate(new Date(booking.date)) : "",
             time: booking.start_time ? String(booking.start_time).slice(0, 5) : "",
             creditRestored: shouldRefund ? "Sí" : "No",
           },
@@ -4769,7 +4770,7 @@ app.delete("/api/bookings/:id", authMiddleware, async (req, res) => {
           vars: {
             name: u.display_name || "Alumna",
             class: booking.class_type_name || "tu clase",
-            date: booking.date ? new Date(booking.date).toLocaleDateString("es-MX") : "",
+            date: booking.date ? formatEsMxDate(new Date(booking.date)) : "",
             time: booking.start_time ? String(booking.start_time).slice(0, 5) : "",
             creditRestored: shouldRefund ? "Sí" : "No",
           },
@@ -5087,7 +5088,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, consentGuard(pool, req =
         }
         const waName = u.display_name || "Alumna";
         const waClass = cl.class_type_name || "tu clase";
-        const waDate = cl.date ? new Date(cl.date).toLocaleDateString("es-MX") : "";
+        const waDate = cl.date ? formatEsMxDate(new Date(cl.date)) : "";
         const waTime = cl.start_time ? String(cl.start_time).slice(0, 5) : "";
         sendConfiguredWhatsAppTemplate({
           templateKey: "booking_confirmed",
@@ -6482,8 +6483,8 @@ async function approveOrderFromMP(orderId, mpPaymentId) {
             templateKey: "membership_activated", phone: u.phone,
             vars: {
               name: u.display_name || "Alumna", plan: planRow.name || "tu plan",
-              startDate: new Date().toLocaleDateString("es-MX"),
-              endDate: new Date(emailEndStr).toLocaleDateString("es-MX"),
+              startDate: formatEsMxDate(new Date()),
+              endDate: formatEsMxDate(new Date(emailEndStr)),
             },
             fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${planRow.name || ""} ya está activa.`,
           }).catch((e) => console.error("[WA] MP approve:", e.message));
@@ -6492,8 +6493,8 @@ async function approveOrderFromMP(orderId, mpPaymentId) {
             userId: order.user_id,
             vars: {
               name: u.display_name || "Alumna", plan: planRow.name || "tu plan",
-              startDate: new Date().toLocaleDateString("es-MX"),
-              endDate: new Date(emailEndStr).toLocaleDateString("es-MX"),
+              startDate: formatEsMxDate(new Date()),
+              endDate: formatEsMxDate(new Date(emailEndStr)),
             },
           }).catch((e) => console.error("[Push] MP approve:", e.message));
           sendPushToAdmins({
@@ -6926,11 +6927,7 @@ function formatWalletEventSchedule(eventPass) {
   if (!eventPass?.eventDate) return "";
   const eventDate = new Date(eventPass.eventDate);
   if (Number.isNaN(eventDate.getTime())) return "";
-  const dateLabel = eventDate.toLocaleDateString("es-MX", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
+  const dateLabel = formatEsMxDate(eventDate, "weekdayDayMonth");
   const startTime = eventPass.eventStartTime ? String(eventPass.eventStartTime).slice(0, 5) : "";
   const endTime = eventPass.eventEndTime ? String(eventPass.eventEndTime).slice(0, 5) : "";
   const timeLabel = startTime && endTime ? `${startTime} - ${endTime}` : (startTime || "");
@@ -7050,7 +7047,7 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
       const endDate = new Date(membership.end_date);
       const now = new Date();
       const daysLeft = Math.max(0, Math.ceil((endDate - now) / (1000 * 60 * 60 * 24)));
-      const endFormatted = endDate.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
+      const endFormatted = formatEsMxDate(endDate, "dayMonthYear");
       textModules.push({
         id: "vigencia",
         header: "VIGENTE HASTA",
@@ -7093,7 +7090,7 @@ function buildGoogleWalletSaveUrl({ userId, userName, points, qrCode, membership
     // Row 4: Next class
     if (nextBooking) {
       const bookingDate = new Date(nextBooking.date);
-      const dateStr = bookingDate.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
+      const dateStr = formatEsMxDate(bookingDate, "weekdayDayMonth");
       const timeStr = nextBooking.start_time ? String(nextBooking.start_time).substring(0, 5) : "";
       textModules.push({
         id: "next_class",
@@ -7873,7 +7870,7 @@ async function syncGoogleWalletObjectForUser(userId, { reason = "wallet_update" 
     if (GOOGLE_NOTIFY_REASONS.some((r) => String(reason).includes(r))) {
       const nb = snapshot.nextBooking;
       const body = nb
-        ? `${nb.class_name || "Tu clase"}${nb.date ? " · " + new Date(nb.date).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" }) : ""}${nb.start_time ? " " + String(nb.start_time).slice(0, 5) : ""}`
+        ? `${nb.class_name || "Tu clase"}${nb.date ? " · " + formatEsMxDate(new Date(nb.date), "weekdayDayMonth") : ""}${nb.start_time ? " " + String(nb.start_time).slice(0, 5) : ""}`
         : "Tu reserva quedó confirmada. ¡Te esperamos! 🩷";
       await addGoogleWalletNotifyMessage(loyaltyObject.id, { header: "Reserva confirmada 🩷", body });
     }
@@ -8073,10 +8070,10 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const eventDateObj = activeEventPass?.eventDate ? new Date(activeEventPass.eventDate) : null;
   const hasValidEventDate = !!eventDateObj && !Number.isNaN(eventDateObj.getTime());
   const eventDateShort = hasValidEventDate
-    ? eventDateObj.toLocaleDateString("es-MX", { day: "numeric", month: "short" })
+    ? formatEsMxDate(eventDateObj, "dayMonth")
     : "Por confirmar";
   const eventDateLong = hasValidEventDate
-    ? eventDateObj.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short", year: "numeric" })
+    ? formatEsMxDate(eventDateObj, "weekdayDayMonthYear")
     : "Fecha por confirmar";
   const eventStartTimeLabel = activeEventPass?.eventStartTime ? String(activeEventPass.eventStartTime).slice(0, 5) : "";
   const eventEndTimeLabel = activeEventPass?.eventEndTime ? String(activeEventPass.eventEndTime).slice(0, 5) : "";
@@ -8157,7 +8154,7 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
   const firstName = truncateWalletField(String(userName || "").trim().split(/\s+/)[0] || "Alumna", 18);
   const nextClassShort = nextBooking
     ? truncateWalletField(
-        `${nextBooking.class_name || "Clase"} · ${new Date(nextBooking.date).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })}${nextBooking.start_time ? ` ${String(nextBooking.start_time).slice(0, 5)}` : ""}`,
+        `${nextBooking.class_name || "Clase"} · ${formatEsMxDate(new Date(nextBooking.date), "weekdayDayMonth")}${nextBooking.start_time ? ` ${String(nextBooking.start_time).slice(0, 5)}` : ""}`,
         30,
       )
     : "";
@@ -8246,7 +8243,7 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
       auxiliaryFields.push({
         key: "vigencia",
         label: "VIGENTE HASTA",
-        value: `${endDate.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })} (${daysLeft}d)`,
+        value: `${formatEsMxDate(endDate, "dayMonthYear")} (${daysLeft}d)`,
       });
     }
     if (isUnlimited) {
@@ -8275,7 +8272,7 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
 
   if (nextBooking) {
     const bookingDate = new Date(nextBooking.date);
-    const dateStr = bookingDate.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
+    const dateStr = formatEsMxDate(bookingDate, "weekdayDayMonth");
     const timeStr = nextBooking.start_time ? String(nextBooking.start_time).substring(0, 5) : "";
     backFields.push({
       key: "next_class",
@@ -8305,7 +8302,7 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
         backFields.unshift({
           key: "membership_valid_back",
           label: "VIGENTE HASTA",
-          value: `${endDate.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })} (${daysLeft}d)`,
+          value: `${formatEsMxDate(endDate, "dayMonthYear")} (${daysLeft}d)`,
         });
       }
       if (isUnlimited) {
@@ -8432,7 +8429,7 @@ async function generateApplePkpass({ userId, userName, points, qrCode, membershi
     compactSecondaryFields.push({
       key: "compact_valid_until",
       label: "VIGENCIA",
-      value: `${endDate.toLocaleDateString("es-MX", { day: "numeric", month: "short" })} (${daysLeft}d)`,
+      value: `${formatEsMxDate(endDate, "dayMonth")} (${daysLeft}d)`,
     });
   }
 
@@ -8729,12 +8726,12 @@ app.get("/api/wallet/apple/pkpass", authMiddleware, async (req, res) => {
     // Fallback: generate a beautiful standalone HTML pass page
     const nextBookingHtml = nextBooking
       ? `<div class="field"><span class="label">Próxima clase</span><span class="value">${nextBooking.class_name || ""}</span></div>
-         <div class="field"><span class="label">Fecha</span><span class="value">${nextBooking.date ? new Date(nextBooking.date).toLocaleDateString("es-MX", { day: "numeric", month: "short" }) : ""} ${nextBooking.start_time || ""}</span></div>`
+         <div class="field"><span class="label">Fecha</span><span class="value">${nextBooking.date ? formatEsMxDate(new Date(nextBooking.date), "dayMonth") : ""} ${nextBooking.start_time || ""}</span></div>`
       : "";
     const membershipHtml = membership
       ? `<div class="field"><span class="label">Plan</span><span class="value">${membership.plan_name}</span></div>
          <div class="field"><span class="label">Clases restantes</span><span class="value">${membership.classes_remaining ?? "∞"} / ${membership.class_limit ?? "∞"}</span></div>
-         <div class="field"><span class="label">Vigencia</span><span class="value">${membership.end_date ? new Date(membership.end_date).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }) : "—"}</span></div>`
+         <div class="field"><span class="label">Vigencia</span><span class="value">${membership.end_date ? formatEsMxDate(new Date(membership.end_date), "dayMonthYear") : "—"}</span></div>`
       : `<div class="field"><span class="label">Plan</span><span class="value">Sin membresía activa</span></div>`;
 
     const html = `<!DOCTYPE html>
@@ -8828,7 +8825,7 @@ app.get("/api/wallet/events/apple/pkpass", authMiddleware, async (req, res) => {
     const eventDateObj = activeEventPass?.eventDate ? new Date(activeEventPass.eventDate) : null;
     const hasValidEventDate = !!eventDateObj && !Number.isNaN(eventDateObj.getTime());
     const eventDateLong = hasValidEventDate
-      ? eventDateObj.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short", year: "numeric" })
+      ? formatEsMxDate(eventDateObj, "weekdayDayMonthYear")
       : "Fecha por confirmar";
     const eventStartTimeLabel = activeEventPass?.eventStartTime ? String(activeEventPass.eventStartTime).slice(0, 5) : "";
     const eventEndTimeLabel = activeEventPass?.eventEndTime ? String(activeEventPass.eventEndTime).slice(0, 5) : "";
@@ -11352,7 +11349,7 @@ async function notifyWaitlistPromotion(userId, classId) {
     const u = uRes.rows[0];
     const cl = cRes.rows[0];
     if (!u || !cl) return;
-    const dateStr = cl.date ? new Date(cl.date).toLocaleDateString("es-MX") : "";
+    const dateStr = cl.date ? formatEsMxDate(new Date(cl.date)) : "";
     const timeStr = cl.start_time ? String(cl.start_time).slice(0, 5) : "";
     const className = cl.class_type_name || "tu clase";
     const name = u.display_name || "Alumna";
@@ -11405,7 +11402,7 @@ async function notifyClassCancelled(userId, classId, { creditRestored = false } 
       vars: {
         name: u.display_name || "Alumna",
         class: cl.class_type_name || "tu clase",
-        date: cl.date ? new Date(cl.date).toLocaleDateString("es-MX", { timeZone: "UTC" }) : "",
+        date: cl.date ? formatEsMxDate(new Date(cl.date), "utcDate") : "",
         time: cl.start_time ? String(cl.start_time).slice(0, 5) : "",
         credit: creditRestored ? "Tu crédito ya regresó a tu paquete." : "",
       },
@@ -12282,9 +12279,7 @@ app.get("/api/admin/stats", adminMiddleware, async (req, res) => {
     if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
     // Fecha LOCAL de México (CST/CDT), no la UTC del servidor (Railway corre en UTC):
     // si no, un domingo por la noche en SLP ya es lunes UTC y "clases de hoy" contaría las del lunes.
-    const mxParts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "America/Mexico_City", year: "numeric", month: "2-digit", day: "2-digit",
-    }).formatToParts(new Date());
+    const mxParts = mexicoCityDateParts(new Date());
     const mxPart = (t) => mxParts.find((p) => p.type === t)?.value;
     const today = `${mxPart("year")}-${mxPart("month")}-${mxPart("day")}`;
     const monthStart = `${mxPart("year")}-${mxPart("month")}-01`;
@@ -12708,10 +12703,10 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
           vars: {
             name: u.display_name || "Alumna",
             plan: plan.name || "tu plan",
-            startDate: new Date(startStr).toLocaleDateString("es-MX"),
-            endDate: new Date(endStr).toLocaleDateString("es-MX"),
+            startDate: formatEsMxDate(new Date(startStr)),
+            endDate: formatEsMxDate(new Date(endStr)),
           },
-          fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${plan.name || ""} ya está activa. Vigencia: ${new Date(startStr).toLocaleDateString("es-MX")} al ${new Date(endStr).toLocaleDateString("es-MX")}.`,
+          fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${plan.name || ""} ya está activa. Vigencia: ${formatEsMxDate(new Date(startStr))} al ${formatEsMxDate(new Date(endStr))}.`,
         }).catch((e) => console.error("[WA] membership activated:", e.message));
         sendConfiguredPushTemplate({
           templateKey: "membership_activated",
@@ -12719,8 +12714,8 @@ app.post("/api/memberships", adminMiddleware, async (req, res) => {
           vars: {
             name: u.display_name || "Alumna",
             plan: plan.name || "tu plan",
-            startDate: new Date(startStr).toLocaleDateString("es-MX"),
-            endDate: new Date(endStr).toLocaleDateString("es-MX"),
+            startDate: formatEsMxDate(new Date(startStr)),
+            endDate: formatEsMxDate(new Date(endStr)),
           },
         }).catch((e) => console.error("[Push] membership activated:", e.message));
       }
@@ -12887,8 +12882,8 @@ app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
           vars: {
             name: u.display_name || "Alumna",
             plan: mem.plan_name || mem.plan_name_override || "tu plan",
-            startDate: mem.start_date ? new Date(mem.start_date).toLocaleDateString("es-MX") : "",
-            endDate: mem.end_date ? new Date(mem.end_date).toLocaleDateString("es-MX") : "",
+            startDate: mem.start_date ? formatEsMxDate(new Date(mem.start_date)) : "",
+            endDate: mem.end_date ? formatEsMxDate(new Date(mem.end_date)) : "",
           },
           fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${mem.plan_name || mem.plan_name_override || ""} ya está activa.`,
         }).catch((e) => console.error("[WA] membership activate:", e.message));
@@ -12898,8 +12893,8 @@ app.put("/api/memberships/:id/activate", adminMiddleware, async (req, res) => {
           vars: {
             name: u.display_name || "Alumna",
             plan: mem.plan_name || mem.plan_name_override || "tu plan",
-            startDate: mem.start_date ? new Date(mem.start_date).toLocaleDateString("es-MX") : "",
-            endDate: mem.end_date ? new Date(mem.end_date).toLocaleDateString("es-MX") : "",
+            startDate: mem.start_date ? formatEsMxDate(new Date(mem.start_date)) : "",
+            endDate: mem.end_date ? formatEsMxDate(new Date(mem.end_date)) : "",
           },
         }).catch((e) => console.error("[Push] membership activate:", e.message));
       }
@@ -13019,7 +13014,7 @@ app.put("/api/memberships/:id/credits", adminMiddleware, async (req, res) => {
     });
 
     // Nota en la membresía (formato anterior, se conserva por compatibilidad).
-    const stamp = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
+    const stamp = formatMexicoCityTimestamp(new Date());
     const note = isSplit
       ? `[${stamp}] ${adminName}: créditos por disciplina ${JSON.stringify(membership.discipline_credits ?? {})} → ${JSON.stringify(cleanMap)} (total ${before ?? "—"} → ${splitTotal})${reason ? ` (${reason})` : ""}`
       : `[${stamp}] ${adminName}: clases ${before ?? "—"} → ${next}${reason ? ` (${reason})` : ""}`;
@@ -13131,7 +13126,7 @@ app.post("/api/memberships/:id/split-bundle", adminMiddleware, async (req, res) 
     const adminName = adminId
       ? (await dbClient.query("SELECT display_name FROM users WHERE id = $1", [adminId])).rows[0]?.display_name || "admin"
       : "admin";
-    const stamp = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
+    const stamp = formatMexicoCityTimestamp(new Date());
     const note = `[${stamp}] ${adminName}: combo dividido en ${created.length} bundle(s). Membresía original cancelada.`;
     await dbClient.query(
       `UPDATE memberships
@@ -13219,7 +13214,7 @@ app.put("/api/memberships/:id/extend", adminMiddleware, async (req, res) => {
     const adminName = adminId
       ? (await pool.query("SELECT display_name FROM users WHERE id = $1", [adminId])).rows[0]?.display_name || "admin"
       : "admin";
-    const stamp = new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City" });
+    const stamp = formatMexicoCityTimestamp(new Date());
     const note = `[${stamp}] ${adminName}: vigencia ${beforeStr ?? "—"} → ${nextStr}${reason ? ` (${reason})` : ""}`;
     await pool.query(
       `UPDATE memberships SET notes = COALESCE(notes || E'\n', '') || $1 WHERE id = $2`,
@@ -13746,7 +13741,7 @@ app.post("/api/admin/bookings/assign", adminMiddleware, consentGuard(pool, req =
         }
         const waName = u.display_name || "Alumna";
         const waClass = cl.class_type_name || "tu clase";
-        const waDate = cl.date ? new Date(cl.date).toLocaleDateString("es-MX") : "";
+        const waDate = cl.date ? formatEsMxDate(new Date(cl.date)) : "";
         const waTime = cl.start_time ? String(cl.start_time).slice(0, 5) : "";
         sendConfiguredWhatsAppTemplate({
           templateKey: isWaitlist ? "booking_waitlist" : "booking_confirmed",
@@ -14955,8 +14950,8 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
             vars: {
               name: u.display_name || "Alumna",
               plan: plan.name || "tu plan",
-              startDate: new Date().toLocaleDateString("es-MX"),
-              endDate: new Date(emailEndStr).toLocaleDateString("es-MX"),
+              startDate: formatEsMxDate(new Date()),
+              endDate: formatEsMxDate(new Date(emailEndStr)),
             },
             fallbackMessage: `Hola ${u.display_name || "Alumna"}, tu membresía ${plan.name || ""} ya está activa.`,
           }).catch((e) => console.error("[WA] admin order verify:", e.message));
@@ -14966,8 +14961,8 @@ app.put("/api/admin/orders/:id/verify", adminMiddleware, async (req, res) => {
             vars: {
               name: u.display_name || "Alumna",
               plan: plan.name || "tu plan",
-              startDate: new Date().toLocaleDateString("es-MX"),
-              endDate: new Date(emailEndStr).toLocaleDateString("es-MX"),
+              startDate: formatEsMxDate(new Date()),
+              endDate: formatEsMxDate(new Date(emailEndStr)),
             },
           }).catch((e) => console.error("[Push] admin order verify:", e.message));
           sendPushToAdmins({
@@ -17569,7 +17564,7 @@ async function runClassReminderCron(mode = "morning") {
       }
 
       const timeKey = String(row.start_time).slice(0, 5);
-      const dateStr = row.date ? new Date(row.date).toLocaleDateString("es-MX") : "";
+      const dateStr = row.date ? formatEsMxDate(new Date(row.date)) : "";
 
       await sendConfiguredWhatsAppTemplate({
         templateKey: "class_reminder",

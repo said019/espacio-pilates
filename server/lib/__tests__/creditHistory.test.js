@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { expect, it, vi } from 'vitest';
+import { formatMexicoCityTimestamp } from '../dateFormatting.js';
 
 // Cada ajuste manual de créditos queda en membership_credit_log, en la misma
 // transacción que el cambio: sin registro no hay cambio.
@@ -25,6 +26,7 @@ function runRoute(signature, method, { current = 0, failLog = false } = {}) {
     app: { [method]: (_path, _auth, fn) => { handler = fn; } }, adminMiddleware() {}, console, Number, Math, JSON, Object, Array, String, Date,
     pool: { connect: async () => ({ query, release() {} }), query },
     triggerWalletPassSync() {},
+    formatMexicoCityTimestamp,
   });
   return { handler: (body) => {
     const res = { code: 200, status(code) { this.code = code; return this; }, json(b) { this.body = b; return this; } };
