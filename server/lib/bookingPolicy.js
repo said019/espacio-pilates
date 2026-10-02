@@ -1,4 +1,8 @@
 // server/lib/bookingPolicy.js
+const mexicoCityDateFormatter = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+
 export function endOfPurchaseMonth(startISO) {
   const [y, m] = startISO.split('-').map(Number);
   const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate(); // día 0 del mes siguiente
@@ -9,12 +13,7 @@ export function endOfPurchaseMonth(startISO) {
 // no por UTC ni por la zona del contenedor de Railway. Acepta un instante para
 // que pueda probarse sin depender del reloj del servidor.
 export function mexicoCityDate(instant = new Date()) {
-  const fields = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Mexico_City',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(instant);
+  const fields = mexicoCityDateFormatter.formatToParts(instant);
   const values = Object.fromEntries(
     fields
       .filter(({ type }) => type !== 'literal')
