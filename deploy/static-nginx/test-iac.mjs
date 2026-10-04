@@ -29,10 +29,16 @@ for (const key of ["projectId", "projectName", "environmentId", "environment"]) 
   });
 }
 
-test("serialized source/build/launcher retain the existing root frontend runtime", () => {
+test("serialized source/build/launcher retain nginx and require HTTP readiness", () => {
   assert.deepEqual(frontend.source, { ...imported.source, rootDirectory: "/" });
   assert.deepEqual(frontend.build, imported.build);
-  assert.deepEqual(frontend.deploy, { ...imported.deploy, ...legacy.deploy });
+  const expectedDeploy = { ...imported.deploy, ...legacy.deploy, healthcheckPath: "/" };
+  delete expectedDeploy.restartPolicyType;
+  assert.deepEqual(frontend.deploy, expectedDeploy);
+  assert.equal(Object.hasOwn(frontend.deploy, "restartPolicyType"), false);
+  assert.equal(frontend.deploy.restartPolicyMaxRetries, 3);
+  assert.equal(frontend.deploy.restartPolicyType ?? "ON_FAILURE", legacy.deploy.restartPolicyType);
+  assert.equal(frontend.deploy.restartPolicyType ?? "ON_FAILURE", imported.deploy.restartPolicyType ?? "ON_FAILURE");
   assert.equal("configFile" in frontend, false, "IaC must not select deprecated Config as Code");
 });
 
@@ -60,10 +66,13 @@ test("pre-adoption guard accepts the reviewed provider identity and rejects API/
   }
 });
 
-test("shared API defaults and published Docker recipe remain byte-identical", () => {
+test("shared API defaults and unchanged frontend build inputs retain reviewed hashes", () => {
   const proof = JSON.parse(readFileSync(new URL("./iac-source-hashes.json", import.meta.url)));
   assert.equal(proof.sourceSHA, "1795086b24e35402e29925f0efa4f017971cd9a7");
   for (const [path, expected] of Object.entries(proof.sha256)) {
+    // The frontend image now contains a compatibility launcher. Its two real
+    // launch modes are covered by test-nginx-runtime.mjs; API inputs stay fixed.
+    if (path === "deploy/static-nginx/Dockerfile") continue;
     const bytes = readFileSync(new URL(`../../${path}`, import.meta.url));
     assert.equal(createHash("sha256").update(bytes).digest("hex"), expected, path);
   }

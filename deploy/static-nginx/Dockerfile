@@ -40,7 +40,11 @@ COPY --from=module-builder /tmp/nginx-1.30.5/objs/ngx_http_brotli_static_module.
 COPY deploy/static-nginx/nginx.conf /etc/nginx/nginx.conf
 COPY deploy/static-nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY deploy/static-nginx/start-static-nginx.sh /usr/local/bin/start-static-nginx
-RUN chmod 755 /usr/local/bin/start-static-nginx
+# The shared legacy Railway config may override CMD with `sh start.sh`.
+# This image-local entry point must never invoke the repository's API launcher.
+WORKDIR /srv/frontend
+COPY deploy/static-nginx/start-legacy-static-nginx.sh /srv/frontend/start.sh
+RUN chmod 755 /usr/local/bin/start-static-nginx /srv/frontend/start.sh
 COPY --from=app-builder /app/dist /srv/frontend/public
 EXPOSE 3000
 ENTRYPOINT []

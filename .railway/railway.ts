@@ -27,8 +27,9 @@ export default defineRailway((ctx) => {
       },
       deploy: {
         startCommand: "/usr/local/bin/start-static-nginx",
-        // These two values currently come from the selected legacy JSON.
-        restartPolicyType: "ON_FAILURE",
+        healthcheckPath: "/",
+        // ON_FAILURE is Railway's default and is omitted by the provider on read.
+        // Keep the existing retry count explicit; do not create perpetual drift.
         restartPolicyMaxRetries: 3,
         useLegacyStacker: false,
         ipv6EgressEnabled: false,
