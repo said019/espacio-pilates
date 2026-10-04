@@ -1,0 +1,24 @@
+# This Dockerfile has a frontend-only build context even in a shared repository.
+**
+!package.json
+!package-lock.json
+!index.html
+!vite.config.ts
+!tsconfig*.json
+!postcss.config.*
+!tailwind.config.*
+!src/
+!src/**
+!public/
+!public/**
+!scripts/
+!scripts/prepare-static-runtime.mjs
+!deploy/
+!deploy/static-nginx/
+!deploy/static-nginx/**
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
