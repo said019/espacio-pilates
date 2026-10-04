@@ -1,0 +1,15 @@
+server {
+    listen ${PORT};
+    server_name _;
+    root /srv/frontend/public;
+    absolute_redirect off;
+    location = /index.html { return 301 /index; }
+    location = /index { return 301 /; }
+    location = / { try_files /index.html =404; }
+    location ~ ^(?<static_file_path>.+)/$ {
+        if (-f $document_root$static_file_path) { return 308 $static_file_path$is_args$args; }
+        try_files $uri @spa;
+    }
+    location / { try_files $uri @spa; }
+    location @spa { try_files /index.html =404; }
+}

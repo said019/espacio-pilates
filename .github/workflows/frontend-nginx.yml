@@ -1,0 +1,81 @@
+name: Frontend nginx contract
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "public/**"
+      - "scripts/prepare-static-runtime.mjs"
+      - "package.json"
+      - "package-lock.json"
+      - "index.html"
+      - "vite.config.ts"
+      - "tsconfig*.json"
+      - "postcss.config.*"
+      - "tailwind.config.*"
+      - "Caddyfile"
+      - "deploy/static-nginx/**"
+      - ".github/workflows/frontend-nginx.yml"
+  workflow_dispatch:
+    inputs:
+      vite_api_url:
+        description: Public API URL compiled into the frontend
+        default: https://example.invalid/api
+        type: string
+      build_sha:
+        description: Full checkout SHA for the existing build stamp (empty uses github.sha)
+        required: false
+        type: string
+      vite_public_key:
+        description: Existing public client key (never a secret key)
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  runtime-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      VITE_API_URL: ${{ inputs.vite_api_url || 'https://example.invalid/api' }}
+      BUILD_GIT_SHA: ${{ inputs.build_sha || github.sha }}
+      STATIC_APP: espacio-pilates
+      STATIC_BUILD_MODE: production
+      VITE_MP_PUBLIC_KEY: ${{ inputs.vite_public_key || 'TEST-static-contract-fixture' }}
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.18.1'
+      - name: Validate public inputs and checkout identity
+        run: |
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import {execFileSync} from "node:child_process";
+            const value=process.env.VITE_API_URL;
+            const url=new URL(value);
+            assert.equal(url.protocol,"https:");
+            assert.equal(url.username+url.password+url.hash,"");
+            assert.ok(value.length<=2048&&!/[\s\x00-\x1f]/.test(value));
+            assert.match(process.env.BUILD_GIT_SHA,/^[a-f0-9]{40}$/);
+            assert.equal(execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),process.env.BUILD_GIT_SHA);
+            for(const key of ["VITE_MP_PUBLIC_KEY","VITE_VAPID_PUBLIC_KEY"]) if(process.env[key]) assert.ok(process.env[key].length<=2048&&!/[\s\x00-\x1f]/.test(process.env[key]));
+          '
+      - name: Build unchanged frontend and nginx runtime
+        run: |
+          args=(--build-arg "VITE_API_URL=$VITE_API_URL" --build-arg "RAILWAY_GIT_COMMIT_SHA=$BUILD_GIT_SHA" --build-arg "VITE_MP_PUBLIC_KEY=$VITE_MP_PUBLIC_KEY")
+          docker build --target app-builder -t static-app-builder -f deploy/static-nginx/Dockerfile "${args[@]}" .
+          docker build -t static-nginx-candidate -f deploy/static-nginx/Dockerfile "${args[@]}" .
+      - name: Verify full public artifact tree and existing app identity
+        run: node deploy/static-nginx/test-build-artifact.mjs
+      - name: Compare all assets and routes against existing Caddy configuration
+        run: node deploy/static-nginx/test-nginx-runtime.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-nginx-contract
+          path: |
+            nginx-build-artifact-result.json
+            nginx-runtime-contract-result.json
