@@ -27,7 +27,7 @@ Para el frontend existente, [.railway/railway.ts](../../.railway/railway.ts) dec
 
 Para un proyecto nuevo, crear explícitamente un servicio **frontend**, raíz del repo, y configurar `RAILWAY_DOCKERFILE_PATH=deploy/static-nginx/Dockerfile` junto con los valores públicos `VITE_API_URL` y `VITE_MP_PUBLIC_KEY`; el despliegue desde Git aporta `RAILWAY_GIT_COMMIT_SHA`. Dejar el start command sin override para usar el CMD de Docker. Esta [selección de Dockerfile mediante variable](https://docs.railway.com/builds/dockerfiles) es soportada; no depende de `railway.json`. La API se configura como un servicio aparte con su DB/secretos existentes: este comando no la crea ni deduce sus credenciales.
 
-[Config as Code está retirándose](https://docs.railway.com/config-as-code): los archivos JSON sólo continúan para servicios existentes hasta el 1 de diciembre de 2026 y no admiten nuevos servicios. No seleccionar el JSON nginx para la API ni reutilizar sin revisión los IDs/dominos del partial en otro proyecto.
+[Config as Code está retirándose](https://docs.railway.com/config-as-code): los archivos JSON sólo continúan para servicios existentes hasta el 1 de diciembre de 2026 y no admiten nuevos servicios. No seleccionar el JSON nginx para la API ni reutilizar sin revisión los IDs/dominios del partial en otro proyecto.
 
 Antes de fusionar o adoptar IaC, revisar los watchPatterns de API para excluir `.railway/**` además de los archivos frontend ya excluidos, conservando todos los paths de negocio. Tras una publicación coordinada, comprobar deployment/artefactos/HTTP y que la API conserve su deployment. Rollback del frontend: restaurar su configuración anterior y el deployment nginx verificado; no cambiar la raíz/API ni usar Caddy dentro de una imagen nginx.
 
