@@ -2,6 +2,7 @@ name: Frontend nginx contract
 on:
   pull_request:
     paths:
+      - ".railway/**"
       - "src/**"
       - "public/**"
       - "scripts/prepare-static-runtime.mjs"
@@ -32,6 +33,17 @@ on:
 permissions:
   contents: read
 jobs:
+  frontend-iac:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.1'
+      - run: npm ci --prefix .railway --ignore-scripts --no-audit --no-fund
+      - run: npm test --prefix .railway
+      - run: node .railway/render.mjs
   runtime-contract:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
