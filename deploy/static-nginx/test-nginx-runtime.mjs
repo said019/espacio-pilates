@@ -78,8 +78,18 @@ try {
   const caddyId=docker(['run','-d','-e','PORT=8080','-p','127.0.0.1::8080','-w','/app','-v',join(temp,'dist')+':/app/dist:ro','-v',config+':/app/Caddyfile:ro',caddyImage,'caddy','run','--config','Caddyfile','--adapter','caddyfile']);register(caddyId);
   // Non-default internal PORT proves the durable launcher substitutes only PORT.
   const nginxId=docker(['run','-d','-e','PORT=8413','-p','127.0.0.1::8413',image]);register(nginxId);
-  const aPort=await ready(caddyId,8080),bPort=await ready(nginxId,8413);
-  docker(['exec',nginxId,'sh','-c','test ! -e /app/node_modules && ! command -v node && ! command -v caddy']);
+  // Reproduce the shared root railway.json override from the image's own cwd.
+  // No -w override: an absent/wrong WORKDIR must make this regression fail.
+  const legacyId=docker(['run','-d','-e','PORT=8414','-e','SERVE_MODE=frontend','-p','127.0.0.1::8414',image,'sh','start.sh']);register(legacyId);
+  const aPort=await ready(caddyId,8080),bPort=await ready(nginxId,8413),legacyPort=await ready(legacyId,8414);
+  for(const [id,mode] of [[nginxId,'CMD'],[legacyId,'sh start.sh']]) {
+    const [info]=JSON.parse(docker(['inspect',id]));
+    assert.equal(info.Config.WorkingDir,'/srv/frontend',mode+' working directory');
+    assert.deepEqual(info.Config.Cmd,mode==='CMD'?['/usr/local/bin/start-static-nginx']:['sh','start.sh']);
+    assert.equal(docker(['exec',id,'cat','/proc/1/comm']),'nginx',mode+' must exec nginx as PID1');
+    docker(['exec',id,'sh','-c','test ! -e /app/node_modules && ! command -v node && ! command -v caddy']);
+    result.checks.push({kind:'LAUNCH_MODE',mode,workingDirectory:info.Config.WorkingDir,pid1:'nginx'});
+  }
   result.runtimeOnlyNginx=true;
   const jsx=await readFile('src/App.tsx','utf8');
   const routes=[...new Set([...jsx.matchAll(/path=["']([^"']+)["']/g)].map(m=>m[1]).filter(p=>p.startsWith('/')).map(p=>p.replace(/:[^/]+/g,'fixture-id').replace('*','unknown')))];
@@ -96,6 +106,13 @@ try {
     result.checks.push({kind:'DIRECTORY',path,status:b.status});
   }
   const js=files.find(p=>/^assets\/index-.*\.js$/.test(p));assert.ok(js,'Main JavaScript asset');
+  for(const path of ['/', '/login',urlPath(js),'/start.sh']) {
+    const normal=await raw(bPort,path),legacy=await raw(legacyPort,path);
+    same(normal,legacy,path+' legacy launcher');
+    head(await raw(legacyPort,path,{},'HEAD'),legacy);
+    assert.notEqual(hash(legacy.body),hash(await readFile('deploy/static-nginx/start-legacy-static-nginx.sh')),'Launcher must stay outside the public root');
+    result.checks.push({kind:'LEGACY_LAUNCH_HTTP',path,status:legacy.status,decodedSHA256:hash(decode(legacy))});
+  }
   const sw=files.includes('sw.js')?'/sw.js':files.includes('push-sw.js')?'/push-sw.js':null;
   if(sw) for(const path of [sw+'/',sw+'/?contract=1']) {
     const a=await raw(aPort,path),b=await raw(bPort,path);same(a,b,path);
@@ -144,13 +161,13 @@ try {
       result.checks.push({kind:'ENCODED_RANGE_IF_RANGE',path,encoding,matched,status:b.status});
     }
   }
-  for(const value of ['0','65536','8080;invalid']) {
-    const badId=docker(['create','-e','PORT='+value,image]);register(badId);
+  for(const command of [[],['sh','start.sh']]) for(const value of ['0','65536','8080;invalid']) {
+    const badId=docker(['create','-e','PORT='+value,image,...command]);register(badId);
     const stopped=spawnSync('docker',['start','-a',badId],{encoding:'utf8',timeout:10000});
     assert.ok(!stopped.error,'Invalid PORT process must terminate promptly');
     const [state]=JSON.parse(docker(['inspect',badId]));
     assert.equal(state.State.Running,false);assert.notEqual(state.State.ExitCode,0,'Invalid PORT must fail before launch');
-    cleanup(badId);result.checks.push({kind:'INVALID_PORT_REJECTED',value});
+    cleanup(badId);result.checks.push({kind:'INVALID_PORT_REJECTED',mode:command.length?'sh start.sh':'CMD',value});
   }
   result.routes=routes.length;result.status='PASS';
 }catch(error){result.status='FAIL';result.error=error.stack;throw error;}
