@@ -1,0 +1,12 @@
+{
+  "name": "espacio-frontend-railway-configuration",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test ../deploy/static-nginx/test-iac.mjs",
+    "render": "node render.mjs"
+  },
+  "dependencies": {
+    "railway": "3.12.0"
+  }
+}

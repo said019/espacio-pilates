@@ -1,0 +1,13 @@
+{
+  "sourceSHA": "1795086b24e35402e29925f0efa4f017971cd9a7",
+  "sha256": {
+    "railway.json": "db0af8bf10633c7933ff6cc1745d2b93dc2c24e7868bb2fa5f8eaaba0d72421d",
+    "start.sh": "ffd6a7d9d7e43d56796e52aea9fba395d56f4b85431f594c8da4ec32e664d215",
+    "nixpacks.toml": "a403e9af4632578019571c6a709744d672020e525703ae991f25c1b92367a0eb",
+    "package.json": "6155a58bb7ae1ab55bee95292f6a0b68afbe38229b7e7d515e97e9725464e2bc",
+    "package-lock.json": "1481ebd85cd2a7af0c06367fd651da167bd4b6a2cc4ffbb85b9ecb17244f911e",
+    "deploy/static-nginx/Dockerfile": "b05462ebdc9e80a95a9d4a53c63e297332ea4b9fe4c8c61a2960047d083b55a1",
+    "deploy/static-nginx/Dockerfile.dockerignore": "f83cc79f93ae8a22509ec6562cfb2dc46bd766fb7d9a560db34dd57d6aa47641",
+    "deploy/static-nginx/railway.json": "06d510128b549d13cb46636339915edeb58132c0961e4f52c5a19df2b5252775"
+  }
+}
