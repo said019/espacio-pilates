@@ -2701,7 +2701,7 @@ function checkPlanTimeRestriction(membership, classDate, classStartTime) {
       "[checkPlanTimeRestriction] missing/invalid classDate — failing open.",
       { membershipId: membership?.id, classDate, classStartTime }
     );
-    return { allowed: true };
+    return r.fixed_schedule === true ? { allowed: false, message: "No se pudo validar el horario de esta clase para tu promo." } : { allowed: true };
   }
   const timeStr = String(classStartTime ?? "").slice(0, 5);
   if (!/^\d{2}:\d{2}$/.test(timeStr)) {
@@ -2709,7 +2709,7 @@ function checkPlanTimeRestriction(membership, classDate, classStartTime) {
       "[checkPlanTimeRestriction] missing/invalid classStartTime — failing open.",
       { membershipId: membership?.id, classDate, classStartTime }
     );
-    return { allowed: true };
+    return r.fixed_schedule === true ? { allowed: false, message: "No se pudo validar el horario de esta clase para tu promo." } : { allowed: true };
   }
   const dayOfWeek = d.getUTCDay();
   if (Array.isArray(r.days_of_week) && r.days_of_week.length && !r.days_of_week.includes(dayOfWeek)) {
@@ -3144,6 +3144,7 @@ function sanitizeTimeRestriction(input) {
     days_of_week: [...new Set(days)].sort((a, b) => a - b),
     hour_range: range.length === 2 ? range : [],
     message,
+    fixed_schedule: input.fixed_schedule === true,
   };
 }
 
@@ -4272,6 +4273,7 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
               f.name         AS facility_name,
               br.code        AS branch_code,
               br.name        AS branch_name,
+              COALESCE((p.time_restriction->>'fixed_schedule') = 'true', false) AS fixed_schedule,
               CASE WHEN b.status = 'waitlist' THEN (
                 SELECT COUNT(*)::int FROM bookings b2
                  WHERE b2.class_id = b.class_id AND b2.status = 'waitlist'
@@ -4284,6 +4286,8 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
        JOIN instructors i     ON c.instructor_id = i.id
        LEFT JOIN facilities f ON c.facility_id   = f.id
        LEFT JOIN reviews rv   ON rv.booking_id   = b.id
+       LEFT JOIN memberships m ON m.id = b.membership_id
+       LEFT JOIN plans p ON p.id = m.plan_id
        WHERE b.user_id = $1 AND c.branch_id = $2
        ORDER BY c.date DESC, c.start_time DESC`,
       [req.userId, branch.id]
@@ -4805,14 +4809,24 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, consentGuard(pool, req =
     // ── Load booking (must exist + belong to user) ────────────────────────────
     const r = await pool.query(
       `SELECT b.id, b.class_id, b.user_id, b.membership_id, b.status,
-              COALESCE(c.is_walk_in, false) AS old_is_walk_in
+              COALESCE(c.is_walk_in, false) AS old_is_walk_in,
+              COALESCE((p.time_restriction->>'fixed_schedule') = 'true', false) AS fixed_schedule
          FROM bookings b
          JOIN classes c ON c.id = b.class_id
+         LEFT JOIN memberships m ON m.id = b.membership_id
+         LEFT JOIN plans p ON p.id = m.plan_id
         WHERE b.id = $1 AND b.user_id = $2`,
       [bookingId, req.userId]
     );
     if (r.rows.length === 0) return res.status(404).json({ message: "Reserva no encontrada" });
     const booking = r.rows[0];
+
+    if (booking.fixed_schedule) {
+      return res.status(403).json({
+        code: "FIXED_SCHEDULE_NO_RESCHEDULE",
+        message: "La Promo horario fijo no permite reagendar ni recuperar clases en otro horario.",
+      });
+    }
 
     if (booking.status !== "confirmed") {
       return res.status(400).json({ message: "Solo puedes reagendar reservas confirmadas." });
@@ -11071,6 +11085,7 @@ function addMonths(dateStr, months) {
 // contra esta fecha (selectMembershipForClass + reschedule).
 // Planes de largo plazo (p.ej. Inscripción 3650d) → meses de calendario.
 function calcMembershipEndDate(startStr, plan) {
+  if (plan?.time_restriction?.fixed_schedule === true) return endOfPurchaseMonth(startStr);
   // Los PAQUETES de clases (>=2 clases) vencen al FIN DEL MES de compra; pero
   // las compras del día 26 en adelante vencen al fin del mes SIGUIENTE (gracia,
   // para que a quien compra a fin de mes no le queden 1-2 días). Los cargos

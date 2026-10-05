@@ -88,7 +88,7 @@ const BookingCard = ({
   const hasReview = Boolean(booking.has_review);
   const hoursUntil = (new Date(booking.start_time).getTime() - Date.now()) / 3600000;
   const canReschedule =
-    booking.status === "confirmed" && !isPast && hoursUntil >= rescheduleHours;
+    !booking.fixed_schedule && booking.status === "confirmed" && !isPast && hoursUntil >= rescheduleHours;
   return (
     <div className="flex items-center justify-between rounded-xl border p-4">
       <div className="space-y-1">
@@ -97,6 +97,7 @@ const BookingCard = ({
           {booking.start_time ? format(safeParse(booking.start_time), "EEEE d MMM · HH:mm", { locale: es }) : "—"}
         </p>
         <p className="text-xs text-muted-foreground">{booking.instructor_name}</p>
+        {booking.fixed_schedule && <p className="text-xs text-muted-foreground">Promo horario fijo · Sin cambios de horario ni recuperación de clases</p>}
         <p className="flex items-center gap-1 text-[0.72rem] font-medium text-valiance-mauve">
           <MapPin size={12} /> {getEntityBranchName(booking)}
         </p>

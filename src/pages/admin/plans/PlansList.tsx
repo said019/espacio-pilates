@@ -87,7 +87,11 @@ const planSchema = z.object({
   scheduleStart: z.string().default(""),
   scheduleEnd: z.string().default(""),
   scheduleMessage: z.string().default(""),
+  fixedSchedule: z.boolean().default(false),
 }).superRefine((plan, ctx) => {
+  if (plan.fixedSchedule && (!plan.scheduleDays.length || !plan.scheduleStart || !plan.scheduleEnd || plan.scheduleStart > plan.scheduleEnd)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["scheduleStart"], message: "La promo requiere días y un horario válido." });
+  }
   if (plan.planKind === "package" && plan.classLimit !== null && plan.classLimit < 1) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
@@ -150,6 +154,7 @@ function normalizePlanRow(row: any): Plan {
       const days = tr?.days_of_week ?? tr?.daysOfWeek;
       return Array.isArray(days) ? days.map(Number).filter((n) => n >= 0 && n <= 6) : [];
     })(),
+    fixedSchedule: (row?.timeRestriction ?? row?.time_restriction)?.fixed_schedule === true,
     scheduleStart: (() => {
       const tr = row?.timeRestriction ?? row?.time_restriction;
       const range = tr?.hour_range ?? tr?.hourRange;
@@ -174,6 +179,7 @@ const EMPTY: PlanFormData = {
   features: "", isActive: true, isNonTransferable: false, isNonRepeatable: false, repeatKey: "", sortOrder: 0,
   discountPrice: null,
   scheduleDays: [], scheduleStart: "", scheduleEnd: "", scheduleMessage: "",
+  fixedSchedule: false,
 };
 
 const DAY_LABELS = [
@@ -193,6 +199,7 @@ function serializePlan(d: PlanFormData) {
         days_of_week: [...(d.scheduleDays ?? [])].sort((a, b) => a - b),
         hour_range: d.scheduleStart && d.scheduleEnd ? [d.scheduleStart, d.scheduleEnd] : [],
         message: d.scheduleMessage?.trim() || "",
+        fixed_schedule: d.fixedSchedule === true,
       }
     : null;
   return {
@@ -603,11 +610,11 @@ const PlansList = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-xs">Hora inicio</Label>
+                    <Label className="text-xs">Inicio de clase permitido desde</Label>
                     <Input type="time" {...form.register("scheduleStart")} />
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs">Hora fin</Label>
+                    <Label className="text-xs">Inicio de clase permitido hasta</Label>
                     <Input type="time" {...form.register("scheduleEnd")} />
                   </div>
                 </div>
@@ -617,6 +624,11 @@ const PlansList = () => {
                     placeholder="ej: Tu Morning Pass solo aplica de lunes a viernes en clases de 7-9 AM"
                     {...form.register("scheduleMessage")}
                   />
+                </div>
+                <p className="text-xs text-muted-foreground">Para una hora exacta, pon la misma hora en ambos campos (por ejemplo, 08:00 y 08:00). Los cambios también aplican a futuras reservas de membresías ya compradas.</p>
+                <div className="flex items-center gap-3">
+                  <Switch checked={form.watch("fixedSchedule")} onCheckedChange={(v) => form.setValue("fixedSchedule", v)} />
+                  <Label>Promo horario fijo: sin reagendar y vigencia hasta fin del mes</Label>
                 </div>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
