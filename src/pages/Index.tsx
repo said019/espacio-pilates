@@ -140,6 +140,13 @@ const Index = () => {
     [livePlans],
   );
   const prenatalPlan = livePlans.find((plan) => getEntityProgram(plan) === "prenatal");
+  const functionalPlans = PAQUETES_FUNCIONAL.map((p) => livePlans.find((plan) =>
+    getEntityProgram(plan) === "functional" && plan.code === `functional-${p.classes ?? "unlimited"}`,
+  ));
+  const additionalPlans = livePlans.filter((plan) => {
+    if (plan.id === prenatalPlan?.id || functionalPlans.some((p) => p?.id === plan.id)) return false;
+    return !(getEntityProgram(plan) === "pilates" && [...PAQUETES, ...CARGOS].some((p) => p.plan === plan.name));
+  });
 
   const navigate = useNavigate();
   const { isAuthenticated, user, logout } = useAuthStore();
@@ -157,11 +164,14 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
+    let current = true;
+    setLivePlans([]);
     api.get<{ data: ClassTypeRow[] }>("/admin/class-types", { params: { branch: branchCode } }).then(({ data }) => {
       const rows = Array.isArray(data?.data) ? data.data.filter((c: any) => c.is_active) : [];
-      if (rows.length > 0) setClassTypes(rows);
+      if (current && rows.length > 0) setClassTypes(rows);
     }).catch(() => {});
     api.get("/plans", { params: { branch: branchCode } }).then(({ data }) => {
+      if (!current) return;
       const rows = Array.isArray(data?.data) ? data.data : [];
       setLivePlans(rows.filter((plan: any) => {
         const planBranchId = plan?.branchId ?? plan?.branch_id ?? plan?.branch?.id;
@@ -172,6 +182,7 @@ const Index = () => {
         return !hasBranch && branchCode === "pozos" && getEntityProgram(plan) === "pilates";
       }));
     }).catch(() => {});
+    return () => { current = false; };
   }, [branchCode, branchId]);
 
   useEffect(() => {
@@ -776,14 +787,8 @@ const Index = () => {
               </div>
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-5">
-                {PAQUETES_FUNCIONAL.map((fallback) => {
-                  const live = livePlans.find((plan) => {
-                    if (getEntityProgram(plan) !== "functional") return false;
-                    const limit = plan.classLimit ?? plan.class_limit;
-                    return fallback.classes === null
-                      ? limit === null || /ilimitad/i.test(String(plan.name ?? ""))
-                      : Number(limit) === fallback.classes;
-                  });
+                {PAQUETES_FUNCIONAL.map((fallback, index) => {
+                  const live = functionalPlans[index];
                   const price = Number(live?.price ?? fallback.price);
                   return (
                     <div
@@ -822,6 +827,28 @@ const Index = () => {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {additionalPlans.length > 0 && (
+            <div className="mb-14">
+              <h3 className="mb-6 font-display text-[1.9rem] text-valiance-charcoal">Más planes y promociones en {branch.name}</h3>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {additionalPlans.map((plan) => (
+                  <div key={plan.id} className="flex flex-col rounded-[1.75rem] bg-valiance-nude p-8 ring-1 ring-valiance-charcoal/8">
+                    <p className="mb-3 text-xs text-valiance-mauve">{getEntityProgram(plan) === "functional" ? "Funcional & Pilates mat" : getEntityProgram(plan) === "prenatal" ? "Prenatal" : "Pilates"} · {branch.name}</p>
+                    <h4 className="font-display text-2xl text-valiance-charcoal">{plan.name}</h4>
+                    <p className="my-4 font-display text-4xl text-valiance-charcoal">${Number(plan.price).toLocaleString("es-MX")} <span className="font-body text-xs">MXN</span></p>
+                    {plan.description && <p className="mb-4 text-sm leading-relaxed text-valiance-charcoal/70">{plan.description}</p>}
+                    {Array.isArray(plan.features) && plan.features.length > 0 && (
+                      <ul className="mb-6 list-disc space-y-2 pl-4 text-sm text-valiance-charcoal/70">
+                        {plan.features.map((feature: string, index: number) => <li key={index}>{feature}</li>)}
+                      </ul>
+                    )}
+                    <button onClick={() => navigate(purchasePath(getEntityProgram(plan)))} className="mt-auto rounded-full bg-valiance-charcoal px-5 py-3 text-sm text-valiance-nude hover:bg-valiance-plum">Elegir plan</button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
