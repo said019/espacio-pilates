@@ -23,6 +23,7 @@ vi.mock("@tanstack/react-query", async () => {
               id: "full-class",
               class_type_name: "Reformer",
               class_category: "pilates",
+              instructor_name: "Day",
               start_time: "2026-08-21T10:00:00-06:00",
               end_time: "2026-08-21T10:55:00-06:00",
               current_bookings: 8,
@@ -77,6 +78,7 @@ describe("BookClasses waitlist entry", () => {
     });
 
     expect(classButton).toBeEnabled();
+    expect(screen.getByText("Day")).toBeInTheDocument();
     fireEvent.click(classButton);
     expect(mocks.navigate).toHaveBeenCalledWith("/app/classes/full-class");
   });

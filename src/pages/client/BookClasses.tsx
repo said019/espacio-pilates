@@ -12,6 +12,7 @@ import { ClientAuthGuard } from "@/components/layout/ClientAuthGuard";
 import ClientLayout from "@/components/layout/ClientLayout";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { ChevronLeft, ChevronRight, Check, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { parseDateOnly } from "@/lib/dateOnly";
@@ -393,6 +394,16 @@ const BookClasses = () => {
                               <p className="mt-1 text-xs md:text-[0.58rem] font-medium text-valiance-mauve">
                                 {branch.name}
                               </p>
+                              <div className="my-3 flex min-w-0 items-center gap-2 md:flex-wrap">
+                                <Avatar className="h-10 w-10 md:h-8 md:w-8">
+                                  <AvatarImage src={typeof cls.instructor_photo === "string" ? cls.instructor_photo : undefined} alt={`Foto de ${String(cls.instructor_name || "la coach")}`} className="object-cover" />
+                                  <AvatarFallback className="text-xs">{String(cls.instructor_name || "Coach").trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase()}</AvatarFallback>
+                                </Avatar>
+                                <span className="min-w-0 text-sm md:text-xs leading-snug text-valiance-charcoal">
+                                  <span className="block text-[10px] text-valiance-mauve">Coach</span>
+                                  <span className="block break-words font-medium">{String(cls.instructor_name || "Por confirmar")}</span>
+                                </span>
+                              </div>
 
                               {isWalkIn && (
                                 <span className="mt-1.5 inline-flex rounded-full bg-[#F4EAD6] px-2 py-0.5 text-[0.56rem] font-semibold uppercase tracking-[0.08em] text-[#8A672C] ring-1 ring-[#E5CF9F]">
