@@ -1,5 +1,4 @@
 import { useState, useRef, useMemo, useEffect } from "react";
-import BookingCutoffEditor from "./BookingCutoffEditor";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -1278,7 +1277,6 @@ function CalendarTab({
               {selectedClass.notes && <div><span className="font-medium">Notas:</span> {selectedClass.notes}</div>}
 
               {/* ── Attendees list ── */}
-              <BookingCutoffEditor key={selectedClass.id} classId={selectedClass.id} branchId={selectedClass.branchId} />
               <ClassAttendees classId={selectedClass.id} branchId={selectedClass.branchId} />
 
               <div className="pt-2 flex flex-col gap-2">
