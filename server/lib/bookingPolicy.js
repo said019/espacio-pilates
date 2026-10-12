@@ -1,12 +1,17 @@
 // server/lib/bookingPolicy.js
 export function bookingCutoff(cls, nowMs = Date.now()) {
-  if (String(cls.branch_id) !== '22222222-2222-4222-8222-222222222222' || String(cls.start_time).slice(0, 5) !== '17:30') return { allowed: true };
+  const minutes = bookingCutoffMinutes(cls);
+  if (minutes === 0) return { allowed: true };
   const startMs = new Date(cls.class_start_utc).getTime();
-  return startMs - nowMs >= 3600000 ? { allowed: true } : {
+  return startMs - nowMs >= minutes * 60000 ? { allowed: true } : {
     allowed: false,
     code: 'BOOKING_CUTOFF',
-    message: 'Las reservas para la clase de las 5:30 p. m. en Pozos cierran a las 4:30 p. m. (una hora antes).',
+    message: `Las reservas para esta clase cierran ${minutes} minutos antes del inicio.`,
   };
+}
+export function bookingCutoffMinutes(cls) {
+  if (cls.booking_cutoff_minutes != null) return Number(cls.booking_cutoff_minutes);
+  return String(cls.branch_id) === '22222222-2222-4222-8222-222222222222' && String(cls.start_time).slice(0, 5) === '17:30' ? 60 : 0;
 }
 const mexicoCityDateFormatter = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit',

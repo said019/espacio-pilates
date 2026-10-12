@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from "react";
+import BookingCutoffEditor from "./BookingCutoffEditor";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -1272,6 +1273,7 @@ function CalendarTab({
               {selectedClass.notes && <div><span className="font-medium">Notas:</span> {selectedClass.notes}</div>}
 
               {/* ── Attendees list ── */}
+              <BookingCutoffEditor key={selectedClass.id} classId={selectedClass.id} branchId={selectedClass.branchId} />
               <ClassAttendees classId={selectedClass.id} branchId={selectedClass.branchId} />
 
               <div className="pt-2 flex flex-col gap-2">

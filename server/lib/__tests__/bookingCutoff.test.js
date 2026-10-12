@@ -1,5 +1,13 @@
 import { expect, it } from 'vitest';
 import { bookingCutoff } from '../bookingPolicy.js';
+it('permite quitar el cierre predeterminado con cero', () => {
+  expect(bookingCutoff({ ...cls, booking_cutoff_minutes: 0 }, Date.parse('2026-10-12T23:00:00Z')).allowed).toBe(true);
+});
+it('configura otro horario y sucursal con anticipación diferente', () => {
+  const other = { ...cls, branch_id: 'villa', start_time: '18:30:00', booking_cutoff_minutes: 120 };
+  expect(bookingCutoff(other, Date.parse('2026-10-12T21:30:00Z')).allowed).toBe(true);
+  expect(bookingCutoff(other, Date.parse('2026-10-12T21:30:01Z')).allowed).toBe(false);
+});
 const cls = { branch_id: '22222222-2222-4222-8222-222222222222', start_time: '17:30:00', class_start_utc: '2026-10-12T23:30:00Z' };
 it.each([
   ['2026-10-12T22:29:59Z', true],

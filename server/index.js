@@ -17,7 +17,7 @@ import crypto from "crypto";
 import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
-import { bookingCutoff, canCancel, canReschedule, endOfPurchaseMonth, membershipStartDate, mexicoCityDate } from "./lib/bookingPolicy.js";
+import { bookingCutoff, bookingCutoffMinutes, canCancel, canReschedule, endOfPurchaseMonth, membershipStartDate, mexicoCityDate } from "./lib/bookingPolicy.js";
 import {
   compatibleMembershipCategoriesForClass,
   membershipCanBookClass,
@@ -1017,6 +1017,7 @@ async function ensureSchema() {
     // generated class so the front-end can label the equipment.
     await pool.query(`ALTER TABLE schedule_slots ADD COLUMN IF NOT EXISTS apparatus VARCHAR(20) DEFAULT 'reformer'`).catch(() => { });
     await pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS apparatus VARCHAR(20) DEFAULT 'reformer'`).catch(() => { });
+    await pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS booking_cutoff_minutes INTEGER CHECK (booking_cutoff_minutes BETWEEN 0 AND 10080)`);
     // Etiqueta de grupo muscular por clase (Lower/Upper/Full body/Core). NULL = el front cae al default por día.
     await pool.query(`ALTER TABLE classes ADD COLUMN IF NOT EXISTS focus VARCHAR(40)`).catch(() => { });
     await pool.query(`DROP INDEX IF EXISTS idx_schedule_slots_slot`).catch(() => { });
@@ -4304,7 +4305,7 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
 app.get("/api/bookings/eligibility", authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT c.id, c.branch_id, c.date, c.start_time, c.is_walk_in,
+      `SELECT c.id, c.branch_id, c.date, c.start_time, c.is_walk_in, c.booking_cutoff_minutes,
               (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc,
               c.walk_in_requires_inscription, ct.category AS class_category
          FROM classes c JOIN class_types ct ON ct.id = c.class_type_id WHERE c.id = $1`,
@@ -4341,7 +4342,7 @@ app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId),
 
     // Lock class row to avoid overbooking in concurrent requests
     const classRes = await client.query(
-      `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in, c.walk_in_requires_inscription,
+      `SELECT c.id, c.branch_id, c.booking_cutoff_minutes, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in, c.walk_in_requires_inscription,
               (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc,
               ct.category AS class_category
        FROM classes c
@@ -4902,7 +4903,7 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, consentGuard(pool, req =
 
       // Lock the target class row to avoid overbooking in concurrent requests
       const newClassRes = await client.query(
-        `SELECT c.id, c.branch_id, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in, c.walk_in_requires_inscription,
+        `SELECT c.id, c.branch_id, c.booking_cutoff_minutes, c.max_capacity, c.current_bookings, c.status, c.date, c.start_time, c.is_walk_in, c.walk_in_requires_inscription,
                 ct.category AS class_category,
                 (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc
            FROM classes c
@@ -10139,6 +10140,36 @@ app.delete("/api/class-types/:id", adminMiddleware, async (req, res) => {
 });
 
 // POST /api/classes — admin creates a class (alias)
+app.get("/api/admin/classes/:id/booking-cutoff", adminMiddleware, async (req, res) => {
+  try {
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(400).json({ message: "Selecciona una sucursal." });
+    const result = await pool.query("SELECT branch_id, start_time, booking_cutoff_minutes FROM classes WHERE id=$1 AND branch_id=$2", [req.params.id, branch.id]);
+    if (!result.rows.length) return res.status(404).json({ message: "Clase no encontrada en esta sucursal." });
+    return res.json({ minutes: bookingCutoffMinutes(result.rows[0]) });
+  } catch (err) {
+    console.error("Read booking cutoff", err.message);
+    return res.status(500).json({ message: "No se pudo consultar el cierre de reservas." });
+  }
+});
+
+app.put("/api/admin/classes/:id/booking-cutoff", adminMiddleware, async (req, res) => {
+  const minutes = req.body?.minutes;
+  if (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 0 || minutes > 10080) {
+    return res.status(400).json({ message: "Indica minutos enteros entre 0 y 10080. Usa 0 para quitar el cierre anticipado." });
+  }
+  try {
+    const branch = await resolveRequestBranch(req);
+    if (!branch) return res.status(400).json({ message: "Selecciona una sucursal." });
+    const result = await pool.query("UPDATE classes SET booking_cutoff_minutes=$3, updated_at=NOW() WHERE id=$1 AND branch_id=$2 RETURNING id", [req.params.id, branch.id, minutes]);
+    if (!result.rows.length) return res.status(404).json({ message: "Clase no encontrada en esta sucursal." });
+    return res.json({ minutes });
+  } catch (err) {
+    console.error("Save booking cutoff", err.message);
+    return res.status(500).json({ message: "No se pudo guardar el cierre de reservas." });
+  }
+});
+
 app.post("/api/classes", adminMiddleware, async (req, res) => {
   try {
     const { classTypeId, instructorId, startTime, endTime, maxCapacity, capacity, notes, isWalkIn, walkInRequiresInscription: requiresInscription } = req.body;
