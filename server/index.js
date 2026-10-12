@@ -17,7 +17,7 @@ import crypto from "crypto";
 import http2 from "http2";
 import archiver from "archiver";
 import { execSync } from "child_process";
-import { canCancel, canReschedule, endOfPurchaseMonth, membershipStartDate, mexicoCityDate } from "./lib/bookingPolicy.js";
+import { bookingCutoff, canCancel, canReschedule, endOfPurchaseMonth, membershipStartDate, mexicoCityDate } from "./lib/bookingPolicy.js";
 import {
   compatibleMembershipCategoriesForClass,
   membershipCanBookClass,
@@ -4305,6 +4305,7 @@ app.get("/api/bookings/eligibility", authMiddleware, async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT c.id, c.branch_id, c.date, c.start_time, c.is_walk_in,
+              (c.date + c.start_time::time) AT TIME ZONE 'America/Mexico_City' AS class_start_utc,
               c.walk_in_requires_inscription, ct.category AS class_category
          FROM classes c JOIN class_types ct ON ct.id = c.class_type_id WHERE c.id = $1`,
       [req.query.classId],
@@ -4319,7 +4320,7 @@ app.get("/api/bookings/eligibility", authMiddleware, async (req, res) => {
       && checkPlanTimeRestriction(membership, cls.date, cls.start_time).allowed
       && (!isTrialPlan(membership) || isClassAllowedForTrial(cls.date, cls.start_time));
     res.set("Cache-Control", "no-store");
-    return res.json({ membership: usable ? {
+    return res.json({ bookingWindow: bookingCutoff(cls), membership: usable ? {
       id: membership.id, name: membership.plan_name,
       classesRemaining: isUnlimitedClasses(membership.classes_remaining) ? null : membership.classes_remaining,
     } : null });
@@ -4354,6 +4355,11 @@ app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId),
       return res.status(404).json({ message: "Clase no encontrada" });
     }
     const cls = classRes.rows[0];
+    const bookingWindow = bookingCutoff(cls);
+    if (!bookingWindow.allowed) {
+      await client.query("ROLLBACK");
+      return res.status(403).json(bookingWindow);
+    }
     if (cls.status === "cancelled") {
       await client.query("ROLLBACK");
       return res.status(400).json({ message: "Esta clase fue cancelada" });
@@ -4910,6 +4916,11 @@ app.put("/api/bookings/:id/reschedule", authMiddleware, consentGuard(pool, req =
         return res.status(404).json({ message: "Clase no encontrada" });
       }
       const newCls = newClassRes.rows[0];
+      const bookingWindow = bookingCutoff(newCls);
+      if (!bookingWindow.allowed) {
+        await client.query("ROLLBACK");
+        return res.status(403).json(bookingWindow);
+      }
 
       if (newCls.status === "cancelled") {
         await client.query("ROLLBACK");

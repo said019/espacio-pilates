@@ -44,6 +44,7 @@ const BookClassConfirm = () => {
     queryFn: async () => (await api.get("/bookings/eligibility", { params: { classId } })).data,
     enabled: Boolean(cls && classId),
     staleTime: 0,
+    refetchInterval: 15000,
   });
   const membership = accessQuery.data?.membership;
 
@@ -152,7 +153,7 @@ const BookClassConfirm = () => {
                 <Button
                   className="w-full mt-4"
                   onClick={() => bookMutation.mutate()}
-                  disabled={bookMutation.isPending || !accessQuery.isSuccess}
+                  disabled={bookMutation.isPending || !accessQuery.isSuccess || accessQuery.data?.bookingWindow?.allowed === false}
                 >
                   {bookMutation.isPending
                     ? "Reservando..."
@@ -161,6 +162,7 @@ const BookClassConfirm = () => {
                       ? "Unirme a la lista de espera"
                       : membership ? "Reservar con mi membresía" : isWalkIn ? "Reservar walk-in" : "Confirmar reserva"}
                 </Button>
+                {accessQuery.data?.bookingWindow?.allowed === false && <p role="alert" className="mt-3 text-sm text-valiance-mauve">{accessQuery.data.bookingWindow.message}</p>}
                 {accessQuery.isError && <div role="alert" className="text-sm">
                   No pudimos consultar tu membresía.
                   <Button variant="link" onClick={() => accessQuery.refetch()}>Volver a intentar</Button>
