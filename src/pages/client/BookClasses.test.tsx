@@ -80,4 +80,16 @@ describe("BookClasses waitlist entry", () => {
     fireEvent.click(classButton);
     expect(mocks.navigate).toHaveBeenCalledWith("/app/classes/full-class");
   });
+  it("lets mobile users select a day without a fixed-width weekly grid", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-20T12:00:00-06:00"));
+    const { container } = render(<BookClasses />);
+    const friday = screen.getByRole("button", { name: "viernes 21 agosto" });
+    expect(friday).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(friday);
+    expect(friday).toHaveAttribute("aria-pressed", "true");
+    expect(container.querySelector('[data-calendar-day="5"]')).not.toHaveClass("hidden");
+    expect(container.querySelector('[data-calendar-day="4"]')).toHaveClass("hidden");
+    expect(container.querySelector('[class*="min-w-[680px]"]')).toBeNull();
+  });
 });

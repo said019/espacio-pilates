@@ -93,6 +93,7 @@ const MembershipBanner = ({ membership, branchName }: { membership: Record<strin
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 const BookClasses = () => {
+  const [mobileDay, setMobileDay] = useState(() => new Date().getDay());
   const [weekStart, setWeekStart] = useState(() =>
     startOfWeek(new Date(), { weekStartsOn: 0 })
   );
@@ -249,8 +250,17 @@ const BookClasses = () => {
           )}
 
           {/* ── Week grid ── */}
-          <div className="overflow-x-auto -mx-1 px-1 pb-1">
-            <div className="grid grid-cols-7 gap-2 sm:gap-2.5 min-w-[680px]">
+          <nav aria-label="Elegir día de clases" className="grid grid-cols-7 gap-1 md:hidden">
+            {days.map((day, i) => <button key={i} type="button" aria-pressed={mobileDay === i}
+              aria-label={format(day, "EEEE d MMMM", { locale: es })}
+              onClick={() => setMobileDay(i)}
+              className={cn("min-w-0 rounded-xl py-3 text-center transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-valiance-mauve", mobileDay === i ? "bg-valiance-charcoal text-valiance-nude" : "bg-valiance-lavender/10 text-valiance-charcoal")}>
+              <span className="block text-[10px] uppercase">{DAYS[i]}</span>
+              <span className="mt-1 block text-base font-semibold tabular-nums">{format(day, "d")}</span>
+            </button>)}
+          </nav>
+          <div className="min-w-0 pb-6 md:overflow-x-auto">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-7 md:gap-2.5">
               {days.map((day, i) => {
                 const isToday = isSameDay(day, today);
                 const dayClasses = classesForDay(day);
@@ -258,7 +268,7 @@ const BookClasses = () => {
                 const theme = hasPilates ? DAY_THEMES[day.getDay()] : "";
 
                 return (
-                  <div key={i} className="flex flex-col">
+                  <div key={i} data-calendar-day={i} className={cn("min-w-0 flex-col md:flex", mobileDay === i ? "flex" : "hidden")}>
                     {/* Day header */}
                     <div
                       className={cn(
@@ -293,7 +303,7 @@ const BookClasses = () => {
                       </div>
                     ) : dayClasses.length === 0 ? (
                       <div className="flex items-center justify-center py-6">
-                        <span className="text-valiance-mauve/40 text-lg leading-none">·</span>
+                        <span className="text-valiance-mauve text-sm">Sin clases</span>
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -347,7 +357,7 @@ const BookClasses = () => {
                               disabled={disabled}
                               onClick={() => navigate(`/app/classes/${cls.id}`)}
                               className={cn(
-                                "group w-full text-left rounded-xl border p-2.5 transition-all duration-200 relative",
+                                "group w-full min-w-0 text-left rounded-xl border p-4 md:p-2.5 transition-all duration-200 relative",
                                 // Booked — clear "reservada" state (gold-ringed nude card)
                                 isBooked &&
                                   "border-valiance-gold/40 bg-valiance-nude ring-1 ring-valiance-gold/30 cursor-pointer hover:ring-valiance-gold/50",
@@ -364,7 +374,7 @@ const BookClasses = () => {
                             >
                               <div className="flex items-start justify-between gap-1">
                                 <p className={cn(
-                                  "font-body text-[0.82rem] font-semibold leading-none tabular-nums",
+                                  "font-body text-base md:text-[0.82rem] font-semibold leading-none tabular-nums",
                                   isBooked ? "text-valiance-charcoal" : "text-valiance-charcoal/90"
                                 )}>
                                   {start ? prettyTime(start) : "—"}
@@ -376,11 +386,11 @@ const BookClasses = () => {
                                 )}
                               </div>
 
-                              <p className="font-display text-[0.95rem] leading-tight text-valiance-charcoal/80 mt-1.5">
+                              <p className="font-display text-xl md:text-[0.95rem] break-words leading-tight text-valiance-charcoal/80 mt-1.5">
                                 {className}
                               </p>
 
-                              <p className="mt-1 text-[0.58rem] font-medium text-valiance-mauve">
+                              <p className="mt-1 text-xs md:text-[0.58rem] font-medium text-valiance-mauve">
                                 {branch.name}
                               </p>
 

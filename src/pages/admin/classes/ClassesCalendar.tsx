@@ -1,5 +1,6 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import BookingCutoffEditor from "./BookingCutoffEditor";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -521,7 +522,7 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
       ) : roster.length === 0 ? (
         <p className="text-xs text-muted-foreground">Sin reservas</p>
       ) : (
-        <div className="space-y-1.5 max-h-60 overflow-auto">
+        <div className="space-y-3 max-h-[50dvh] overflow-y-auto overflow-x-hidden">
           {roster.map((r: any) => {
             const isWalkIn = !r.userId && !r.user_id;
             const name = r.displayName ?? r.display_name ?? r.guestName ?? r.guest_name ?? "—";
@@ -532,10 +533,14 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
             const canCancelMember = !isWalkIn && (status === "confirmed" || status === "waitlist");
             const anyMutating = checkinMutation.isPending || noShowMutation.isPending || cancelMemberMutation.isPending || moveRosterMutation.isPending;
             return (
-              <div key={bookingId} className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-1.5">
-                <div className="min-w-0 flex items-center gap-1.5">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{name}</p>
+              <div key={bookingId} className="flex flex-col gap-3 rounded-xl border border-border p-3">
+                <div className="min-w-0 flex items-start gap-3">
+                  <Avatar className="h-12 w-12">
+                    <AvatarImage src={r.photoUrl ?? r.photo_url ?? undefined} alt={`Foto de ${name}`} className="object-cover" />
+                    <AvatarFallback>{String(name).trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase()}</AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium break-words">{name}</p>
                     <RosterPhone phone={r.phone} />
                     {!isWalkIn && (status === "waitlist" || status === "confirmed") && (
                       <Button variant="outline" size="sm" className="my-1 h-auto whitespace-normal text-xs"
@@ -551,7 +556,7 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
                         {status === "waitlist" ? "Promover a confirmada" : "Mover a espera"}
                       </Button>
                     )}
-                    <p className="text-[11px] text-muted-foreground truncate">
+                    <p className="text-xs text-muted-foreground break-words">
                       {isWalkIn ? "Walk-in / Sin cuenta" : (r.planName ?? r.plan_name ?? "")}
                     </p>
                   </div>
@@ -559,7 +564,7 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
                     <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-[#E5CF9F] text-[#B5832F]">Invitado</Badge>
                   )}
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-2 [&_button]:h-10 [&_button]:w-10">
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLOR[status] ?? ""}`}>
                     {STATUS_LABEL[status] ?? status}
                   </span>
