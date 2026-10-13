@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { registerPaymentNoticeRoute } from './paymentNoticeRoute.mjs';
 import { formatEsMxDate, formatMexicoCityTimestamp, mexicoCityDateParts } from "./lib/dateFormatting.js";
 import { consentGuard, registerConsentRoutes, consentVersion } from "./lib/consent.js";
 import { clientBranchPredicate } from "./lib/clientBranchScope.js";
@@ -3477,6 +3478,8 @@ async function authMiddleware(req, res, next) {
     return res.status(401).json({ message: "Token inválido" });
   }
 }
+
+registerPaymentNoticeRoute(app, { authMiddleware, pool });
 
 async function adminMiddleware(req, res, next) {
   authMiddleware(req, res, async () => {

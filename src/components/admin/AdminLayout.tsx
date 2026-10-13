@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PaymentNotice } from './PaymentNotice';
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { cn } from "@/lib/utils";
@@ -303,7 +304,7 @@ const AdminLayout = ({ children }: AdminLayoutProps) => {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto pb-[88px] lg:pb-0">{children}</main>
+        <main className="flex-1 overflow-y-auto pb-[88px] lg:pb-0"><PaymentNotice role={user?.role} />{children}</main>
 
         {isMobile && (
           <nav
