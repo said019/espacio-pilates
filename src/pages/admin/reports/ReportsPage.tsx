@@ -34,6 +34,10 @@ const ReportsPage = () => {
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
   const rangeActive = !!from && !!to && from <= to;
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
+  const [coachFrom, setCoachFrom] = useState(`${today.slice(0, 7)}-01`);
+  const [coachTo, setCoachTo] = useState(today);
+  const coachRangeValid = !!coachFrom && !!coachTo && coachFrom <= coachTo;
 
   const { data: overview, isLoading: loadingOverview } = useQuery({
     queryKey: ["reports-overview", branchScope.branchScope],
@@ -57,9 +61,10 @@ const ReportsPage = () => {
     queryFn: async () => (await api.get("/reports/classes", { params: branchQueryParams(branchScope.branchScope) })).data,
   });
 
-  const { data: instructorsData, isLoading: loadingInstructors } = useQuery({
-    queryKey: ["reports-instructors", branchScope.branchScope],
-    queryFn: async () => (await api.get("/reports/instructors", { params: branchQueryParams(branchScope.branchScope) })).data,
+  const { data: instructorsData, isFetching: loadingInstructors, isError: instructorsError } = useQuery({
+    queryKey: ["reports-instructors", branchScope.branchScope, coachFrom, coachTo],
+    enabled: coachRangeValid,
+    queryFn: async () => (await api.get("/reports/instructors", { params: { ...branchQueryParams(branchScope.branchScope), from: coachFrom, to: coachTo } })).data,
   });
 
   const { data: retentionData } = useQuery({
@@ -111,7 +116,7 @@ const ReportsPage = () => {
       });
 
   const classes: { name: string; bookings: number; attended: number }[] = safeArray(classesData?.data ?? classesData);
-  const instructors: { id: string; name: string; classCount: number; totalStudents: number }[] = safeArray(instructorsData?.data ?? instructorsData);
+  const instructors: { id: string; name: string; branchId: string; branchName: string; classCount: number; totalStudents: number; attendanceCount: number }[] = safeArray(instructorsData?.data ?? instructorsData);
 
   // Derivados del chart
   const totalRevenue = revenueData.reduce((sum, r) => sum + r.amount, 0);
@@ -495,22 +500,31 @@ const ReportsPage = () => {
             {/* Top instructors */}
             <Card>
               <CardHeader>
-                <CardTitle>Instructoras más activas</CardTitle>
-                <p className="text-xs text-muted-foreground mt-1">Por clases impartidas</p>
+                <CardTitle>Clases por coach</CardTitle>
+                <p className="text-xs text-muted-foreground mt-1">Clases terminadas con reservas. Excluye canceladas, vacías y lista de espera. Usa la sucursal seleccionada arriba y la coach actualmente asignada.</p>
               </CardHeader>
               <CardContent>
-                {loadingInstructors ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                  <label className="text-sm min-w-0">Desde
+                    <input aria-label="Coaches: desde" type="date" value={coachFrom} onChange={(e) => setCoachFrom(e.target.value)} className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" />
+                  </label>
+                  <label className="text-sm min-w-0">Hasta
+                    <input aria-label="Coaches: hasta" type="date" value={coachTo} onChange={(e) => setCoachTo(e.target.value)} className="mt-1 block w-full min-w-0 rounded-md border bg-background p-2" />
+                  </label>
+                </div>
+                {!coachRangeValid ? <p role="alert" className="text-sm text-destructive">Selecciona ambas fechas; Desde no puede ser posterior a Hasta.</p> : instructorsError ? <p role="alert" className="text-sm text-destructive">No se pudo cargar el reporte. Intenta de nuevo.</p> : loadingInstructors ? (
                   <div className="space-y-3">
                     {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
                   </div>
                 ) : instructors.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-6 text-center">Sin datos</p>
+                  <p className="text-sm text-muted-foreground py-6 text-center">No hay clases terminadas con reservas en este rango y sucursal.</p>
                 ) : (
                   <div className="stagger-in space-y-2">
-                    {instructors.slice(0, 6).map((ins, idx) => (
+                    <p className="text-sm font-semibold tabular-nums">Total: {instructors.reduce((sum, ins) => sum + ins.classCount, 0)} clases con reservas</p>
+                    {instructors.map((ins, idx) => (
                       <div
-                        key={ins.id}
-                        className="flex items-center justify-between rounded-lg border border-[#8C6B6F]/10 bg-[#FBF7F4]/40 px-3 py-2"
+                        key={`${ins.id}-${ins.branchId}`}
+                        className="flex flex-wrap gap-3 items-center justify-between rounded-lg border border-[#8C6B6F]/10 bg-[#FBF7F4]/40 px-3 py-2"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div
@@ -522,11 +536,12 @@ const ReportsPage = () => {
                           >
                             {idx + 1}
                           </div>
-                          <span className="text-sm font-medium truncate">{ins.name}</span>
+                          <div><p className="text-sm font-medium break-words">{ins.name}</p><p className="text-xs text-muted-foreground">{ins.branchName}</p></div>
                         </div>
                         <div className="text-right text-xs text-muted-foreground shrink-0">
                           <p className="tabular-nums font-semibold text-[#1A1A1A]">{ins.classCount} clases</p>
-                          <p className="tabular-nums">{ins.totalStudents} alumnas</p>
+                          <p className="tabular-nums">{ins.totalStudents} reservas</p>
+                          <p className="tabular-nums">{ins.attendanceCount} asistencias registradas</p>
                         </div>
                       </div>
                     ))}

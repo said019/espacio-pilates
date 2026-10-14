@@ -10807,28 +10807,41 @@ app.get("/api/reports/retention", adminMiddleware, async (req, res) => {
 
 app.get("/api/reports/instructors", adminMiddleware, async (req, res) => {
   try {
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
+    const from = req.query.from ?? `${today.slice(0, 7)}-01`;
+    const to = req.query.to ?? today;
+    const validDate = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
+      && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+    if (!validDate(from) || !validDate(to) || from > to) {
+      return res.status(400).json({ message: "Selecciona un rango de fechas válido." });
+    }
     const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
     const branch = allBranches ? null : await resolveRequestBranch(req);
     if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
-    // Active bookings only; instructors with zero classes hidden by HAVING.
+    // Completed classes with non-cancelled reservations, excluding waitlists.
     const r = await pool.query(
       `SELECT i.id,
               i.display_name AS name,
+              br.id AS branch_id, br.name AS branch_name,
               COUNT(DISTINCT c.id)::INT AS class_count,
-              COUNT(b.id) FILTER (WHERE b.status <> 'cancelled')::INT AS total_students
+              COUNT(b.id)::INT AS total_students,
+              COUNT(b.id) FILTER (WHERE b.status = 'checked_in')::INT AS attendance_count
          FROM instructors i
-         LEFT JOIN classes  c ON c.instructor_id = i.id
-         LEFT JOIN bookings b ON b.class_id = c.id
+         JOIN classes c ON c.instructor_id = i.id
+         JOIN branches br ON br.id = c.branch_id
+         JOIN bookings b ON b.class_id = c.id AND b.status IN ('confirmed', 'checked_in', 'no_show')
         WHERE ($1::uuid IS NULL OR c.branch_id = $1)
-        GROUP BY i.id, i.display_name
-       HAVING COUNT(DISTINCT c.id) > 0
-        ORDER BY class_count DESC`,
-      [branch?.id || null],
+          AND c.status <> 'cancelled'
+          AND c.date BETWEEN $2::date AND $3::date
+          AND ((c.date + c.end_time::time) AT TIME ZONE 'America/Mexico_City') <= NOW()
+        GROUP BY i.id, i.display_name, br.id, br.name
+        ORDER BY class_count DESC, br.name, i.display_name`,
+      [branch?.id || null, from, to],
     );
     return res.json({ data: camelRows(r.rows) });
   } catch (err) {
     console.error("Reports/instructors error:", err);
-    return res.json({ data: [] });
+    return res.status(500).json({ message: "No se pudo cargar el reporte de coaches." });
   }
 });
 
