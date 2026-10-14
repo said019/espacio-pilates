@@ -3,7 +3,7 @@ import {Dialog,DialogContent,DialogTitle,DialogDescription} from '../ui/dialog';
 import {montarAviso} from './paymentNoticeBanner.js';
 export function PaymentNotice({role}:{role?:string}) {
   const ref=useRef<HTMLDivElement>(null);
-  const [notice,setNotice]=useState<{fecha:string;ciclo:string;texto:string}|null>(null);
+  const [notice,setNotice]=useState<{fecha:string;ciclo:string;texto:string;frequencyKey?:string}|null>(null);
   const [dismissed,setDismissed]=useState('');
   const allowed=role==='admin'||role==='super_admin';
   useEffect(()=>{
@@ -25,7 +25,7 @@ export function PaymentNotice({role}:{role?:string}) {
     }catch(error){console.error('[PaymentNotice]',error);}
   },[allowed]);
   if(!allowed)return null;
-  const key=notice?`${notice.fecha}:${notice.texto}`:'';
+  const key=notice?notice.frequencyKey||'':'';
   return <>
     <div className="hidden" aria-hidden="true"><div ref={ref} hidden/></div>
     <Dialog open={!!notice&&dismissed!==key} onOpenChange={open=>{if(!open)setDismissed(key);}}>

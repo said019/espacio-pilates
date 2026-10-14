@@ -1,3 +1,4 @@
+import {noticeWindow,claimNoticeWindow} from './paymentNoticeFrequency.mjs';
 // The endpoint must be the project's own API (same origin, or the configured API origin passed in
 // allowedOrigins) and must authorize administrators on the host server.
 // Never throw: this mounts inside the admin layout, and an exception there takes down every admin screen.
@@ -7,24 +8,31 @@ export function montarAviso(elemento,{endpoint,allowedOrigins=[],fetchImpl=fetch
     console.warn('[PaymentNotice] Endpoint fuera del proyecto, aviso desactivado.');
     return()=>{};
   }
-  let disposed=false,request=0,controller=null,lastDate='';
+  let disposed=false,request=0,controller=null,lastDate='',activeSlot='';
   const localDate=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Mexico_City',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const hide=()=>{elemento.hidden=true;elemento.textContent='';onNotice(null);};
   elemento.setAttribute('role','status');hide();
   async function refresh(){
     if(disposed)return;
-    hide();controller?.abort();controller=new AbortController();const current=++request;
+    controller?.abort();controller=new AbortController();const current=++request;
     const ownController=controller;
     const timeout=setTimeout(()=>ownController.abort(),2500);
     try{
       const r=await fetchImpl(url.href,{credentials:'same-origin',cache:'no-store',signal:controller.signal});
-      if(!r.ok)return;const a=(await r.json())?.aviso;
-      if(disposed || request!==current || !a || typeof a.texto!=='string' || a.texto.length>300)return;
+      if(!r.ok){hide();return;}const a=(await r.json())?.aviso;
+      if(disposed || request!==current || !a || typeof a.texto!=='string' || a.texto.length>300){hide();return;}
       const today=localDate(),due=new Date(a.fecha+'T00:00:00Z');
-      if(!Number.isFinite(due.getTime()) || due.toISOString().slice(0,10)!==a.fecha)return;
+      if(!Number.isFinite(due.getTime()) || due.toISOString().slice(0,10)!==a.fecha){hide();return;}
       due.setUTCDate(due.getUTCDate()-1);
-      if(today!==a.fecha && today!==due.toISOString().slice(0,10))return;
-      elemento.textContent=a.texto;elemento.hidden=false;lastDate=today;onNotice(a);
+      if(today!==a.fecha && today!==due.toISOString().slice(0,10)){hide();return;}
+      const slot=noticeWindow();
+      if(activeSlot!==slot){
+        const claimed=await claimNoticeWindow({canShow:()=>!disposed&&request===current&&!document.hidden});
+        if(disposed||request!==current)return;
+        if(!claimed){hide();return;}
+        activeSlot=claimed;
+      }
+      elemento.textContent=a.texto;elemento.hidden=false;lastDate=today;onNotice({...a,frequencyKey:activeSlot});
     }catch{if(request===current)hide();}finally{clearTimeout(timeout);}
   }
   const visible=()=>{if(!document.hidden)refresh();};
