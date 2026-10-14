@@ -64,6 +64,7 @@ const ReportsPage = () => {
   const { data: instructorsData, isFetching: loadingInstructors, isError: instructorsError } = useQuery({
     queryKey: ["reports-instructors", branchScope.branchScope, coachFrom, coachTo],
     enabled: coachRangeValid,
+    refetchInterval: 60000,
     queryFn: async () => (await api.get("/reports/instructors", { params: { ...branchQueryParams(branchScope.branchScope), from: coachFrom, to: coachTo } })).data,
   });
 
@@ -116,7 +117,7 @@ const ReportsPage = () => {
       });
 
   const classes: { name: string; bookings: number; attended: number }[] = safeArray(classesData?.data ?? classesData);
-  const instructors: { id: string; name: string; branchId: string; branchName: string; classCount: number; totalStudents: number; attendanceCount: number }[] = safeArray(instructorsData?.data ?? instructorsData);
+  const instructors: { id: string; name: string; branchId: string; branchName: string; classCount: number; pendingClassCount: number; pendingReservations: number; totalStudents: number; attendanceCount: number }[] = safeArray(instructorsData?.data ?? instructorsData);
 
   // Derivados del chart
   const totalRevenue = revenueData.reduce((sum, r) => sum + r.amount, 0);
@@ -501,7 +502,7 @@ const ReportsPage = () => {
             <Card>
               <CardHeader>
                 <CardTitle>Clases por coach</CardTitle>
-                <p className="text-xs text-muted-foreground mt-1">Clases terminadas con reservas. Excluye canceladas, vacías y lista de espera. Usa la sucursal seleccionada arriba y la coach actualmente asignada.</p>
+                <p className="text-xs text-muted-foreground mt-1">Para pago: clases con reservas cuyo horario ya terminó, aunque no se haya marcado asistencia. Pendientes: aún no terminan y no se suman al pago. Excluye canceladas, vacías y lista de espera. Usa la sucursal seleccionada y la coach actualmente asignada. Se actualiza cada minuto.</p>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
@@ -517,10 +518,11 @@ const ReportsPage = () => {
                     {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
                   </div>
                 ) : instructors.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-6 text-center">No hay clases terminadas con reservas en este rango y sucursal.</p>
+                  <p className="text-sm text-muted-foreground py-6 text-center">No hay clases con reservas en este rango y sucursal.</p>
                 ) : (
                   <div className="stagger-in space-y-2">
-                    <p className="text-sm font-semibold tabular-nums">Total: {instructors.reduce((sum, ins) => sum + ins.classCount, 0)} clases con reservas</p>
+                    <p className="text-sm font-semibold tabular-nums">Para pago: {instructors.reduce((sum, ins) => sum + ins.classCount, 0)} clases impartidas</p>
+                    <p className="text-sm text-muted-foreground tabular-nums">Pendientes con reservas: {instructors.reduce((sum, ins) => sum + (ins.pendingClassCount ?? 0), 0)} · No incluidas en pago</p>
                     {instructors.map((ins, idx) => (
                       <div
                         key={`${ins.id}-${ins.branchId}`}
@@ -538,10 +540,17 @@ const ReportsPage = () => {
                           </div>
                           <div><p className="text-sm font-medium break-words">{ins.name}</p><p className="text-xs text-muted-foreground">{ins.branchName}</p></div>
                         </div>
-                        <div className="text-right text-xs text-muted-foreground shrink-0">
-                          <p className="tabular-nums font-semibold text-[#1A1A1A]">{ins.classCount} clases</p>
-                          <p className="tabular-nums">{ins.totalStudents} reservas</p>
-                          <p className="tabular-nums">{ins.attendanceCount} asistencias registradas</p>
+                        <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs text-muted-foreground">
+                          <div className="rounded-md bg-background p-3">
+                            <p className="font-medium">Impartidas con reservas · Para pago</p>
+                            <p className="text-lg tabular-nums font-semibold text-[#1A1A1A]">{ins.classCount} clases</p>
+                            <p className="tabular-nums">{ins.totalStudents} reservas · {ins.attendanceCount} asistencias registradas</p>
+                          </div>
+                          <div className="rounded-md border p-3">
+                            <p className="font-medium">Pendientes con reservas · No incluidas en pago</p>
+                            <p className="text-lg tabular-nums font-semibold">{ins.pendingClassCount ?? 0} clases</p>
+                            <p className="tabular-nums">{ins.pendingReservations ?? 0} reservas</p>
+                          </div>
                         </div>
                       </div>
                     ))}

@@ -32,7 +32,10 @@ it('filters inclusive dates, branch, completed classes and eligible bookings', a
   expect(sql).toContain("b.status IN ('confirmed', 'checked_in', 'no_show')");
   expect(sql).toContain("AT TIME ZONE 'America/Mexico_City') <= NOW()");
   expect(sql).toContain('COUNT(DISTINCT c.id)');
-  expect(sql).toContain("WHERE b.status = 'checked_in'");
+  expect(sql).toContain("WHERE timing.ended AND b.status = 'checked_in'");
+  expect(sql).toContain('COUNT(DISTINCT c.id) FILTER (WHERE timing.ended)::INT AS class_count');
+  expect(sql).toContain('COUNT(DISTINCT c.id) FILTER (WHERE NOT timing.ended)::INT AS pending_class_count');
+  expect(sql).not.toContain("AND ((c.date + c.end_time::time)");
 });
 it('supports all branches without merging branch rows', async () => {
   const { query } = await report({ all_branches: 'true' });

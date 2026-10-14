@@ -10818,22 +10818,24 @@ app.get("/api/reports/instructors", adminMiddleware, async (req, res) => {
     const allBranches = String(req.query.all_branches || "").toLowerCase() === "true";
     const branch = allBranches ? null : await resolveRequestBranch(req);
     if (!allBranches && !branch) return res.status(404).json({ message: "Sucursal no encontrada" });
-    // Completed classes with non-cancelled reservations, excluding waitlists.
+    // Each class counts once; pending classes never enter the payable count.
     const r = await pool.query(
       `SELECT i.id,
               i.display_name AS name,
               br.id AS branch_id, br.name AS branch_name,
-              COUNT(DISTINCT c.id)::INT AS class_count,
-              COUNT(b.id)::INT AS total_students,
-              COUNT(b.id) FILTER (WHERE b.status = 'checked_in')::INT AS attendance_count
+              COUNT(DISTINCT c.id) FILTER (WHERE timing.ended)::INT AS class_count,
+              COUNT(DISTINCT c.id) FILTER (WHERE NOT timing.ended)::INT AS pending_class_count,
+              COUNT(b.id) FILTER (WHERE timing.ended)::INT AS total_students,
+              COUNT(b.id) FILTER (WHERE NOT timing.ended)::INT AS pending_reservations,
+              COUNT(b.id) FILTER (WHERE timing.ended AND b.status = 'checked_in')::INT AS attendance_count
          FROM instructors i
          JOIN classes c ON c.instructor_id = i.id
          JOIN branches br ON br.id = c.branch_id
          JOIN bookings b ON b.class_id = c.id AND b.status IN ('confirmed', 'checked_in', 'no_show')
+         CROSS JOIN LATERAL (SELECT ((c.date + c.end_time::time) AT TIME ZONE 'America/Mexico_City') <= NOW() AS ended) timing
         WHERE ($1::uuid IS NULL OR c.branch_id = $1)
           AND c.status <> 'cancelled'
           AND c.date BETWEEN $2::date AND $3::date
-          AND ((c.date + c.end_time::time) AT TIME ZONE 'America/Mexico_City') <= NOW()
         GROUP BY i.id, i.display_name, br.id, br.name
         ORDER BY class_count DESC, br.name, i.display_name`,
       [branch?.id || null, from, to],
