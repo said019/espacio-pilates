@@ -1,7 +1,12 @@
-// The endpoint must be same-origin and must authorize administrators on the host server.
-export function montarAviso(elemento,{endpoint,fetchImpl=fetch,onNotice=()=>{}}) {
+// The endpoint must be the project's own API (same origin, or the configured API origin passed in
+// allowedOrigins) and must authorize administrators on the host server.
+// Never throw: this mounts inside the admin layout, and an exception there takes down every admin screen.
+export function montarAviso(elemento,{endpoint,allowedOrigins=[],fetchImpl=fetch,onNotice=()=>{}}) {
   const url=new URL(endpoint,window.location.origin);
-  if(url.origin!==window.location.origin)throw new Error('El aviso requiere un endpoint del propio proyecto.');
+  if(url.origin!==window.location.origin && !allowedOrigins.includes(url.origin)){
+    console.warn('[PaymentNotice] Endpoint fuera del proyecto, aviso desactivado.');
+    return()=>{};
+  }
   let disposed=false,request=0,controller=null,lastDate='';
   const localDate=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Mexico_City',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
   const hide=()=>{elemento.hidden=true;elemento.textContent='';onNotice(null);};

@@ -8,15 +8,21 @@ export function PaymentNotice({role}:{role?:string}) {
   const allowed=role==='admin'||role==='super_admin';
   useEffect(()=>{
     if(!allowed||!ref.current)return;
-    return montarAviso(ref.current,{
-      endpoint:new URL(String(import.meta.env.VITE_API_URL || '/api').replace(/["']+/g, '').replace(/\/+$/, '')+'/admin/platform-payment-notice',window.location.origin).href,
-      onNotice:setNotice,
-      fetchImpl:(url,options)=>{
-        const token=localStorage.getItem('auth_token');
-        if(!token)return Promise.resolve(new Response('',{status:401}));
-        return fetch(url,{...options,headers:{Authorization:`Bearer ${token}`}});
-      },
-    });
+    // El aviso es opcional: si algo falla aquí, el panel debe seguir funcionando.
+    try{
+      // En producción la API vive en otro dominio (VITE_API_URL); es la misma API que usa src/lib/api.ts.
+      const endpoint=new URL(String(import.meta.env.VITE_API_URL || '/api').replace(/["']+/g, '').replace(/\/+$/, '')+'/admin/platform-payment-notice',window.location.origin);
+      return montarAviso(ref.current,{
+        endpoint:endpoint.href,
+        allowedOrigins:[endpoint.origin],
+        onNotice:setNotice,
+        fetchImpl:(url,options)=>{
+          const token=localStorage.getItem('auth_token');
+          if(!token)return Promise.resolve(new Response('',{status:401}));
+          return fetch(url,{...options,headers:{Authorization:`Bearer ${token}`}});
+        },
+      });
+    }catch(error){console.error('[PaymentNotice]',error);}
   },[allowed]);
   if(!allowed)return null;
   const key=notice?`${notice.fecha}:${notice.texto}`:'';

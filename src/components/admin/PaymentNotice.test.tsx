@@ -20,6 +20,15 @@ describe('private payment notice',()=>{
   expect(screen.queryByRole('dialog')).toBeNull();
   view.rerender(<PaymentNotice role="client"/>);expect(screen.queryByRole('dialog')).toBeNull();
  });
+ it('does not throw when the API lives on another origin',async()=>{
+  const {montarAviso}=await import('./paymentNoticeBanner.js');
+  const el=document.createElement('div');
+  const fetcher=vi.fn(async()=>new Response(JSON.stringify({aviso:null}),{status:200}));
+  const stopOther=montarAviso(el,{endpoint:'https://api.example.com/api/admin/platform-payment-notice',fetchImpl:fetcher});
+  expect(fetcher).not.toHaveBeenCalled();stopOther();
+  const stopAllowed=montarAviso(el,{endpoint:'https://api.example.com/api/admin/platform-payment-notice',allowedOrigins:['https://api.example.com'],fetchImpl:fetcher});
+  await waitFor(()=>expect(fetcher).toHaveBeenCalled());stopAllowed();
+ });
  it('does not redirect or block when provider is unavailable',async()=>{
   localStorage.setItem('auth_token','user-session');vi.stubGlobal('fetch',vi.fn(async()=>new Response('',{status:503})));
   render(<PaymentNotice role="admin"/>);await waitFor(()=>expect(screen.queryByRole('status')).toBeNull());
