@@ -3946,6 +3946,32 @@ app.put("/api/coach/bookings/:id/undo-check-in", coachMiddleware, async (req, re
   }
 });
 
+// Coach absence transitions never modify credits or loyalty points.
+for (const [action, fromStatus, toStatus] of [
+  ["no-show", "confirmed", "no_show"],
+  ["undo-no-show", "no_show", "confirmed"],
+]) {
+  app.put(`/api/coach/bookings/:id/${action}`, coachMiddleware, async (req, res) => {
+    try {
+      const result = await pool.query(
+        "UPDATE bookings SET status = $2, checked_in_at = NULL WHERE id = $1 AND status = $3 RETURNING *",
+        [req.params.id, toStatus, fromStatus],
+      );
+      if (!result.rows.length) {
+        const current = await pool.query("SELECT * FROM bookings WHERE id = $1", [req.params.id]);
+        if (!current.rows.length) return res.status(404).json({ message: "Reserva no encontrada" });
+        if (current.rows[0].status === toStatus) return res.json({ data: current.rows[0] });
+        return res.status(409).json({ message: "La reserva cambió de estado. Actualiza la lista; si está presente, deshaz primero la asistencia." });
+      }
+      triggerWalletPassSync(result.rows[0].user_id, `booking_${action}`);
+      return res.json({ data: result.rows[0] });
+    } catch (err) {
+      console.error(`[coach/${action}]`, err.message);
+      return res.status(500).json({ message: "No se pudo actualizar la inasistencia." });
+    }
+  });
+}
+
 // GET /api/plans
 app.get("/api/plans", async (req, res) => {
   try {

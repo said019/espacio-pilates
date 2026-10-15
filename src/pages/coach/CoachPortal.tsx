@@ -146,7 +146,7 @@ const ClassCard = ({ classItem, isToday }: { classItem: CoachClass; isToday: boo
   const qc = useQueryClient();
   const [pendingId, setPendingId] = useState<string | null>(null);
   const attendance = useMutation({
-    mutationFn: ({ id, action }: { id: string; action: "check-in" | "undo-check-in" }) =>
+    mutationFn: ({ id, action }: { id: string; action: "check-in" | "undo-check-in" | "no-show" | "undo-no-show" }) =>
       api.put(`/coach/bookings/${id}/${action}`),
     onMutate: ({ id }) => setPendingId(id),
     onSettled: () => {
@@ -194,11 +194,12 @@ const ClassCard = ({ classItem, isToday }: { classItem: CoachClass; isToday: boo
         <span>{classItem.reservedCount} lugares ocupados de {classItem.maxCapacity}</span>
         {classItem.waitlistCount > 0 && <span>{classItem.waitlistCount} en lista de espera</span>}
       </div>
+      {attendance.isError && <p role="alert" className="mb-3 text-sm text-red-700">No se pudo guardar el cambio. Actualiza la lista e intenta de nuevo.</p>}
 
       {classItem.reservations.length > 0 ? (
         <ul className="divide-y divide-[#E9DFD9]" aria-label={`Reservas de ${classItem.classTypeName}`}>
           {classItem.reservations.map((reservation) => (
-            <li key={reservation.id} className="flex min-h-12 items-center gap-3 py-2.5">
+            <li key={reservation.id} className="flex flex-wrap min-h-12 items-center gap-3 py-2.5">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#EEE3DE] text-[#7E626B]">
                 {reservation.status === "checked_in"
                   ? <CheckCircle2 size={16} strokeWidth={1.9} />
@@ -207,15 +208,18 @@ const ClassCard = ({ classItem, isToday }: { classItem: CoachClass; isToday: boo
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-[#3B2D31]">{reservation.clientName}</span>
 
               {reservation.status === "confirmed" && (
+                <div className="flex w-full sm:w-auto flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={pendingId === reservation.id}
+                  disabled={attendance.isPending}
                   onClick={() => attendance.mutate({ id: reservation.id, action: "check-in" })}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#6E565E] px-2.5 py-1.5 text-[0.68rem] font-semibold text-white transition-colors hover:bg-[#5A4A52] disabled:opacity-60"
+                  className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg bg-[#6E565E] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#5A4A52] disabled:opacity-60"
                 >
                   {pendingId === reservation.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} strokeWidth={2.4} />}
-                  Confirmar
+                  Asistió
                 </button>
+                <button type="button" disabled={attendance.isPending} onClick={() => attendance.mutate({ id: reservation.id, action: "no-show" })} className="min-h-11 rounded-lg border border-[#DCCFC8] px-3 py-2 text-xs font-semibold text-[#9E4941] hover:bg-[#F1E8E3] disabled:opacity-60">No asistió</button>
+                </div>
               )}
 
               {reservation.status === "checked_in" && (
@@ -225,7 +229,7 @@ const ClassCard = ({ classItem, isToday }: { classItem: CoachClass; isToday: boo
                   </span>
                   <button
                     type="button"
-                    disabled={pendingId === reservation.id}
+                    disabled={attendance.isPending}
                     onClick={() => attendance.mutate({ id: reservation.id, action: "undo-check-in" })}
                     className="inline-flex items-center gap-1 rounded-lg border border-[#DCCFC8] px-2 py-1.5 text-[0.66rem] font-medium text-[#7B636A] transition-colors hover:bg-[#F1E8E3] disabled:opacity-60"
                     aria-label="Deshacer asistencia"
@@ -241,6 +245,7 @@ const ClassCard = ({ classItem, isToday }: { classItem: CoachClass; isToday: boo
                   {STATUS_LABELS[reservation.status] || reservation.status}
                 </span>
               )}
+              {reservation.status === "no_show" && <button type="button" disabled={attendance.isPending} onClick={() => attendance.mutate({ id: reservation.id, action: "undo-no-show" })} className="min-h-11 rounded-lg border border-[#DCCFC8] px-3 py-2 text-xs text-[#7B636A] hover:bg-[#F1E8E3] disabled:opacity-60">Deshacer inasistencia</button>}
             </li>
           ))}
         </ul>
