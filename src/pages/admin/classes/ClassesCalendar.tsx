@@ -705,9 +705,9 @@ function CalendarTab({
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedClass, setSelectedClass] = useState<ClassInstance | null>(null);
-  const [detailView, setDetailView] = useState<"options" | "attendees">("options");
-  useEffect(() => { setDetailView("options"); }, [selectedClass?.id]);
+  const [detailView, setDetailView] = useState<"options" | "attendees">("attendees");
   const [sheetOpen, setSheetOpen] = useState(false);
+  useEffect(() => { if (sheetOpen) setDetailView("attendees"); }, [selectedClass?.id, sheetOpen]);
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [walkInSelectionMode, setWalkInSelectionMode] = useState(false);
@@ -1252,8 +1252,8 @@ function CalendarTab({
         <SheetContent className="flex h-[100dvh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
           <SheetHeader className="shrink-0 border-b px-6 pb-3 pt-6 pr-12"><SheetTitle>{selectedClass?.classTypeName ?? "Clase"}</SheetTitle></SheetHeader>
           <div className="shrink-0 grid grid-cols-2 gap-2 border-b bg-background px-4 py-3" aria-label="Secciones de la clase">
-            <Button variant={detailView === "options" ? "default" : "outline"} aria-pressed={detailView === "options"} onClick={() => setDetailView("options")}>Opciones de clase</Button>
             <Button variant={detailView === "attendees" ? "default" : "outline"} aria-pressed={detailView === "attendees"} onClick={() => setDetailView("attendees")}>Inscritas</Button>
+            <Button variant={detailView === "options" ? "default" : "outline"} aria-pressed={detailView === "options"} onClick={() => setDetailView("options")}>Opciones de clase</Button>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-8 sm:px-6" key={`${selectedClass?.id}-${detailView}`}>
           {selectedClass && (
