@@ -522,7 +522,7 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
       ) : roster.length === 0 ? (
         <p className="text-xs text-muted-foreground">Sin reservas</p>
       ) : (
-        <div className="space-y-3 max-h-[50dvh] overflow-y-auto overflow-x-hidden">
+        <div className="space-y-3">
           {roster.map((r: any) => {
             const isWalkIn = !r.userId && !r.user_id;
             const name = r.displayName ?? r.display_name ?? r.guestName ?? r.guest_name ?? "—";
@@ -705,6 +705,8 @@ function CalendarTab({
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedClass, setSelectedClass] = useState<ClassInstance | null>(null);
+  const [detailView, setDetailView] = useState<"options" | "attendees">("options");
+  useEffect(() => { setDetailView("options"); }, [selectedClass?.id]);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const [mobileDay, setMobileDay] = useState(() => format(new Date(), "yyyy-MM-dd"));
@@ -1247,8 +1249,13 @@ function CalendarTab({
 
       {/* Detail sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
-          <SheetHeader><SheetTitle>{selectedClass?.classTypeName ?? "Clase"}</SheetTitle></SheetHeader>
+        <SheetContent className="flex h-[100dvh] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+          <SheetHeader className="shrink-0 border-b px-6 pb-3 pt-6 pr-12"><SheetTitle>{selectedClass?.classTypeName ?? "Clase"}</SheetTitle></SheetHeader>
+          <div className="shrink-0 grid grid-cols-2 gap-2 border-b bg-background px-4 py-3" aria-label="Secciones de la clase">
+            <Button variant={detailView === "options" ? "default" : "outline"} aria-pressed={detailView === "options"} onClick={() => setDetailView("options")}>Opciones de clase</Button>
+            <Button variant={detailView === "attendees" ? "default" : "outline"} aria-pressed={detailView === "attendees"} onClick={() => setDetailView("attendees")}>Inscritas</Button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-8 sm:px-6" key={`${selectedClass?.id}-${detailView}`}>
           {selectedClass && (
             <div className="mt-6 space-y-4 text-sm">
               {/* Instructor with avatar */}
@@ -1276,12 +1283,12 @@ function CalendarTab({
                 </div>
               )}
               {selectedClass.notes && <div><span className="font-medium">Notas:</span> {selectedClass.notes}</div>}
-              {!selectedClass.isCancelled && selectedClass.branchId && <ClassEditor key={selectedClass.id} classId={selectedClass.id} branchId={selectedClass.branchId} instructors={instructors} types={manualClassTypesForBranch(types, branchScope.branches.find(b => b.id === selectedClass.branchId)?.code)} onSaved={() => { toast({ title: "Clase actualizada", description: "Las reservas se conservaron." }); setSheetOpen(false); }} />}
+              {detailView === "options" && !selectedClass.isCancelled && selectedClass.branchId && <ClassEditor key={selectedClass.id} classId={selectedClass.id} branchId={selectedClass.branchId} instructors={instructors} types={manualClassTypesForBranch(types, branchScope.branches.find(b => b.id === selectedClass.branchId)?.code)} onSaved={() => { toast({ title: "Clase actualizada", description: "Las reservas se conservaron." }); setSheetOpen(false); }} />}
 
               {/* ── Attendees list ── */}
-              <ClassAttendees classId={selectedClass.id} branchId={selectedClass.branchId} />
+              {detailView === "attendees" && <ClassAttendees classId={selectedClass.id} branchId={selectedClass.branchId} />}
 
-              <div className="pt-2 flex flex-col gap-2">
+              {detailView === "options" && <div className="pt-2 flex flex-col gap-2">
                 {!selectedClass.isWalkIn ? (
                   <>
                     <Button variant="outline" onClick={() => markWalkInMutation.mutate({ classIds: [selectedClass.id], isWalkIn: true, requiresInscription: true })} disabled={markWalkInMutation.isPending || !selectedClass.branchId}>
@@ -1307,9 +1314,10 @@ function CalendarTab({
                   </Button>
                 )}
                 {selectedClass.isCancelled && <Badge variant="destructive">Clase cancelada</Badge>}
-              </div>
+              </div>}
             </div>
           )}
+          </div>
         </SheetContent>
       </Sheet>
 
