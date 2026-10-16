@@ -37,6 +37,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { manualClassTypesForBranch } from "./classTypeOptions";
 import { summarizeRoster } from "./rosterSummary";
 import { RosterPhone } from "./RosterPhone";
+import { ClassEditor } from "./ClassEditor";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Palette, Zap, MoreHorizontal, Loader2, UserCheck, Sparkles, Calendar, Users, X, CheckCircle2, UserX, Ban, Search } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -1246,7 +1247,7 @@ function CalendarTab({
 
       {/* Detail sheet */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent>
+        <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
           <SheetHeader><SheetTitle>{selectedClass?.classTypeName ?? "Clase"}</SheetTitle></SheetHeader>
           {selectedClass && (
             <div className="mt-6 space-y-4 text-sm">
@@ -1275,6 +1276,7 @@ function CalendarTab({
                 </div>
               )}
               {selectedClass.notes && <div><span className="font-medium">Notas:</span> {selectedClass.notes}</div>}
+              {!selectedClass.isCancelled && selectedClass.branchId && <ClassEditor key={selectedClass.id} classId={selectedClass.id} branchId={selectedClass.branchId} instructors={instructors} types={manualClassTypesForBranch(types, branchScope.branches.find(b => b.id === selectedClass.branchId)?.code)} onSaved={() => { toast({ title: "Clase actualizada", description: "Las reservas se conservaron." }); setSheetOpen(false); }} />}
 
               {/* ── Attendees list ── */}
               <ClassAttendees classId={selectedClass.id} branchId={selectedClass.branchId} />

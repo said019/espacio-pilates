@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { registerClassEditor } from './lib/classEditor.js';
 import { registerPaymentNoticeRoute } from './paymentNoticeRoute.mjs';
 import { formatEsMxDate, formatMexicoCityTimestamp, mexicoCityDateParts } from "./lib/dateFormatting.js";
 import { consentGuard, registerConsentRoutes, consentVersion } from "./lib/consent.js";
@@ -10169,6 +10170,7 @@ app.delete("/api/class-types/:id", adminMiddleware, async (req, res) => {
 });
 
 // POST /api/classes — admin creates a class (alias)
+registerClassEditor(app, { pool, adminMiddleware, resolveRequestBranch });
 app.get("/api/admin/classes/:id/booking-cutoff", adminMiddleware, async (req, res) => {
   try {
     const branch = await resolveRequestBranch(req);
