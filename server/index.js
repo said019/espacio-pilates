@@ -802,6 +802,7 @@ async function ensureSchema() {
         console.log("✅ Base de datos inicializada (schema_complete.sql)");
       }
     }
+    await pool.query(fs.readFileSync(path.join(__dirname, "../supabase/migrations/202610220001_guest_checkin_reviews.sql"), "utf8"));
     await pool.query(fs.readFileSync(path.join(__dirname, "../supabase/migrations/202609100001_signed_consents.sql"), "utf8"));
     // No migration runner is invoked by start.sh. Execute the idempotent
     // multi-branch migration here as well so live and fresh databases converge

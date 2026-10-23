@@ -1529,7 +1529,7 @@ RETURNS TRIGGER AS $$
 DECLARE
     class_end TIMESTAMP WITH TIME ZONE;
 BEGIN
-    IF NEW.status = 'checked_in' AND (OLD IS NULL OR OLD.status != 'checked_in') THEN
+    IF NEW.user_id IS NOT NULL AND NEW.status = 'checked_in' AND (OLD IS NULL OR OLD.status != 'checked_in') THEN
         SELECT (c.date + c.end_time)::timestamp with time zone
         INTO class_end
         FROM classes c WHERE c.id = NEW.class_id;
