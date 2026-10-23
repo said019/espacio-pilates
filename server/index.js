@@ -14480,7 +14480,15 @@ app.get("/api/classes/:id/roster", adminMiddleware, async (req, res) => {
        WHERE c.id = $1`,
       [req.params.id]
     );
-    return res.json({ data: { class: camelRow(cls.rows[0] ?? {}), roster: r.rows.map(camelRow) } });
+    const cancelled = await pool.query(
+      `SELECT b.id AS booking_id, b.user_id, COALESCE(u.display_name, b.guest_name, 'Invitada') AS display_name,
+              b.cancelled_at, b.cancelled_by
+         FROM bookings b LEFT JOIN users u ON u.id=b.user_id
+        WHERE b.class_id=$1 AND b.status='cancelled'
+        ORDER BY b.cancelled_at DESC NULLS LAST, b.id`,
+      [req.params.id],
+    );
+    return res.json({ data: { class: camelRow(cls.rows[0] ?? {}), roster: r.rows.map(camelRow), cancelled: cancelled.rows.map(camelRow) } });
   } catch (err) {
     console.error("[GET /classes/:id/roster]", err.message);
     return res.status(500).json({ message: "Error interno" });
@@ -14693,7 +14701,7 @@ app.delete("/api/admin/bookings/:id/walkin", adminMiddleware, async (req, res) =
       return res.json({ ok: true, alreadyCancelled: true });
     }
     await client.query(
-      "UPDATE bookings SET status = 'cancelled', cancelled_at = NOW() WHERE id = $1",
+      "UPDATE bookings SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = 'admin' WHERE id = $1",
       [req.params.id]
     );
     // Only decrement if the walk-in was actually counted in current_bookings.

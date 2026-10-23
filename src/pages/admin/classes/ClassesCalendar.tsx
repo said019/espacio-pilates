@@ -37,6 +37,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { manualClassTypesForBranch } from "./classTypeOptions";
 import { summarizeRoster } from "./rosterSummary";
 import { RosterPhone } from "./RosterPhone";
+import { RosterName, CancellationHistory } from "./RosterIdentity";
 import { ClassEditor } from "./ClassEditor";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Palette, Zap, MoreHorizontal, Loader2, UserCheck, Sparkles, Calendar, Users, X, CheckCircle2, UserX, Ban, Search } from "lucide-react";
@@ -239,7 +240,7 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
     qc.invalidateQueries({ queryKey: ["admin-classes"] });
   };
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError: rosterError } = useQuery({
     queryKey: ["class-roster-mini", classId],
     queryFn: async () => (await api.get(`/classes/${classId}/roster`, {
       params: branchId ? { branch_id: branchId } : undefined,
@@ -367,6 +368,7 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
   });
 
   const roster: any[] = data?.data?.roster ?? data?.roster ?? [];
+  const cancelled: any[] = data?.data?.cancelled ?? data?.cancelled ?? [];
   const rosterSummary = summarizeRoster(roster);
 
   return (
@@ -517,6 +519,8 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {rosterError && <p role="alert" className="text-sm text-destructive">No se pudieron cargar las reservas y cancelaciones. Vuelve a abrir la clase.</p>}
+      {!isLoading && !rosterError && <CancellationHistory rows={cancelled} />}
       {isLoading ? (
         <Skeleton className="h-16 w-full" />
       ) : roster.length === 0 ? (
@@ -533,14 +537,14 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
             const canCancelMember = !isWalkIn && (status === "confirmed" || status === "waitlist");
             const anyMutating = checkinMutation.isPending || noShowMutation.isPending || cancelMemberMutation.isPending || moveRosterMutation.isPending;
             return (
-              <div key={bookingId} className="flex flex-col gap-3 rounded-xl border border-border p-3">
-                <div className="min-w-0 flex items-start gap-3">
-                  <Avatar className="h-12 w-12">
+              <div key={bookingId} className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 rounded-xl border border-border p-3">
+                <div className="min-w-0 flex items-start gap-2">
+                  <Avatar className="h-8 w-8 shrink-0">
                     <AvatarImage src={r.photoUrl ?? r.photo_url ?? undefined} alt={`Foto de ${name}`} className="object-cover" />
                     <AvatarFallback>{String(name).trim().split(/\s+/).slice(0, 2).map(part => part[0]).join("").toUpperCase()}</AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium break-words">{name}</p>
+                    <RosterName userId={r.userId ?? r.user_id} name={name} />
                     <RosterPhone phone={r.phone} />
                     {!isWalkIn && (status === "waitlist" || status === "confirmed") && (
                       <Button variant="outline" size="sm" className="my-1 h-auto whitespace-normal text-xs"
@@ -564,7 +568,7 @@ const ClassAttendees = ({ classId, branchId }: { classId: string; branchId?: str
                     <Badge variant="outline" className="text-[9px] px-1.5 py-0 h-4 border-[#E5CF9F] text-[#B5832F]">Invitado</Badge>
                   )}
                 </div>
-                <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-2 [&_button]:h-10 [&_button]:w-10">
+                <div className="flex max-w-[7.5rem] flex-wrap items-center justify-end gap-0.5 [&_button]:h-10 [&_button]:w-10">
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLOR[status] ?? ""}`}>
                     {STATUS_LABEL[status] ?? status}
                   </span>
