@@ -104,6 +104,8 @@ const BookClasses = () => {
 
   const { data: classesData, isLoading: loadingClasses } = useQuery({
     queryKey: ["public-classes", branchCode, format(weekStart, "yyyy-MM-dd")],
+    refetchInterval: 30000,
+    refetchOnWindowFocus: "always",
     queryFn: async () =>
       (await api.get("/classes", {
         params: {
@@ -438,6 +440,8 @@ const BookClasses = () => {
                                 <p className="text-[0.6rem] text-valiance-mauve mt-1.5 leading-tight">
                                   Requiere membresía {programLabel(classProgram)} en {branch.name}
                                 </p>
+                              ) : isPast ? (
+                                <p className="text-xs text-valiance-mauve mt-1.5">Esta clase ya comenzó · reservas cerradas</p>
                               ) : isFull ? (
                                 <p className="text-[0.6rem] text-valiance-mauve mt-1.5 leading-tight">
                                   Lleno · lista de espera

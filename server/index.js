@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { refreshClassOccupancy } from './lib/classOccupancy.js';
 import { registerClassEditor } from './lib/classEditor.js';
 import { registerPaymentNoticeRoute } from './paymentNoticeRoute.mjs';
 import { formatEsMxDate, formatMexicoCityTimestamp, mexicoCityDateParts } from "./lib/dateFormatting.js";
@@ -4364,7 +4365,18 @@ app.get("/api/bookings/eligibility", authMiddleware, async (req, res) => {
 
 // POST /api/bookings
 registerConsentRoutes(app, pool, authMiddleware, adminMiddleware, sendPushToAdmins);
-app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId), async (req, res) => {
+app.post("/api/bookings", authMiddleware, (req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    if (res.statusCode >= 400) console.warn('[booking-rejected]', JSON.stringify({
+      userId: req.userId, classId: String(req.body?.classId || '').slice(0, 36),
+      status: res.statusCode, code: body?.code, reason: body?.message,
+      at: new Date().toISOString(),
+    }));
+    return originalJson(body);
+  };
+  next();
+}, consentGuard(pool, req => req.userId), async (req, res) => {
   const { classId, membershipId: requestedMembershipId } = req.body;
   if (!classId) return res.status(400).json({ message: "classId requerido" });
   const client = await pool.connect();
@@ -4387,6 +4399,7 @@ app.post("/api/bookings", authMiddleware, consentGuard(pool, req => req.userId),
       return res.status(404).json({ message: "Clase no encontrada" });
     }
     const cls = classRes.rows[0];
+    cls.current_bookings = await refreshClassOccupancy(client, classId);
     const bookingWindow = bookingCutoff(cls);
     if (!bookingWindow.allowed) {
       await client.query("ROLLBACK");
@@ -11545,7 +11558,8 @@ async function promoteWaitlist(classId) {
     const cls = clsRes.rows[0];
     if (!cls || cls.status === "cancelled") { await client.query("ROLLBACK"); return null; }
     const classCategory = normalizeClassCategory(cls.class_category, "all");
-    if (Number(cls.current_bookings) >= Number(cls.max_capacity)) { await client.query("ROLLBACK"); return null; }
+    cls.current_bookings = await refreshClassOccupancy(client, classId);
+    if (Number(cls.current_bookings) >= Number(cls.max_capacity)) { await client.query("COMMIT"); return null; }
     // (2) Cutoff: no promover dentro de la ventana de bloqueo.
     if (cutoff > 0 && cls.class_start_utc) {
       const minsUntil = (new Date(cls.class_start_utc).getTime() - Date.now()) / 60_000;
