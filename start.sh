@@ -8,5 +8,5 @@ if [ "$SERVE_MODE" = "frontend" ]; then
   exec ./.runtime/caddy run --config Caddyfile --adapter caddyfile
 else
   echo "▶ Backend API"
-  exec node server/index.js
+  exec node --max-old-space-size=320 server/index.js
 fi
