@@ -39,6 +39,7 @@ import { summarizeRoster } from "./rosterSummary";
 import { RosterPhone } from "./RosterPhone";
 import { RosterName, CancellationHistory } from "./RosterIdentity";
 import { ClassEditor } from "./ClassEditor";
+import { generationNotice } from "./generationNotice";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight, Plus, CalendarDays, Palette, Zap, MoreHorizontal, Loader2, UserCheck, Sparkles, Calendar, Users, X, CheckCircle2, UserX, Ban, Search } from "lucide-react";
 import { PhoneInput } from "@/components/ui/phone-input";
@@ -1665,7 +1666,7 @@ function GenerateTab({
       }),
     onSuccess: (res: any) => {
       qc.invalidateQueries({ queryKey: ["classes"] });
-      toast({ title: `${res.data?.created ?? 0} clases generadas` });
+      toast(generationNotice(res.data ?? {}));
     },
     onError: (error: any) =>
       toast({
@@ -1920,6 +1921,12 @@ function GenerateTab({
           ? `Generar ${preview.length} clases`
           : "Generar clases"}
       </button>
+      {generateMutation.isSuccess && (
+        <div role="status" className="rounded-xl border border-[#D1B9B4] bg-[#D1B9B4]/10 p-4 text-sm text-[#444444]">
+          <p className="font-semibold">Resultado de la última generación: {generationNotice(generateMutation.data?.data ?? {}).title}</p>
+          <p className="mt-2 leading-relaxed">{generationNotice(generateMutation.data?.data ?? {}).description}</p>
+        </div>
+      )}
     </div>
   );
 }
