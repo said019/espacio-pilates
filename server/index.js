@@ -38,6 +38,7 @@ import {
   validateSingleScope,
 } from "./lib/branchAccess.js";
 import { createPreference, createCardPayment, syncPayment, verifyWebhookSignature } from "./lib/mercadopago.js";
+import { decodeInlinePhoto, inlineInstructorPhotoPath, instructorPhotoSql, publicApiUrl, UUID_RE } from "./lib/instructorPhoto.js";
 import { computeCartTotals } from "./lib/cartPricing.js";
 import { isWalkInClass, shouldConsumeCredit, walkInRequiresInscription, walkInStatusCanChange } from "./lib/classWalkIn.js";
 import {
@@ -4191,7 +4192,7 @@ app.get("/api/classes", async (req, res) => {
              ct.icon  AS class_type_icon,
              ct.level AS class_type_level,
              i.display_name AS instructor_name,
-             i.photo_url    AS instructor_photo,
+             ${instructorPhotoSql("i")} AS instructor_photo,
              f.name         AS facility_name,
              br.code        AS branch_code,
              br.name        AS branch_name
@@ -4224,6 +4225,7 @@ app.get("/api/classes", async (req, res) => {
       start_time: row.start_time_full ?? row.start_time,
       end_time: row.end_time_full ?? row.end_time,
       apparatus: row.apparatus ?? "reformer",
+      instructor_photo: publicApiUrl(req, row.instructor_photo),
     }));
     return res.json({ data: rows });
   } catch (err) {
@@ -4251,7 +4253,7 @@ app.get("/api/classes/:id", async (req, res) => {
               ct.icon  AS class_type_icon,
               ct.level AS class_type_level,
               i.display_name AS instructor_name,
-              i.photo_url    AS instructor_photo,
+              ${instructorPhotoSql("i")} AS instructor_photo,
               i.bio          AS instructor_bio,
               f.name         AS facility_name,
               br.code        AS branch_code,
@@ -4265,7 +4267,7 @@ app.get("/api/classes/:id", async (req, res) => {
       [req.params.id]
     );
     if (r.rows.length === 0) return res.status(404).json({ message: "Clase no encontrada" });
-    return res.json({ data: r.rows[0] });
+    return res.json({ data: { ...r.rows[0], instructor_photo: publicApiUrl(req, r.rows[0].instructor_photo) } });
   } catch (err) {
     console.error("Class/:id error:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -4301,7 +4303,7 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
               END AS program,
               ct.color AS class_color,
               i.display_name AS instructor_name,
-              i.photo_url    AS instructor_photo,
+              ${instructorPhotoSql("i")} AS instructor_photo,
               (rv.id IS NOT NULL) AS has_review,
               f.name         AS facility_name,
               br.code        AS branch_code,
@@ -4325,7 +4327,7 @@ app.get("/api/bookings/my-bookings", authMiddleware, async (req, res) => {
        ORDER BY c.date DESC, c.start_time DESC`,
       [req.userId, branch.id]
     );
-    return res.json({ data: r.rows });
+    return res.json({ data: r.rows.map((row) => ({ ...row, instructor_photo: publicApiUrl(req, row.instructor_photo) })) });
   } catch (err) {
     console.error("Bookings/my error:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -10124,13 +10126,32 @@ app.get("/api/class-types", async (req, res) => {
 });
 
 // GET /api/public/instructors — public (no auth) active instructors for homepage
-app.get("/api/public/instructors", async (_req, res) => {
+app.get("/api/public/instructors", async (req, res) => {
   try {
     const r = await pool.query(
-      "SELECT id, display_name, bio, specialties, photo_url, photo_focus_x, photo_focus_y, sort_order FROM instructors WHERE is_active = true ORDER BY sort_order ASC, created_at ASC"
+      "SELECT id, display_name, bio, specialties, photo_url, photo_focus_x, photo_focus_y, sort_order, updated_at FROM instructors WHERE is_active = true ORDER BY sort_order ASC, created_at ASC"
     );
-    return res.json({ data: camelRows(r.rows) });
+    const rows = r.rows.map(({ updated_at, ...row }) => ({ ...row, photo_url: publicApiUrl(req, inlineInstructorPhotoPath(row.id, row.photo_url, updated_at)) }));
+    return res.json({ data: camelRows(rows) });
   } catch (err) { return res.status(500).json({ message: "Error interno" }); }
+});
+
+// GET /api/public/instructors/:id/photo — foto de coach guardada como data URL.
+app.get("/api/public/instructors/:id/photo", async (req, res) => {
+  try {
+    if (!UUID_RE.test(req.params.id)) return res.status(404).end();
+    const r = await pool.query("SELECT photo_url FROM instructors WHERE id = $1", [req.params.id]);
+    const photo = decodeInlinePhoto(r.rows[0]?.photo_url);
+    if (!photo) return res.status(404).end();
+    // La URL lleva ?v=updated_at, así que cambia cuando cambia la foto.
+    res.set("Cache-Control", "public, max-age=31536000, immutable");
+    res.set("X-Content-Type-Options", "nosniff");
+    res.type(photo.mimeType);
+    return res.send(photo.buffer);
+  } catch (err) {
+    console.error("[GET /public/instructors/:id/photo]", err);
+    return res.status(500).end();
+  }
 });
 
 // GET /api/public/review-tags — public (no auth) review tags for client review form
@@ -15825,7 +15846,8 @@ app.post("/api/admin/loyalty/recalculate/:userId", adminMiddleware, async (req, 
 app.get("/api/instructors", adminMiddleware, async (req, res) => {
   try {
     const r = await pool.query("SELECT * FROM instructors ORDER BY created_at DESC");
-    return res.json({ data: camelRows(r.rows) });
+    const rows = r.rows.map((row) => ({ ...row, photo_url: publicApiUrl(req, inlineInstructorPhotoPath(row.id, row.photo_url, row.updated_at)) }));
+    return res.json({ data: camelRows(rows) });
   } catch (err) {
     return res.status(500).json({ message: "Error interno" });
   }
