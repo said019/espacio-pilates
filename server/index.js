@@ -14881,7 +14881,10 @@ app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
     } catch (_) {}
     let q = `SELECT o.*, u.display_name AS user_name, p.name AS plan_name,
                     br.code AS branch_code, br.name AS branch_name,
-                    pp.file_url AS proof_url, pp.status AS proof_status, pp.uploaded_at AS proof_uploaded_at,
+                    -- Los comprobantes subidos son data URL base64; se piden aparte en /proof.
+                    CASE WHEN pp.file_url LIKE 'data:%' THEN NULL ELSE pp.file_url END AS proof_url,
+                    (pp.file_url IS NOT NULL) AS has_proof,
+                    pp.status AS proof_status, pp.uploaded_at AS proof_uploaded_at,
                     COALESCE((
                       SELECT json_agg(json_build_object(
                                'plan_id', i.plan_id, 'plan_name', ip.name,
@@ -14915,6 +14918,7 @@ app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
         program: o.program,
         items: o.items,
         proofUrl: o.proof_url,
+        hasProof: o.has_proof,
         proofStatus: o.proof_status,
         proofUploadedAt: o.proof_uploaded_at,
         totalAmount: o.total_amount,
@@ -14926,6 +14930,22 @@ app.get("/api/admin/orders", adminMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error("[GET /admin/orders]", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+});
+
+// GET /api/admin/orders/:id/proof — comprobante completo de una sola orden.
+app.get("/api/admin/orders/:id/proof", adminMiddleware, async (req, res) => {
+  try {
+    const r = await pool.query(
+      "SELECT file_url, mime_type FROM payment_proofs WHERE order_id = $1",
+      [req.params.id]
+    );
+    if (!r.rows[0]?.file_url) return res.status(404).json({ message: "Comprobante no encontrado" });
+    res.set("Cache-Control", "private, no-store");
+    return res.json({ data: { url: r.rows[0].file_url, mimeType: r.rows[0].mime_type } });
+  } catch (err) {
+    console.error("[GET /admin/orders/:id/proof]", err);
     return res.status(500).json({ message: "Error interno" });
   }
 });

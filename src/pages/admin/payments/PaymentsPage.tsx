@@ -388,6 +388,21 @@ const PendingOrders = () => {
   const branchScope = useAdminBranchScope();
   const [preview, setPreview] = useState<{ url: string; userName: string; paidAt: string } | null>(null);
 
+  // El listado no trae los comprobantes base64; se piden al abrirlos.
+  const openProof = async (order: any) => {
+    const meta = {
+      userName: order.userName ?? "alumna",
+      paidAt: order.proofUploadedAt ?? order.createdAt ?? new Date().toISOString(),
+    };
+    if (order.proofUrl) return setPreview({ url: order.proofUrl, ...meta });
+    try {
+      const { data } = await api.get(`/admin/orders/${order.id}/proof`);
+      setPreview({ url: data.data.url, ...meta });
+    } catch {
+      toast({ title: "No se pudo abrir el comprobante", variant: "destructive" });
+    }
+  };
+
   const downloadProof = async () => {
     if (!preview) return;
     try {
@@ -566,13 +581,9 @@ const PendingOrders = () => {
             </div>
 
             {/* Proof link (only for transfers) */}
-            {o.proofUrl && (
+            {(o.proofUrl || o.hasProof) && (
               <button
-                onClick={() => setPreview({
-                  url: o.proofUrl,
-                  userName: o.userName ?? "alumna",
-                  paidAt: o.proofUploadedAt ?? o.createdAt ?? new Date().toISOString(),
-                })}
+                onClick={() => openProof(o)}
                 className="flex items-center gap-1.5 text-xs font-semibold text-[#8C6B6F] hover:text-[#1A1A1A] transition-colors px-1"
               >
                 <Eye size={13} /> Ver comprobante de pago

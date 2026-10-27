@@ -21,6 +21,7 @@ export interface Order {
   bank_name?: string;
   bank_account_holder?: string;
   proof_url?: string;
+  has_proof?: boolean;
   admin_notes?: string;
   rejection_reason?: string;
   payment_provider?: string | null;
