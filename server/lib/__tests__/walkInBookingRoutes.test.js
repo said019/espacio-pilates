@@ -2,9 +2,14 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { describe, it, expect, vi } from 'vitest';
 import { isWalkInClass, walkInRequiresInscription, shouldConsumeCredit } from '../classWalkIn.js';
+import { bookingCutoff } from '../bookingPolicy.js';
+import { refreshClassOccupancy } from '../classOccupancy.js';
 
 // Execute the production handlers without booting the server or contacting
 // production. Only database/auth/notification boundaries are substituted.
+// The sandbox only sees names passed in below: when a handler starts using a
+// new module-level import, add the real implementation here, or the handler
+// throws a ReferenceError that its own try/catch turns into a 500.
 const source = readFileSync('server/index.js', 'utf8');
 
 describe('membership preview', () => {
@@ -16,14 +21,14 @@ describe('membership preview', () => {
     vm.runInNewContext(source.slice(start,end), {
       app:{get:(_path,...handlers)=>{handler=handlers.at(-1);}}, authMiddleware(){}, console,
       pool:{query:async()=>({rows:[{id:'class',branch_id:'pozos',class_category:'reformer',date:'2026-09-18',start_time:'07:00',is_walk_in:true,walk_in_requires_inscription:false}]})},
-      isWalkInClass,walkInRequiresInscription,selectMembershipForClass:select,
+      isWalkInClass,walkInRequiresInscription,bookingCutoff,selectMembershipForClass:select,
       membershipCanBookClass:()=>eligible,checkPlanTimeRestriction:()=>({allowed:true}),
       isTrialPlan:()=>false,isUnlimitedClasses:()=>false,
     });
     const res={set:vi.fn(),json:vi.fn(),status(){return this;}};
     await handler({userId:'gloria',query:{classId:'class'}},res);
     expect(select).toHaveBeenCalledWith(expect.objectContaining({userId:'gloria',branchId:'pozos',classCategory:'reformer'}));
-    expect(res.json).toHaveBeenCalledWith({membership:eligible?{id:'member',name:'Paquete 9 Clases',classesRemaining:5}:null});
+    expect(res.json).toHaveBeenCalledWith({bookingWindow:{allowed:true},membership:eligible?{id:'member',name:'Paquete 9 Clases',classesRemaining:5}:null});
     expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');
   });
 });
@@ -33,6 +38,7 @@ describe('soft class waitlist promotion', () => {
     const consumeMembershipCredit = vi.fn();
     const query = vi.fn(async sql => {
       if (sql.includes('FROM classes c')) return { rows: [{ id:'class', is_walk_in:true, walk_in_requires_inscription:false, current_bookings:0, max_capacity:6, class_category:'pilates' }] };
+      if (sql.includes('AS count FROM bookings')) return { rows: [{ count:0 }] };
       if (sql.includes('FROM bookings')) return { rows: [{ id:'booking', user_id:'user', membership_id:mode === 'free' ? null : 'member' }] };
       if (sql.includes('FROM memberships')) return { rows: [{ id:'member' }] };
       return { rows: [] };
@@ -42,7 +48,7 @@ describe('soft class waitlist promotion', () => {
     const promote = vm.runInNewContext(source.slice(start,end) + '\npromoteWaitlist;', {
       getCancellationConfig: async () => ({waitlist_cutoff_hours:0}),
       pool: {connect: async () => ({query, release() {}})}, console,
-      normalizeClassCategory: value => value, isWalkInClass, walkInRequiresInscription,
+      normalizeClassCategory: value => value, isWalkInClass, walkInRequiresInscription, refreshClassOccupancy,
       membershipIsEligibleForClass: () => mode !== 'expired',
       checkPlanTimeRestriction: () => ({allowed:true}), consumeMembershipCredit,
     });
@@ -53,15 +59,17 @@ describe('soft class waitlist promotion', () => {
   });
 });
 
-async function book(path, { walkIn = true, requiresInscription = false, paid = false, full = false, alreadyUsed = false, member = null, compatible = true, requestedMembershipId } = {}) {
+async function book(path, { walkIn = true, requiresInscription = false, paid = false, full = false, alreadyUsed = false, member = null, compatible = true, requestedMembershipId, cachedCount, cutoffMinutes = null } = {}) {
   let handler;
   const bookings = [];
+  // `occupied` is the live seat count; `cachedCount` simulates a drifted classes.current_bookings.
   let occupied = full ? 6 : 0;
   const query = vi.fn(async (sql, args) => {
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) return { rows: [] };
     if (sql.includes('FROM classes c')) return { rows: [{
       id: 'class', branch_id: 'pozos', class_category: 'pilates', status: 'scheduled',
-      date: '2099-09-07', start_time: '17:30', max_capacity: 6, current_bookings: occupied,
+      date: '2099-09-07', start_time: '17:30', max_capacity: 6, current_bookings: cachedCount ?? occupied,
+      booking_cutoff_minutes: cutoffMinutes, class_start_utc: cutoffMinutes == null ? undefined : new Date(Date.now() + 10 * 60000).toISOString(),
       is_walk_in: walkIn, walk_in_requires_inscription: requiresInscription,
     }] };
     if (sql.startsWith('SELECT id FROM bookings')) return { rows: [] };
@@ -72,7 +80,9 @@ async function book(path, { walkIn = true, requiresInscription = false, paid = f
       bookings.push(booking);
       return { rows: [booking] };
     }
-    if (sql.startsWith('UPDATE classes SET current_bookings')) { occupied++; return { rows: [] }; }
+    if (sql.includes('AS count FROM bookings')) return { rows: [{ count: occupied }] };
+    if (sql.includes('current_bookings = current_bookings + 1')) { occupied++; return { rows: [] }; }
+    if (sql.startsWith('UPDATE classes SET current_bookings=$2')) { occupied = args[1]; return { rows: [] }; }
     if (sql.includes('COUNT(*)::int AS pos')) return { rows: [{ pos: 1 }] };
     throw new Error(`Unexpected query: ${sql}`);
   });
@@ -88,7 +98,7 @@ async function book(path, { walkIn = true, requiresInscription = false, paid = f
     consentGuard: () => () => {},
     authMiddleware() {}, adminMiddleware() {}, console,
     pool: { connect: async () => client, query: async () => ({ rows: [] }) },
-    isWalkInClass, walkInRequiresInscription, shouldConsumeCredit,
+    isWalkInClass, walkInRequiresInscription, shouldConsumeCredit, bookingCutoff, refreshClassOccupancy,
     normalizeClassCategory: value => value, programForClassCategory: value => value,
     selectMembershipForClass, clientHasPaidWalkInInscription, consumeMembershipCredit,
     membershipCanBookClass: () => compatible, isTrialPlan: () => false,
@@ -171,6 +181,30 @@ describe.each(['/api/bookings', '/api/admin/bookings/assign'])('%s walk-in acces
     const result = await book(path, { requiresInscription: true, paid: true });
     expect(result.res.code).toBe(201);
     expect(result.selectMembershipForClass).not.toHaveBeenCalled();
+    expect(result.consumeMembershipCredit).not.toHaveBeenCalled();
+  });
+});
+
+describe('/api/bookings seat count and booking window', () => {
+  it('confirms a seat when the cached counter is stale-full but live seats are free', async () => {
+    const result = await book('/api/bookings', { cachedCount: 6, member: { id: 'member', classes_remaining: 5 } });
+    expect(result.res.code).toBe(201);
+    expect(result.bookings).toEqual([expect.objectContaining({ status: 'confirmed', membership_id: 'member' })]);
+    expect(result.consumeMembershipCredit).toHaveBeenCalledOnce();
+    expect(result.occupied).toBe(1);
+  });
+  it('waitlists without charging when the cached counter is stale-empty but live seats are full', async () => {
+    const result = await book('/api/bookings', { full: true, cachedCount: 0, member: { id: 'member', classes_remaining: 5 } });
+    expect(result.res.code).toBe(201);
+    expect(result.bookings).toEqual([expect.objectContaining({ status: 'waitlist' })]);
+    expect(result.consumeMembershipCredit).not.toHaveBeenCalled();
+    expect(result.occupied).toBe(6);
+  });
+  it('rejects bookings inside the class cutoff window', async () => {
+    const result = await book('/api/bookings', { cutoffMinutes: 60, member: { id: 'member', classes_remaining: 5 } });
+    expect(result.res.code).toBe(403);
+    expect(result.res.body.code).toBe('BOOKING_CUTOFF');
+    expect(result.bookings).toHaveLength(0);
     expect(result.consumeMembershipCredit).not.toHaveBeenCalled();
   });
 });
